@@ -62,12 +62,25 @@ Header {
 }
 
 #submit {
-    width: 10;
+    min-width: 14;
+    width: auto;
+    padding: 0 1;
 }
 
 #btn-theme {
-    width: 12;
+    min-width: 12;
+    width: auto;
+    padding: 0 1;
     margin-left: 1;
+}
+
+Button {
+    padding: 0 1;
+}
+
+Button:disabled {
+    opacity: 60%;
+    color: $text;
 }
 
 #workspace-split {
@@ -83,7 +96,8 @@ Header {
 }
 
 #workbench-pane {
-    width: 52;
+    width: 62;
+    min-width: 56;
     height: 1fr;
 }
 

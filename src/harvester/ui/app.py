@@ -522,8 +522,8 @@ class HarvesterApp(App[None]):
                         id="source-input",
                     )
                     yield Checkbox("Playlists", value=False, id="expand-playlists")
-                    yield Button("[GO]", id="submit", variant="primary", disabled=True)
-                    yield Button("[THEME]", id="btn-theme")
+                    yield Button("▶ CONVERT", id="submit", variant="primary", disabled=True)
+                    yield Button("◐ THEME", id="btn-theme")
             with Horizontal(id="workspace-split"):
                 with Vertical(id="tracks-pane"):
                     yield JobTable()

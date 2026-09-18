@@ -39,7 +39,7 @@ class AudioPlayerWidget(Widget):
         width: 1fr;
     }
     #player-left {
-        width: 44;
+        width: 56;
         height: 1fr;
         padding-right: 1;
     }
@@ -64,7 +64,9 @@ class AudioPlayerWidget(Widget):
         margin-top: 1;
     }
     #player-controls Button {
-        min-width: 8;
+        min-width: 11;
+        width: auto;
+        padding: 0 1;
         height: 3;
         margin-right: 1;
     }
@@ -102,9 +104,9 @@ class AudioPlayerWidget(Widget):
                 with Horizontal(id="player-title-row"):
                     yield Label(self.track_title, id="player-track-name")
                 with Horizontal(id="player-controls"):
-                    yield Button("[PLAY]", id="btn-play", variant="primary")
-                    yield Button("[STOP]", id="btn-stop")
-                    yield Button("[SPEC/WAVE]", id="btn-vis-mode")
+                    yield Button("▶ PLAY", id="btn-play", variant="primary")
+                    yield Button("■ STOP", id="btn-stop")
+                    yield Button("ılı. SPEC", id="btn-vis-mode")
                     yield Label("00:00 / 00:00", id="player-time")
                 yield ProgressBar(total=100, show_eta=False, id="player-progress")
             with Vertical(id="player-right"):
@@ -128,7 +130,7 @@ class AudioPlayerWidget(Widget):
     def watch_is_playing(self, playing: bool) -> None:
         try:
             btn = self.query_one("#btn-play", Button)
-            btn.label = "[PAUSE]" if playing else "[PLAY]"
+            btn.label = "❚❚ PAUSE" if playing else "▶ PLAY"
             btn.variant = "warning" if playing else "primary"
         except Exception:
             pass
@@ -220,6 +222,11 @@ class AudioPlayerWidget(Widget):
         """Cycle visualizer display mode."""
         vis = self.query_one("#player-visualizer", AudioVisualizer)
         mode = vis.toggle_mode()
+        try:
+            btn = self.query_one("#btn-vis-mode", Button)
+            btn.label = "∿ WAVE" if mode == "oscilloscope" else "ılı. SPEC"
+        except Exception:
+            pass
         self.app.notify(f"Visualizer: {mode.title()}", timeout=2.0)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

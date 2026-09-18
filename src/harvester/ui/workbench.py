@@ -73,7 +73,9 @@ class WorkbenchWidget(Widget):
         margin-bottom: 1;
     }
     #wb-abc-row Button {
-        min-width: 14;
+        width: 1fr;
+        min-width: 12;
+        padding: 0 1;
         margin-right: 1;
     }
     #wb-controls-row {
@@ -83,11 +85,14 @@ class WorkbenchWidget(Widget):
         margin-bottom: 1;
     }
     #wb-preset-select {
-        width: 28;
+        width: 1fr;
+        min-width: 20;
         margin-right: 1;
     }
     #wb-btn-export {
-        width: 24;
+        width: auto;
+        min-width: 16;
+        padding: 0 1;
     }
     #wb-status {
         height: 1;
@@ -130,14 +135,14 @@ class WorkbenchWidget(Widget):
         yield Label("Cutoff fc: -- kHz | State: IDLE", id="wb-cutoff-info")
 
         with Horizontal(id="wb-abc-row"):
-            yield Button("[A] ORIGINAL", id="btn-stream-a", variant="default")
-            yield Button("[B] MP3", id="btn-stream-b", variant="primary")
-            yield Button("[C] ENHANCED", id="btn-stream-c", variant="default")
+            yield Button("[A] ♪ SRC", id="btn-stream-a", variant="default")
+            yield Button("[B] ♫ MP3", id="btn-stream-b", variant="primary")
+            yield Button("[C] ✦ ENH", id="btn-stream-c", variant="default")
 
         with Horizontal(id="wb-controls-row"):
             options = [(preset.name, preset.id) for preset in PRESETS.values()]
             yield Select(options=options, value=self.selected_preset_id, id="wb-preset-select")
-            yield Button("[EXPORT ENHANCED MP3]", id="wb-btn-export", variant="success")
+            yield Button("⤓ EXPORT MP3", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-vis-container"):
             yield AudioVisualizer(num_bands=24, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
