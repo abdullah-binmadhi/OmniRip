@@ -95,11 +95,14 @@ def test_dsp_gain_slope_stereo_verification():
     n = 48000
     cutoff_hz = 15000.0
 
-    # Generate stereo test signal with wide stereo content
+    # Generate clean normalized broadband audio with reference octave energy
+    np.random.seed(42)
     t = np.linspace(0, 1.0, n, endpoint=False)
-    left = np.sin(2 * np.pi * 1000 * t) + 0.5 * np.sin(2 * np.pi * 5000 * t)
-    right = np.sin(2 * np.pi * 1000 * t) - 0.5 * np.sin(2 * np.pi * 5000 * t)
-    audio_in = np.stack([left, right], axis=0).astype(np.float32)
+    base = 0.2 * np.sin(2 * np.pi * 1000 * t) + 0.2 * np.sin(2 * np.pi * 10000 * t)
+    noise_l = np.random.normal(0, 0.05, n)
+    noise_r = np.random.normal(0, 0.05, n)
+    audio_in = np.stack([base + noise_l, base - noise_r], axis=0).astype(np.float32)
+    audio_in = audio_in / np.max(np.abs(audio_in)) * 0.6
 
     # 1. Test Gain & Slope: extended_air (+0.8 dB, 4.0 dB/oct) vs de_sizzle (-2.5 dB, 6.0 dB/oct)
     out_air = exporter.render_audio_buffer(

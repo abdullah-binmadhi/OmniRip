@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -29,11 +29,4 @@ jobs:
         run: uv run ruff check src tests
 
       - name: Test
-        run: >
-          uv run pytest
-          --cov=harvester.analysis
-          --cov=harvester.pipeline
-          --cov=harvester.batch
-          --cov=harvester.util
-          --cov-fail-under=80
-          -q
+        run: uv run pytest --cov=harvester.analysis --cov=harvester.pipeline --cov=harvester.batch --cov=harvester.util --cov-fail-under=80 -q
