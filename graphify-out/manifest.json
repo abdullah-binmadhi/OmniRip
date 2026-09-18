@@ -486,10 +486,10 @@
     "semantic_hash": "abfe877f4d2f25733e2309332aec14a8"
   },
   "tests/test_batch_report.py": {
-    "mtime": 1789745561.046533,
-    "seen": 1789747206.378967,
-    "ast_hash": "690dc15f15fd17967eec93869a9e176d",
-    "semantic_hash": "690dc15f15fd17967eec93869a9e176d"
+    "mtime": 1789771070.7736297,
+    "seen": 1789771080.1448882,
+    "ast_hash": "436f20f79b8009b20f4e6be4bc5f9897",
+    "semantic_hash": "436f20f79b8009b20f4e6be4bc5f9897"
   },
   "tests/test_batch_scanner.py": {
     "mtime": 1789746329.8528385,

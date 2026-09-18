@@ -46,23 +46,25 @@ def test_appends_are_incremental_and_order_preserved(tmp_path: Path) -> None:
 
 
 def test_skipped_row_builds_valid_schema(tmp_path: Path) -> None:
-    row = skipped_row(Path("/music/keep.flac"), reason="lossless", old_bitrate=None)
+    p = Path("/music/keep.flac")
+    row = skipped_row(p, reason="lossless", old_bitrate=None)
 
     assert row["mode"] == "BATCH_AUDIT"
     assert row["status"] == "skipped"
     assert row["reason"] == "lossless"
-    assert row["input"] == "/music/keep.flac"
+    assert row["input"] == str(p)
 
 
 def test_job_row_carries_terminal_state_fields(tmp_path: Path) -> None:
+    low_mp3 = Path("/music/low.mp3")
     job = TrackJob(mode=Mode.BATCH_AUDIT)
     job.id = "abc123"
-    job.input_path = Path("/music/low.mp3")
+    job.input_path = low_mp3
     job.orig_bitrate = 128
     job.source_kind = SourceKind.P2P_FLAC
     job.spectral = SpectralResult(verdict=Verdict.PASS, cutoff_hz=21_000.0)
     job.canonical_meta = CanonicalMetadata(title="Real Title", artists=("Real Artist",), year=1987)
-    job.output_path = Path("/music/low.mp3")
+    job.output_path = low_mp3
     job.trash_path = Path("/music/.trash/2026-01-01/120000-low.mp3")
     job.identity_shift = True
 
@@ -76,7 +78,7 @@ def test_job_row_carries_terminal_state_fields(tmp_path: Path) -> None:
     assert row["cutoff_hz"] == 21_000.0
     assert row["identity_shift"] is True
     assert row["canonical"]["title"] == "Real Title"
-    assert row["output_path"] == "/music/low.mp3"
+    assert row["output_path"] == str(low_mp3)
     assert row["trash_path"].endswith("low.mp3")
 
 
