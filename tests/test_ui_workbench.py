@@ -67,20 +67,62 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
         assert player.current_track == dummy_mp3
         assert monitor.is_enhanced is False
 
-        # Test dynamic preset changes (de_sizzle -> -2.5 dB loss/cut)
-        select = app.query_one("#wb-preset-select")
-        select.value = "de_sizzle"
-        await pilot.pause()
-        assert wb.selected_preset_id == "de_sizzle"
-        gain_label = app.query_one("#wb-spec-gain")
-        assert "-2.5 dB" in str(gain_label.render())
+        # Comprehensive check for all 5 presets: Gain, Trim Bar, Slope, Stereo, Engine
+        expected_metrics = {
+            "conservative": {
+                "gain": "0.0 dB",
+                "trim": "-3dB ─── ▲ ─── +3dB",
+                "slope": "-5.0 dB/oct",
+                "stereo": "100% Stereo (Mono <100Hz)",
+                "engine": "Non-Neural DSP Exciter",
+            },
+            "fast_balanced": {
+                "gain": "0.0 dB",
+                "trim": "-3dB ─── ▲ ─── +3dB",
+                "slope": "-4.5 dB/oct",
+                "stereo": "100% Stereo (Mono <100Hz)",
+                "engine": "NVSR Multi-Band Residual",
+            },
+            "de_sizzle": {
+                "gain": "-2.5 dB",
+                "trim": "-3dB ══▲══ 0dB --",
+                "slope": "-6.0 dB/oct",
+                "stereo": "85% Stereo (Mono <100Hz)",
+                "engine": "NVSR Multi-Band Residual",
+            },
+            "extended_air": {
+                "gain": "+0.8 dB",
+                "trim": "-- 0dB ══▲══ +3dB",
+                "slope": "-4.0 dB/oct",
+                "stereo": "100% Stereo (Mono <100Hz)",
+                "engine": "Hybrid (NVSR + FlashSR)",
+            },
+            "narrow_stereo": {
+                "gain": "0.0 dB",
+                "trim": "-3dB ─── ▲ ─── +3dB",
+                "slope": "-4.5 dB/oct",
+                "stereo": "65% Focused (Headphone)",
+                "engine": "NVSR Multi-Band Residual",
+            },
+        }
 
-        # Test dynamic preset changes (extended_air -> +0.8 dB boost)
-        select.value = "extended_air"
-        await pilot.pause()
-        assert wb.selected_preset_id == "extended_air"
+        select = app.query_one("#wb-preset-select")
         gain_label = app.query_one("#wb-spec-gain")
-        assert "+0.8 dB" in str(gain_label.render())
+        trim_label = app.query_one("#wb-spec-trim")
+        slope_label = app.query_one("#wb-spec-slope")
+        stereo_label = app.query_one("#wb-spec-stereo")
+        engine_label = app.query_one("#wb-spec-engine")
+
+        for preset_id, expected in expected_metrics.items():
+            select.value = preset_id
+            await pilot.pause()
+            assert wb.selected_preset_id == preset_id
+
+            assert expected["gain"] in str(gain_label.render())
+            assert expected["trim"] in str(trim_label.render())
+            assert expected["slope"] in str(slope_label.render())
+            assert expected["stereo"] in str(stereo_label.render())
+            assert expected["engine"] in str(engine_label.render())
 
 
 async def test_player_interactive_scrubber_and_seeking(tmp_path: Path) -> None:

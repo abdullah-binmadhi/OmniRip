@@ -86,3 +86,60 @@ def test_export_preserves_original_master(tmp_path: Path):
                 assert out_file == tmp_path / "sample.enhanced.mp3"
                 # Check original master is identical
                 assert source_path.read_bytes() == original_content
+
+
+def test_dsp_gain_slope_stereo_verification():
+    """Verify preset parameters (gain, decay slope, stereo width) modify audio."""
+    exporter = EnhancementExporter()
+    sr = 48000
+    n = 48000
+    cutoff_hz = 15000.0
+
+    # Generate stereo test signal with wide stereo content
+    t = np.linspace(0, 1.0, n, endpoint=False)
+    left = np.sin(2 * np.pi * 1000 * t) + 0.5 * np.sin(2 * np.pi * 5000 * t)
+    right = np.sin(2 * np.pi * 1000 * t) - 0.5 * np.sin(2 * np.pi * 5000 * t)
+    audio_in = np.stack([left, right], axis=0).astype(np.float32)
+
+    # 1. Test Gain & Slope: extended_air (+0.8 dB, 4.0 dB/oct) vs de_sizzle (-2.5 dB, 6.0 dB/oct)
+    out_air = exporter.render_audio_buffer(
+        audio_in, preset=PRESETS["extended_air"], cutoff_hz=cutoff_hz, sample_rate=sr
+    )
+    out_sizzle = exporter.render_audio_buffer(
+        audio_in, preset=PRESETS["de_sizzle"], cutoff_hz=cutoff_hz, sample_rate=sr
+    )
+
+    # Compute high-frequency energy (>15 kHz) via FFT
+    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
+    high_mask = freqs >= cutoff_hz
+
+    fft_air = np.fft.rfft(out_air, axis=1)
+    fft_sizzle = np.fft.rfft(out_sizzle, axis=1)
+
+    energy_air = np.sum(np.abs(fft_air[:, high_mask]) ** 2)
+    energy_sizzle = np.sum(np.abs(fft_sizzle[:, high_mask]) ** 2)
+
+    # Air boost + gentler slope must have noticeably greater high-frequency energy than de-sizzle
+    assert energy_air > energy_sizzle
+
+    # 2. Test Stereo Focus: narrow_stereo (0.65) vs fast_balanced (1.0)
+    out_normal = exporter.render_audio_buffer(
+        audio_in, preset=PRESETS["fast_balanced"], cutoff_hz=cutoff_hz, sample_rate=sr
+    )
+    out_narrow = exporter.render_audio_buffer(
+        audio_in, preset=PRESETS["narrow_stereo"], cutoff_hz=cutoff_hz, sample_rate=sr
+    )
+
+    # Compute side channel in the high band (L - R)
+    side_normal = out_normal[0] - out_normal[1]
+    side_narrow = out_narrow[0] - out_narrow[1]
+
+    fft_side_normal = np.fft.rfft(side_normal)
+    fft_side_narrow = np.fft.rfft(side_narrow)
+
+    side_energy_normal = np.sum(np.abs(fft_side_normal[high_mask]) ** 2)
+    side_energy_narrow = np.sum(np.abs(fft_side_narrow[high_mask]) ** 2)
+
+    # Narrow stereo (65%) must reduce side channel energy in the synthesized high frequencies
+    assert side_energy_narrow < side_energy_normal
+
