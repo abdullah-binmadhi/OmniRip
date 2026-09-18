@@ -92,11 +92,26 @@ class NVSRProvider:
         """
         audio_2d, was_1d = ensure_2d_audio(audio)
 
-        # Run model inference if available, otherwise perform high-order fallback
-        raw_sr_output = self._run_inference(audio_2d, sample_rate)
+        if self.is_available:
+            raw_sr_output = self._run_inference(audio_2d, sample_rate)
+            # STRICT GUARANTEE: Split bands to extract ONLY content above cutoff_hz
+            _, residual = split_bands(raw_sr_output, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
+        else:
+            # Multi-order non-linear harmonic vocoder proxy when neural weights are not present
+            f_mid = cutoff_hz * 0.5
+            _, top_band = split_bands(audio_2d, cutoff_hz=f_mid, sample_rate=sample_rate)
+            top_octave, _ = split_bands(top_band, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
 
-        # STRICT GUARANTEE: Split bands to extract ONLY content above cutoff_hz
-        _, residual = split_bands(raw_sr_output, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
+            norm = float(np.max(np.abs(top_octave))) + 1e-6
+            x = top_octave / norm
+            # Even & odd harmonics, envelope articulation, and subtle saturation drive
+            harmonics = (
+                0.30 * (x ** 2)
+                + 0.25 * (x ** 3)
+                + 0.15 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
+                + 0.10 * (np.tanh(1.8 * x) - x)
+            ) * norm
+            _, residual = split_bands(harmonics, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
 
         # Scale residual to respect source spectral decay
         scaled = match_spectral_slope(
@@ -112,10 +127,7 @@ class NVSRProvider:
     def _run_inference(self, audio_2d: np.ndarray, sample_rate: int) -> np.ndarray:
         """Internal inference wrapper."""
         if not self.is_available:
-            # When model is not loaded (e.g. testing or missing torch), generate synthetic band
-            f_mid = sample_rate / 4.0
-            _, high = split_bands(audio_2d, cutoff_hz=f_mid, sample_rate=sample_rate)
-            return (high * 0.8).astype(np.float32)
+            return audio_2d.astype(np.float32)
 
         import torch
 

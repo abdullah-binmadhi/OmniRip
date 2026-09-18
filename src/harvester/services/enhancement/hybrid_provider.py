@@ -72,7 +72,8 @@ class HybridCoOpProvider:
             residual_audio=combined_residual,
             cutoff_hz=cutoff_hz,
             sample_rate=sample_rate,
-            target_decay_db_per_oct=4.5,
+            target_decay_db_per_oct=4.0,
+            max_gain_db=6.0,
         )
 
         return scaled[0] if was_1d else scaled

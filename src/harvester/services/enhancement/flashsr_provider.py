@@ -61,13 +61,29 @@ class FlashSRProvider:
         audio_2d, was_1d = ensure_2d_audio(audio)
         effective_cutoff = max(cutoff_hz, 16000.0)
 
-        # Run model inference or fallback
-        raw_output = self._run_inference(audio_2d, sample_rate)
+        if self.is_available:
+            raw_output = self._run_inference(audio_2d, sample_rate)
+            # Strictly isolate above effective_cutoff
+            _, air_residual = split_bands(
+                raw_output, cutoff_hz=effective_cutoff, sample_rate=sample_rate
+            )
+        else:
+            # High-frequency shimmer excitation for ultra-high air band (>16 kHz)
+            f_source_low = max(cutoff_hz * 0.6, 10000.0)
+            _, source_band = split_bands(audio_2d, cutoff_hz=f_source_low, sample_rate=sample_rate)
+            sub_cutoff, _ = split_bands(source_band, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
 
-        # Strictly isolate above effective_cutoff
-        _, air_residual = split_bands(
-            raw_output, cutoff_hz=effective_cutoff, sample_rate=sample_rate
-        )
+            norm = float(np.max(np.abs(sub_cutoff))) + 1e-6
+            x = sub_cutoff / norm
+            air_harmonics = (
+                0.30 * (x ** 2)
+                + 0.25 * (x ** 3)
+                + 0.20 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
+                + 0.15 * (np.tanh(2.0 * x) - x)
+            ) * norm
+            _, air_residual = split_bands(
+                air_harmonics, cutoff_hz=effective_cutoff, sample_rate=sample_rate
+            )
 
         # Enforce gentle spectral decay to avoid digital sizzle
         scaled = match_spectral_slope(
@@ -75,18 +91,15 @@ class FlashSRProvider:
             residual_audio=air_residual,
             cutoff_hz=effective_cutoff,
             sample_rate=sample_rate,
-            target_decay_db_per_oct=6.0,  # Steeper decay for ultrasonic air
-            max_gain_db=1.5,
+            target_decay_db_per_oct=4.0,  # Natural decay for ultrasonic air
+            max_gain_db=6.0,
         )
 
         return scaled[0] if was_1d else scaled
 
     def _run_inference(self, audio_2d: np.ndarray, sample_rate: int) -> np.ndarray:
         if not self.is_available:
-            # Synthetic air-band exciter when model is not present
-            f_air = max(16000.0, sample_rate * 0.33)
-            _, air = split_bands(audio_2d, cutoff_hz=f_air, sample_rate=sample_rate)
-            return (air * 0.5).astype(np.float32)
+            return audio_2d.astype(np.float32)
 
         import torch
 
