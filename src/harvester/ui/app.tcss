@@ -1,9 +1,13 @@
+/* OmniRip Modern Workstation TCSS Stylesheet */
+
 Screen {
     background: $surface;
 }
 
 Header {
     height: 1;
+    background: $panel;
+    color: $text;
 }
 
 #statusbar {
@@ -11,6 +15,7 @@ Header {
     padding: 0 1;
     color: $text;
     background: $panel;
+    border-bottom: solid $primary;
 }
 
 #main {
@@ -21,6 +26,8 @@ Header {
 #input-area {
     height: 4;
     padding: 0 1;
+    margin: 1 1 0 1;
+    border: round $primary;
     background: $panel;
 }
 
@@ -31,7 +38,17 @@ Header {
 }
 
 #mode {
-    width: 22;
+    width: 20;
+    margin-right: 1;
+}
+
+#acquisition-policy {
+    width: 24;
+    margin-right: 1;
+}
+
+#mp3-quality {
+    width: 14;
     margin-right: 1;
 }
 
@@ -40,44 +57,78 @@ Header {
     margin-right: 1;
 }
 
+#expand-playlists {
+    margin-right: 1;
+}
+
 #submit {
     width: 10;
 }
 
+#btn-theme {
+    width: 12;
+    margin-left: 1;
+}
+
 #jobs {
-    height: 2fr;
+    height: 3fr;
     min-height: 8;
-    margin: 0 1;
-    border: round $primary;
+    margin: 1 1 0 1;
+    border: round $secondary;
+    background: $panel;
+}
+
+#jobs > .datatable--cursor {
+    background: $primary 30%;
+    color: $text;
+    text-style: bold;
+}
+
+#jobs > .datatable--header {
+    background: $panel;
+    color: $accent;
+    text-style: bold;
+}
+
+#audio-player {
+    height: 8;
+    min-height: 7;
+    margin: 1 1 0 1;
+    border: round $accent;
+    background: $panel;
+    padding: 0 1;
 }
 
 #logs {
     height: 1fr;
     min-height: 5;
-    margin: 0 1 1 1;
-    border: round $secondary;
+    margin: 1 1 1 1;
+    border: round $primary;
     background: $surface;
 }
 
 .modal-card {
-    width: 70;
+    width: 76;
     max-width: 90%;
     height: auto;
-    max-height: 80%;
+    max-height: 85%;
     padding: 1 2;
-    border: round $primary;
+    border: thick $primary;
     background: $panel;
 }
 
 .modal-card Button {
     width: 18;
     margin-top: 1;
+    margin-right: 1;
 }
 
 .error-text {
     color: $error;
+    text-style: bold;
 }
 
 .warning-text {
     color: $warning;
+    text-style: bold;
 }

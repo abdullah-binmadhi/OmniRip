@@ -13,6 +13,7 @@ from textual.widgets import Button, Label, Select, Static
 from harvester.analysis.enhancement.presets import PRESETS
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
+from harvester.ui.visualizer import AudioVisualizer
 
 
 class CurationWorkbenchModal(ModalScreen[Path | None]):
@@ -26,7 +27,7 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
         align: center middle;
     }
     #workbench-dialog {
-        width: 76;
+        width: 80;
         height: auto;
         border: thick $primary;
         background: $surface;
@@ -46,6 +47,12 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
         margin-bottom: 1;
         color: $text;
         height: 2;
+    }
+    #workbench-vis {
+        height: 6;
+        margin: 1 0;
+        border: round $secondary;
+        background: $panel;
     }
     #status-msg {
         color: $warning;
@@ -97,6 +104,7 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
                 PRESETS[self.selected_preset_id].description,
                 id="preset-desc",
             )
+            yield AudioVisualizer(cutoff_hz=self.cutoff_hz, id="workbench-vis")
             yield Static("Ready to preview or export.", id="status-msg")
 
             with Horizontal(id="actions"):
@@ -128,6 +136,10 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
                         cutoff_hz=self.cutoff_hz,
                     )
                 orig_wav, enh_wav = self._preview_pair
+                # Animate visualizer with enhanced audio slice
+                vis = self.query_one("#workbench-vis", AudioVisualizer)
+                vis.load_audio_frames(enh_wav)
+                vis.play()
                 # Launch enhanced preview in system player
                 self.preview_manager.open_in_system_player(enh_wav)
                 status_widget.update(f"Playing enhanced preview ({enh_wav.name}) in system player.")

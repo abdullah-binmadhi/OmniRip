@@ -35,6 +35,8 @@ from harvester.services.environment import (
 )
 from harvester.ui.bridge import FlushPlan, UiBridge
 from harvester.ui.logconsole import LogConsole
+from harvester.ui.player import AudioPlayerWidget
+from harvester.ui.themes import cycle_theme, register_custom_themes
 from harvester.util.errors import ConfigError
 from harvester.util.logging_setup import LoggingController, configure_logging
 
@@ -452,6 +454,9 @@ class HarvesterApp(App[None]):
         ("l", "cycle_log_level", "Log level"),
         ("p", "purge_trash", "Purge trash"),
         ("w", "open_workbench", "Workbench"),
+        ("t", "cycle_theme", "Theme"),
+        ("space", "toggle_playback", "Play/Pause"),
+        ("v", "toggle_vis_mode", "Visualizer"),
     ]
 
     def __init__(
@@ -516,11 +521,18 @@ class HarvesterApp(App[None]):
                     )
                     yield Checkbox("Playlists", value=False, id="expand-playlists")
                     yield Button("GO", id="submit", variant="primary", disabled=True)
+                    yield Button("🎨 Theme", id="btn-theme")
             yield JobTable()
+            yield AudioPlayerWidget(id="audio-player")
             yield LogConsole(max_lines=self.config.ui.max_log_lines)
         yield Footer()
 
     def on_mount(self) -> None:
+        register_custom_themes(self)
+        try:
+            self.theme = "tokyo-night"
+        except Exception:
+            pass
         if self.auto_startup:
             self._run_guarded(self._startup(), name="startup", exclusive=True)
 
@@ -599,6 +611,8 @@ class HarvesterApp(App[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "submit":
             self._run_guarded(self._submit_current(), name="submit")
+        elif event.button.id == "btn-theme":
+            self.action_cycle_theme()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "source-input":
@@ -765,6 +779,46 @@ class HarvesterApp(App[None]):
                 ),
             )
         )
+
+    def action_cycle_theme(self) -> None:
+        """Cycle to next dynamic color theme."""
+        theme_name = cycle_theme(self)
+        self.notify(f"Theme: {theme_name}", timeout=2.0)
+
+    def action_toggle_playback(self) -> None:
+        """Play or pause the current track in the audio player."""
+        player = self.query_one(AudioPlayerWidget)
+        if player.current_track is None:
+            self._load_selected_into_player()
+        player.toggle_playback()
+
+    def action_toggle_vis_mode(self) -> None:
+        """Toggle visualizer between spectrum analyzer and oscilloscope."""
+        player = self.query_one(AudioPlayerWidget)
+        player.toggle_vis_mode()
+
+    def _load_selected_into_player(self) -> None:
+        if self.orchestrator is None:
+            return
+        job_id = self.query_one(JobTable).current_job_id()
+        if not job_id:
+            return
+        job = self.orchestrator.jobs.get(job_id)
+        if not job:
+            return
+        target_path = job.output_path or job.input_path
+        if target_path and target_path.exists():
+            cutoff = (
+                job.spectral.cutoff_hz
+                if (job.spectral and job.spectral.cutoff_hz)
+                else None
+            )
+            player = self.query_one(AudioPlayerWidget)
+            player.load_track(target_path, title=job.display_name, cutoff_hz=cutoff)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """When user selects a job in the table, load its audio into the player."""
+        self._load_selected_into_player()
 
     def action_purge_trash(self) -> None:
         if self.orchestrator is not None and self.orchestrator.last_batch_root is not None:
