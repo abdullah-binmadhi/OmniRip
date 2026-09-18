@@ -8,7 +8,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button
 
 from harvester.models import Mode, State, TrackJob
-from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber
+from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
 from harvester.ui.workbench import WorkbenchWidget
 
 
@@ -22,6 +22,8 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        monitor = app.query_one("#player-monitor", StreamMonitorWidget)
         assert wb.active_stream == "MP3"
 
         dummy_src = tmp_path / "stream_orig.opus"
@@ -43,23 +45,27 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
         assert wb.path_mp3 == dummy_mp3
         assert wb.path_enh == dummy_enh
 
-        # Check improvement card metrics
-        card_title = app.query_one("#wb-card-title")
-        assert "SPECTRAL RESTORATION COMPARISON" in str(card_title.render())
-        metric_cutoff = app.query_one("#wb-metric-cutoff")
-        assert "16.00 kHz" in str(metric_cutoff.render())
+        # Check mastering deck metrics
+        deck_title = app.query_one("#wb-inspector-title")
+        assert "RESTORATION MASTERING DECK" in str(deck_title.render())
+        spec_cutoff = app.query_one("#wb-spec-cutoff")
+        assert "16.00 kHz" in str(spec_cutoff.render())
 
         # Switch to Stream ENH via button
         btn_enh = app.query_one("#btn-stream-enh", Button)
         btn_enh.press()
         await pilot.pause()
         assert wb.active_stream == "ENH"
+        assert player.current_track == dummy_enh
+        assert monitor.is_enhanced is True
 
         # Switch to Stream MP3 via button
         btn_mp3 = app.query_one("#btn-stream-mp3", Button)
         btn_mp3.press()
         await pilot.pause()
         assert wb.active_stream == "MP3"
+        assert player.current_track == dummy_mp3
+        assert monitor.is_enhanced is False
 
         # Preset selection change
         select = app.query_one("#wb-preset-select")
