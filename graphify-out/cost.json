@@ -1,0 +1,83 @@
+{
+  "runs": [
+    {
+      "date": "2026-09-18T08:38:53.481305+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 15,
+      "note": "semantic extraction performed by delegated agent; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T09:23:53.739563+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 26,
+      "note": "semantic extraction delegated; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T13:38:12.971090+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 22,
+      "note": "semantic extraction delegated; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T13:55:17.670985+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 16,
+      "note": "semantic extraction delegated; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T14:13:36.655122+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 14,
+      "note": "semantic extraction delegated; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T14:27:59.257672+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 1,
+      "note": "semantic extraction delegated; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T14:57:54.699523+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 13,
+      "note": "semantic extraction performed by delegated agent; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T16:00:39.323541+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 20,
+      "note": "semantic extraction performed by delegated agent; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T16:27:49.943793+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 20,
+      "note": "semantic extraction performed by delegated agent; usage unavailable"
+    },
+    {
+      "date": "2026-09-18T16:49:37.182418+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 10,
+      "note": "code-only incremental update; no LLM semantic extraction"
+    },
+    {
+      "date": "2026-09-18T17:11:25.893058+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 4,
+      "note": "incremental update: 2 code + 2 docs; semantic extraction delegated to agent (usage unavailable)"
+    }
+  ],
+  "total_input_tokens": 0,
+  "total_output_tokens": 0
+}

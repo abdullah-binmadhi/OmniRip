@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Test
+        run: >
+          uv run pytest
+          --cov=harvester.analysis
+          --cov=harvester.pipeline
+          --cov=harvester.batch
+          --cov=harvester.util
+          --cov-fail-under=80
+          -q

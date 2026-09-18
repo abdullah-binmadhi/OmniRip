@@ -1,0 +1,25 @@
+# slskd daemon config for the harvester smoke environment.
+# Listen on 127.0.0.1:5030. Port 5000 is occupied by macOS AirPlay
+# Receiver (ControlCenter) on this machine, so the local config.toml
+# overrides slskd.url to http://localhost:5030.
+# The Soulseek credentials below are local secrets. Copy this file to
+# slskd.local.yml, fill in your Soulseek account password, and start slskd
+# with --config slskd.local.yml. Never commit the filled-in file.
+soulseek:
+  username: YOUR_SOULSEEK_USERNAME
+  password: CHANGE_ME
+  listen_port: 50300
+web:
+  listen:
+    ip: 127.0.0.1
+    # This is slskd's local HTTP API port. It is not Soulseek's listening port.
+    ports:
+      - 5030
+  authentication:
+    # You create this local secret; Soulseek does not issue it. Use a random
+    # value of at least 16 characters and export the same value as SLSKD_API_KEY.
+    api_key: CHANGE_ME_TO_A_RANDOM_32_BYTE_SECRET
+  url_base: /
+remote_configuration: true
+feature:
+  swagger: true

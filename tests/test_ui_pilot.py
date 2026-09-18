@@ -1,0 +1,142 @@
+"""UI pilot tests for M6 bindings, modals, and bridge rendering (docs/08 §9)."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+textual = pytest.importorskip("textual")
+
+from harvester.config import load_config  # noqa: E402
+from harvester.models import Mode, State, TrackJob  # noqa: E402
+from harvester.ui.app import HarvesterApp, JobTable, QuitConfirmScreen  # noqa: E402
+from harvester.ui.bridge import FlushPlan  # noqa: E402
+from harvester.ui.logconsole import LogConsole  # noqa: E402
+
+
+class StubOrchestrator:
+    """Minimal orchestrator stand-in for UI pilots (no services, no network)."""
+
+    def __init__(self) -> None:
+        self.events: asyncio.Queue = asyncio.Queue()
+        self.jobs: dict[str, TrackJob] = {}
+        self.last_batch_root = None
+
+    async def start(self) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        return None
+
+    async def cancel(self, job_id: str) -> None:
+        return None
+
+    async def cancel_all(self) -> None:
+        return None
+
+    async def purge_batch_trash(self) -> int:
+        return 0
+
+
+def _app(tmp_path):
+    config = load_config(environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+    return HarvesterApp(config, auto_startup=False)
+
+
+@pytest.mark.asyncio
+async def test_log_level_cycles_on_l_key(tmp_path) -> None:
+    app = _app(tmp_path)
+
+    async with app.run_test() as pilot:
+        console = app.query_one(LogConsole)
+        assert console.mode == "INFO"
+        await pilot.press("l")
+        assert console.mode == "WARN+ERROR"
+        await pilot.press("l")
+        assert console.mode == "DEBUG"
+
+
+@pytest.mark.asyncio
+async def test_toggle_mode_switches_select(tmp_path) -> None:
+    app = _app(tmp_path)
+
+    async with app.run_test() as pilot:
+        select = app.query_one("#mode")
+        assert select.value == Mode.SINGLE_URL.value
+        await pilot.press("ctrl+p")
+        assert select.value == Mode.BATCH_AUDIT.value
+        await pilot.press("ctrl+p")
+        assert select.value == Mode.SINGLE_URL.value
+
+
+@pytest.mark.asyncio
+async def test_quit_confirms_when_jobs_active(tmp_path) -> None:
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+    app.orchestrator.jobs["abc"] = TrackJob(mode=Mode.SINGLE_URL)
+
+    async with app.run_test() as pilot:
+        await pilot.press("ctrl+q")
+        await pilot.pause()
+        assert isinstance(app.screen, QuitConfirmScreen)
+
+
+@pytest.mark.asyncio
+async def test_apply_flush_renders_job_row(tmp_path) -> None:
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+    job = TrackJob(mode=Mode.BATCH_AUDIT, input_path=None)
+    job.id = "job-1"
+    job.state = State.ANALYZING
+    app.orchestrator.jobs[job.id] = job
+
+    async with app.run_test():
+        table = app.query_one(JobTable)
+        assert not table.has_job("job-1")
+
+        app._apply_flush(FlushPlan(job_ids=["job-1"]))
+
+        assert table.has_job("job-1")
+        assert "📁" in table.get_row_at(table.get_row_index("job-1"))[0]
+        job.state = State.FALLBACK_DOWNLOADING
+        app._apply_flush(FlushPlan(job_ids=["job-1"]))
+        assert table.get_row_at(table.get_row_index("job-1"))[3] == "Fallback Downloading"
+
+
+@pytest.mark.asyncio
+async def test_apply_flush_log_lines_reach_console(tmp_path) -> None:
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+
+    async with app.run_test():
+        app._apply_flush(FlushPlan(log_lines=[("INFO", "hello from bridge")]))
+
+        console = app.query_one(LogConsole)
+        assert ("INFO", "hello from bridge") in console._buffer
+
+
+@pytest.mark.asyncio
+async def test_w_keybinding_opens_workbench_modal(tmp_path) -> None:
+    from harvester.ui.screens.curation_workbench import CurationWorkbenchModal
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+    dummy_audio = tmp_path / "song.mp3"
+    dummy_audio.write_bytes(b"dummy")
+
+    job = TrackJob(mode=Mode.BATCH_AUDIT, input_path=dummy_audio)
+    job.id = "job-wb"
+    job.state = State.COMPLETED
+    job.output_path = dummy_audio
+    app.orchestrator.jobs[job.id] = job
+
+    async with app.run_test() as pilot:
+        table = app.query_one(JobTable)
+        app._apply_flush(FlushPlan(job_ids=["job-wb"]))
+        assert table.has_job("job-wb")
+
+        # Focus table and press 'w'
+        table.focus()
+        await pilot.press("w")
+        await pilot.pause()
+        assert isinstance(app.screen, CurationWorkbenchModal)

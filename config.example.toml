@@ -1,0 +1,69 @@
+[general]
+output_dir = "~/Music/Harvested"
+log_level_file = "DEBUG"
+log_level_ui = "INFO"
+first_run_notice_accepted = false
+
+[slskd]
+enabled = true
+url = "http://localhost:5000"
+api_key_env = "SLSKD_API_KEY"
+download_dir = "~/Music/slskd"
+search_timeout_s = 25
+poll_interval_s = 1.5
+max_concurrent_downloads = 2
+verify_openapi = true
+# best_available | lossless_preferred | fast_fallback | highest_quality_mp3
+acquisition_mode = "best_available"
+max_queue_length = 5
+p2p_timeout_s = 30
+
+[acoustid]
+api_key_env = "ACOUSTID_API_KEY"
+rate_limit_per_s = 3
+cache_ttl_days = 90
+
+[restoration]
+enabled = false
+mode = "conservative"
+preserve_original = true
+
+[ytdlp]
+binary = "yt-dlp"
+format = "bestaudio[acodec^=opus]/bestaudio/best"
+cookies_from_browser = ""
+stall_timeout_s = 90
+total_timeout_s = 900
+
+[ffmpeg]
+binary = "ffmpeg"
+probe_binary = "ffprobe"
+transcode = "mp3-320"
+
+[spectral]
+enabled = true
+excerpt_s = 60
+strict = false
+
+[batch]
+skip_bitrate_kbps = 256
+playlist_cap = 50
+rename_to_canonical = false
+trash_retention_days = 7
+auto_purge_trash = false
+
+[timeouts]
+probe_s = 30
+fpcalc_s = 60
+acoustid_s = 15
+coverart_s = 15
+transcode_s = 300
+ffprobe_s = 15
+spectral_s = 30
+health_s = 5
+kill_grace_s = 5
+
+[ui]
+refresh_hz = 8
+max_log_lines = 2000
+status_interval_s = 10

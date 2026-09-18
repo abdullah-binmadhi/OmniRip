@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harvester"
+version = "0.1.0"
+description = "OmniRip: async P2P-first music acquisition and curation TUI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "mutagen>=1.47",
+  "numpy>=1.26",
+  "platformdirs>=4.2",
+  "textual>=0.50",
+  "yt-dlp>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5.0",
+  "respx>=0.21",
+  "pytest-httpserver>=1.0",
+  "ruff>=0.6",
+  "scipy>=1.12",
+  "soundfile>=0.12",
+]
+restore = [
+  "huggingface_hub>=0.20",
+  "torch>=2.2",
+  "torchaudio>=2.2",
+]
+
+[project.scripts]
+harvester = "harvester.__main__:main"
+OmniRip = "harvester.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.coverage.run]
+source = ["harvester"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+]

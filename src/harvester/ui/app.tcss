@@ -1,0 +1,83 @@
+Screen {
+    background: $surface;
+}
+
+Header {
+    height: 1;
+}
+
+#statusbar {
+    height: 1;
+    padding: 0 1;
+    color: $text;
+    background: $panel;
+}
+
+#main {
+    height: 1fr;
+    width: 1fr;
+}
+
+#input-area {
+    height: 4;
+    padding: 0 1;
+    background: $panel;
+}
+
+#input-row {
+    height: 3;
+    width: 1fr;
+    align: left middle;
+}
+
+#mode {
+    width: 22;
+    margin-right: 1;
+}
+
+#source-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#submit {
+    width: 10;
+}
+
+#jobs {
+    height: 2fr;
+    min-height: 8;
+    margin: 0 1;
+    border: round $primary;
+}
+
+#logs {
+    height: 1fr;
+    min-height: 5;
+    margin: 0 1 1 1;
+    border: round $secondary;
+    background: $surface;
+}
+
+.modal-card {
+    width: 70;
+    max-width: 90%;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: round $primary;
+    background: $panel;
+}
+
+.modal-card Button {
+    width: 18;
+    margin-top: 1;
+}
+
+.error-text {
+    color: $error;
+}
+
+.warning-text {
+    color: $warning;
+}

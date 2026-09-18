@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+config.toml
+.DS_Store
+
+# Local daemon configuration contains Soulseek credentials and the slskd API key.
+tools/slskd/slskd.local.yml
+
+# Runtime data; the graphify-out/ knowledge graph is intentionally tracked.
+.harvester/
+.omnirip/
+*.pt
+*.bin
+*.wav
+*.enhanced.mp3

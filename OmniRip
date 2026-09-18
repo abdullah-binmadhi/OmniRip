@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+LOCAL_CONFIG="$ROOT/tools/slskd/slskd.local.yml"
+APP_CONFIG="$ROOT/config.toml"
+
+case " ${*:-} " in
+  *" --version "* | *" -v "* | *" --help "* | *" -h "*)
+    exec uv run --project "$ROOT" python -m harvester "$@"
+    ;;
+esac
+
+if [ ! -f "$LOCAL_CONFIG" ]; then
+  printf '%s\n' "OmniRip: missing tools/slskd/slskd.local.yml" >&2
+  printf '%s\n' "Copy tools/slskd/slskd.yml to slskd.local.yml and fill in your local credentials." >&2
+  exit 2
+fi
+
+API_KEY=$(awk '/^[[:space:]]*api_key:/ {print $2; exit}' "$LOCAL_CONFIG")
+if [ -z "$API_KEY" ] || [ "$API_KEY" = "CHANGE_ME_TO_A_RANDOM_32_BYTE_SECRET" ]; then
+  printf '%s\n' "OmniRip: configure a real slskd API key in tools/slskd/slskd.local.yml" >&2
+  exit 2
+fi
+
+export SLSKD_API_KEY="$API_KEY"
+export HARVESTER_CONFIG="$APP_CONFIG"
+
+if ! curl -fsS -H "X-API-Key: $SLSKD_API_KEY" http://localhost:5030/api/v0/session >/dev/null 2>&1; then
+  printf '%s\n' "OmniRip: starting slskd on localhost:5030..."
+  (cd "$ROOT/tools/slskd" && nohup ./slskd --config slskd.local.yml >"$ROOT/tools/slskd/slskd.log" 2>&1 &)
+  ready=0
+  i=0
+  while [ "$i" -lt 15 ]; do
+    i=$((i + 1))
+    sleep 1
+    if curl -fsS -H "X-API-Key: $SLSKD_API_KEY" http://localhost:5030/api/v0/session >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+  done
+  if [ "$ready" -ne 1 ]; then
+    printf '%s\n' "OmniRip: slskd did not become ready; see tools/slskd/slskd.log" >&2
+    exit 1
+  fi
+fi
+
+exec uv run --project "$ROOT" python -m harvester "$@"
