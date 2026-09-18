@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import platformdirs
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
@@ -141,6 +142,8 @@ class WorkbenchWidget(Widget):
         self.preview_manager = PreviewManager()
         self.exporter = EnhancementExporter()
         self.selected_preset_id: str = "conservative"
+        self.audition_cache_dir = Path(platformdirs.user_cache_dir("omnirip")) / "audition"
+        self.audition_cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Stream paths: MP3 (Original) and ENH (Enhanced derivative)
         self.path_mp3: Path | None = None
@@ -175,7 +178,7 @@ class WorkbenchWidget(Widget):
         with Horizontal(id="wb-controls-row"):
             options = [(preset.name, preset.id) for preset in PRESETS.values()]
             yield Select(options=options, value=self.selected_preset_id, id="wb-preset-select")
-            yield Button("⤓ EXPORT MP3", id="wb-btn-export", variant="success")
+            yield Button("⤓ DOWNLOAD ENHANCED", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-inspector-container"):
             yield AudioVisualizer(num_bands=24, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
@@ -214,14 +217,19 @@ class WorkbenchWidget(Widget):
         else:
             self.path_mp3 = None
 
-        # Check if full enhanced derivative is already available
+        # Check if enhanced derivative is available (exported or in audition cache)
         if self.path_mp3:
             candidate_enh = self.path_mp3.with_suffix(".enhanced.mp3")
+            cached_audition = (
+                self.audition_cache_dir / f"{self.path_mp3.stem}_{self.selected_preset_id}.mp3"
+            )
             if candidate_enh.exists():
                 self.path_enh = candidate_enh
+            elif cached_audition.exists():
+                self.path_enh = cached_audition
             else:
                 self.path_enh = None
-                # Pre-generate in background immediately so ENH is ready with zero delay
+                # Pre-generate in isolated audition cache without polluting output folder
                 self._trigger_enhancement_pregeneration()
         else:
             self.path_enh = None
@@ -406,10 +414,12 @@ class WorkbenchWidget(Widget):
 
     async def _async_render_enh(self, src: Path, preset) -> None:
         try:
+            cache_dest = self.audition_cache_dir / f"{src.stem}_{preset.id}.mp3"
             out_path = await asyncio.to_thread(
                 self.exporter.export_enhanced_derivative,
                 input_path=src,
                 preset=preset,
+                output_path=cache_dest,
                 cutoff_hz=self.cutoff_hz,
             )
             self.path_enh = out_path
@@ -463,7 +473,28 @@ class WorkbenchWidget(Widget):
         if event.select.id == "wb-preset-select" and event.value is not None:
             self.selected_preset_id = str(event.value)
             self._update_inspector()
-            # Invalidate cached ENH stream to re-render with new preset
+
+            # If audition file for this preset is already cached, reuse it instantly!
+            if self.path_mp3:
+                cached_audition = (
+                    self.audition_cache_dir / f"{self.path_mp3.stem}_{self.selected_preset_id}.mp3"
+                )
+                if cached_audition.exists():
+                    self.path_enh = cached_audition
+                    if self.active_stream == "ENH":
+                        preset = PRESETS.get(self.selected_preset_id)
+                        p_name = preset.name if preset else "Enhanced"
+                        self._route_to_player(
+                            self.path_enh,
+                            title=f"[✦ ENH] Neural Restored ({p_name})",
+                            is_enhanced=True,
+                            preset_name=p_name,
+                        )
+                        self.query_one("#wb-status", Label).update(
+                            f"Auditioning [✦ ENH]: Neural Restored ({p_name})"
+                        )
+                    return
+
             self.path_enh = None
             self._trigger_enhancement_pregeneration()
 
@@ -478,26 +509,34 @@ class WorkbenchWidget(Widget):
     def _export_derivative(self) -> None:
         src = self.path_mp3
         if not src or not src.exists():
-            self.query_one("#wb-status", Label).update("No audio file available to export.")
+            self.query_one("#wb-status", Label).update("No audio file available to download.")
             return
 
         preset = PRESETS[self.selected_preset_id]
-        self.query_one("#wb-status", Label).update(f"Exporting MP3 with '{preset.name}'...")
+        self.query_one("#wb-status", Label).update(
+            f"Downloading Enhanced MP3 with '{preset.name}'..."
+        )
         self.run_worker(self._async_export(src, preset), name="export-derivative")
 
     async def _async_export(self, src: Path, preset) -> None:
         try:
+            target_dest = src.parent / f"{src.stem}.enhanced.mp3"
             out_path = await asyncio.to_thread(
                 self.exporter.export_enhanced_derivative,
                 input_path=src,
                 preset=preset,
+                output_path=target_dest,
                 cutoff_hz=self.cutoff_hz,
             )
             self.path_enh = out_path
-            self.query_one("#wb-status", Label).update(f"Exported: {out_path.name}")
-            self.app.notify(f"Exported: {out_path.name}", timeout=3.0)
+            self.query_one("#wb-status", Label).update(f"✓ Downloaded: {out_path.name}")
+            self.app.notify(
+                f"✓ Downloaded Enhanced MP3: {out_path.name}\nPreset: {preset.name}",
+                title="OmniRip Enhanced Download",
+                timeout=4.0,
+            )
             if self.on_exported:
                 self.on_exported(out_path)
         except Exception as exc:
-            self.query_one("#wb-status", Label).update(f"Export error: {exc}")
-            self.app.notify(f"Export error: {exc}", severity="error")
+            self.query_one("#wb-status", Label).update(f"Download error: {exc}")
+            self.app.notify(f"Download error: {exc}", severity="error")

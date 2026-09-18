@@ -124,6 +124,10 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
             assert expected["stereo"] in str(stereo_label.render())
             assert expected["engine"] in str(engine_label.render())
 
+        # Verify Download Enhanced button
+        btn_download = app.query_one("#wb-btn-export", Button)
+        assert "DOWNLOAD ENHANCED" in str(btn_download.label)
+
 
 async def test_player_interactive_scrubber_and_seeking(tmp_path: Path) -> None:
     app = WorkbenchTestApp()
@@ -154,3 +158,44 @@ async def test_player_interactive_scrubber_and_seeking(tmp_path: Path) -> None:
         await pilot.pause()
         assert player.elapsed_s == 80.0
         assert scrubber.progress == 0.80
+
+
+async def test_workbench_explicit_download_enhanced_button(tmp_path: Path) -> None:
+    """Verify that auditioning does not pollute output dir until button is clicked."""
+    from unittest.mock import patch
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        out_dir = tmp_path / "music_output"
+        out_dir.mkdir()
+        dummy_mp3 = out_dir / "my_track.mp3"
+        dummy_mp3.write_bytes(b"mp3-bytes")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.id = "job-explicit-dl"
+        job.output_path = dummy_mp3
+        job.spectral.cutoff_hz = 15000.0
+
+        target_enhanced = out_dir / "my_track.enhanced.mp3"
+        assert not target_enhanced.exists()
+
+        # Load job — should NOT automatically create .enhanced.mp3 in out_dir
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+        assert not target_enhanced.exists()
+
+        # Press DOWNLOAD ENHANCED button
+        btn_dl = app.query_one("#wb-btn-export", Button)
+        mock_exported = out_dir / "my_track.enhanced.mp3"
+        mock_exported.write_bytes(b"enhanced-mp3-bytes")
+
+        with patch.object(wb.exporter, "export_enhanced_derivative", return_value=mock_exported):
+            btn_dl.press()
+            await pilot.pause()
+            await pilot.pause()
+
+        assert target_enhanced.exists()
+        status_label = app.query_one("#wb-status")
+        assert "Downloaded" in str(status_label.render())
+
