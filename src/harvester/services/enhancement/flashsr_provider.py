@@ -31,11 +31,13 @@ class FlashSRProvider:
         model_path: Path | None = None,
         model_manager: ModelManager | None = None,
         device: str | None = None,
+        neural_enabled: bool = True,
     ) -> None:
         self.model_manager = model_manager or ModelManager()
         self.model_path = model_path or self.model_manager.get_model_path("flashsr")
         self._model: Any = None
         self._device_str = device
+        self.neural_enabled = neural_enabled
 
     @property
     def name(self) -> str:
@@ -43,6 +45,8 @@ class FlashSRProvider:
 
     @property
     def is_available(self) -> bool:
+        if not self.neural_enabled:
+            return False
         try:
             import torch  # noqa: F401
             return self.model_path is not None and self.model_path.exists()

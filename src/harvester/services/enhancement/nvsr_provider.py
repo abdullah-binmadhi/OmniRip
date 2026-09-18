@@ -32,12 +32,14 @@ class NVSRProvider:
         model_path: Path | None = None,
         model_manager: ModelManager | None = None,
         device: str | None = None,
+        neural_enabled: bool = True,
     ) -> None:
         self.model_manager = model_manager or ModelManager()
         self.model_path = model_path or self.model_manager.get_model_path("nvsr")
         self._model: Any = None
         self._device_str = device
         self._torch: Any = None
+        self.neural_enabled = neural_enabled
 
     @property
     def name(self) -> str:
@@ -45,7 +47,9 @@ class NVSRProvider:
 
     @property
     def is_available(self) -> bool:
-        """True if torch is installed and weights are cached."""
+        """True if neural acceleration is enabled, torch is installed, and weights are cached."""
+        if not self.neural_enabled:
+            return False
         try:
             import torch
             self._torch = torch

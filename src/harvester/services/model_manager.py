@@ -125,17 +125,10 @@ class ModelManager:
 
         try:
             from huggingface_hub import hf_hub_download
-        except ImportError as err:
-            raise RuntimeError(
-                "huggingface_hub is required to download model weights. "
-                "Install with: pip install 'omnirip[restore]'"
-            ) from err
 
-        logger.info("Downloading %s from Hugging Face (%s)...", spec.name, spec.repo_id)
-        if progress_callback:
-            progress_callback(0.1)
-
-        try:
+            logger.info("Downloading %s using huggingface_hub (%s)...", spec.name, spec.repo_id)
+            if progress_callback:
+                progress_callback(0.1)
             downloaded = hf_hub_download(
                 repo_id=spec.repo_id,
                 filename=spec.filename,
@@ -143,16 +136,60 @@ class ModelManager:
                 local_dir_use_symlinks=False,
             )
             downloaded_path = Path(downloaded)
-
             if spec.expected_sha256:
                 if not self.verify_checksum(downloaded_path, spec.expected_sha256):
                     downloaded_path.unlink(missing_ok=True)
                     raise RuntimeError(f"Checksum verification failed for {spec.name}")
-
             if progress_callback:
                 progress_callback(1.0)
             return downloaded_path
-
+        except ImportError:
+            logger.info("huggingface_hub not installed; using direct HTTP streaming download...")
+            return self._download_direct_http(spec, progress_callback=progress_callback)
         except Exception as e:
             logger.error("Failed to download model %s: %s", spec.name, e)
+            raise RuntimeError(f"Failed to download model '{spec.name}': {e}") from e
+
+    def _download_direct_http(
+        self,
+        spec: ModelSpec,
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> Path:
+        """Download model checkpoint directly via streaming HTTP GET."""
+        import httpx
+
+        url = f"https://huggingface.co/{spec.repo_id}/resolve/main/{spec.filename}"
+        dest_path = self.cache_dir / spec.filename
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
+
+        logger.info("Downloading %s via direct HTTP from %s", spec.name, url)
+        if progress_callback:
+            progress_callback(0.05)
+
+        try:
+            with httpx.stream("GET", url, follow_redirects=True, timeout=60.0) as resp:
+                resp.raise_for_status()
+                total_bytes = int(resp.headers.get("content-length", 0))
+                downloaded_bytes = 0
+
+                with open(temp_path, "wb") as f:
+                    for chunk in resp.iter_bytes(chunk_size=1048576):  # 1 MB chunks
+                        f.write(chunk)
+                        downloaded_bytes += len(chunk)
+                        if total_bytes > 0 and progress_callback:
+                            progress_callback(min(0.99, downloaded_bytes / total_bytes))
+
+            if spec.expected_sha256:
+                if not self.verify_checksum(temp_path, spec.expected_sha256):
+                    temp_path.unlink(missing_ok=True)
+                    raise RuntimeError(f"Checksum verification failed for {spec.name}")
+
+            temp_path.replace(dest_path)
+            if progress_callback:
+                progress_callback(1.0)
+            return dest_path
+        except Exception as e:
+            temp_path.unlink(missing_ok=True)
+            logger.error("Direct HTTP download failed for %s: %s", spec.name, e)
             raise RuntimeError(f"Failed to download model '{spec.name}': {e}") from e

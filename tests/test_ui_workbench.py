@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from textual.app import App, ComposeResult
 from textual.widgets import Button
@@ -198,4 +199,51 @@ async def test_workbench_explicit_download_enhanced_button(tmp_path: Path) -> No
         assert target_enhanced.exists()
         status_label = app.query_one("#wb-status")
         assert "Downloaded" in str(status_label.render())
+
+
+async def test_workbench_neural_toggle_and_models_button() -> None:
+    """Verify that user can toggle between Eco DSP mode and Neural AI mode,
+    and access the AI models download button."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        btn_toggle = app.query_one("#wb-btn-neural-toggle", Button)
+        btn_download = app.query_one("#wb-btn-models-download", Button)
+        engine_label = app.query_one("#wb-spec-engine")
+
+        # Initially in Eco Mode (keeps device cool)
+        assert wb.neural_enabled is False
+        assert "ECO MODE" in str(btn_toggle.label)
+        assert "Eco DSP" in str(engine_label.render())
+
+        # Click to switch to Neural AI mode
+        btn_toggle.press()
+        await pilot.pause()
+
+        assert wb.neural_enabled is True
+        assert "NEURAL AI" in str(btn_toggle.label)
+        assert "Neural AI" in str(engine_label.render())
+
+        # Click again to switch back to Eco DSP mode
+        btn_toggle.press()
+        await pilot.pause()
+
+        assert wb.neural_enabled is False
+        assert "ECO MODE" in str(btn_toggle.label)
+        assert "Eco DSP" in str(engine_label.render())
+
+        # Models download button exists
+        assert "AI MODELS" in str(btn_download.label)
+        with patch.object(wb, "trigger_models_download") as mock_dl:
+            btn_download.press()
+            await pilot.pause()
+            mock_dl.assert_called_once()
+
+        # Test trigger_models_download when models are already cached
+        with patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True):
+            wb.trigger_models_download()
+            status_label = app.query_one("#wb-status")
+            assert "already downloaded" in str(status_label.render())
+
+
 

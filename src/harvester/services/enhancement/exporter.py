@@ -30,13 +30,23 @@ logger = logging.getLogger(__name__)
 class EnhancementExporter:
     """Renders enhanced audio and exports MP3 derivatives with explicit provenance tags."""
 
-    def __init__(self) -> None:
+    def __init__(self, neural_enabled: bool = False) -> None:
+        self.neural_enabled = neural_enabled
         self._providers: dict[str, EnhancementProvider] = {
             "conservative": ConservativeDSPProvider(),
-            "nvsr": NVSRProvider(),
-            "flashsr": FlashSRProvider(),
-            "hybrid": HybridCoOpProvider(),
+            "nvsr": NVSRProvider(neural_enabled=neural_enabled),
+            "flashsr": FlashSRProvider(neural_enabled=neural_enabled),
+            "hybrid": HybridCoOpProvider(neural_enabled=neural_enabled),
         }
+
+    def set_neural_enabled(self, enabled: bool) -> None:
+        """Toggle between Neural Model Acceleration and Eco DSP synthesis."""
+        self.neural_enabled = enabled
+        for p in self._providers.values():
+            if hasattr(p, "neural_enabled"):
+                p.neural_enabled = enabled
+            if hasattr(p, "set_neural_enabled"):
+                p.set_neural_enabled(enabled)
 
     def decode_audio_ffmpeg(self, file_path: Path, sample_rate: int = 48000) -> np.ndarray:
         """Decode any audio file directly into 48kHz float32 stereo numpy array using FFmpeg."""

@@ -91,3 +91,29 @@ def test_model_manager_unknown_model(tmp_path: Path):
     mm = ModelManager(cache_dir=tmp_path)
     with pytest.raises(KeyError):
         mm.download_model("super_ultra_model_9000")
+
+
+def test_model_manager_download_direct_http(tmp_path: Path):
+    """Test downloading a model via direct HTTP streaming fallback
+    when huggingface_hub is absent."""
+    import sys
+    from unittest.mock import MagicMock
+
+    mm = ModelManager(cache_dir=tmp_path)
+
+    mock_resp = MagicMock()
+    mock_resp.headers = {"content-length": "100"}
+    mock_resp.iter_bytes.return_value = [b"chunk_1_", b"chunk_2"]
+    mock_resp.__enter__.return_value = mock_resp
+
+    progress = []
+
+    with (
+        patch.dict(sys.modules, {"huggingface_hub": None}),
+        patch("httpx.stream", return_value=mock_resp),
+    ):
+        out = mm.download_model("nvsr", progress_callback=lambda p: progress.append(p))
+        assert out.exists()
+        assert out.read_bytes() == b"chunk_1_chunk_2"
+        assert 1.0 in progress
+

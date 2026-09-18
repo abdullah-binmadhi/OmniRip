@@ -146,3 +146,23 @@ def test_dsp_gain_slope_stereo_verification():
     # Narrow stereo (65%) must reduce side channel energy in the synthesized high frequencies
     assert side_energy_narrow < side_energy_normal
 
+
+def test_enhancement_exporter_neural_toggle():
+    """Verify that EnhancementExporter toggles neural acceleration across all providers."""
+    exporter = EnhancementExporter(neural_enabled=False)
+    assert not exporter.neural_enabled
+    assert not exporter._providers["nvsr"].neural_enabled
+    assert not exporter._providers["flashsr"].neural_enabled
+    assert not exporter._providers["hybrid"].neural_enabled
+
+    exporter.set_neural_enabled(True)
+    assert exporter.neural_enabled
+    assert exporter._providers["nvsr"].neural_enabled
+    assert exporter._providers["flashsr"].neural_enabled
+    assert exporter._providers["hybrid"].neural_enabled
+
+    exporter.set_neural_enabled(False)
+    assert not exporter.neural_enabled
+    assert not exporter._providers["nvsr"].neural_enabled
+
+

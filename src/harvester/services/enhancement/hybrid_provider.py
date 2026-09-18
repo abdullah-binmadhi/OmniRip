@@ -30,9 +30,11 @@ class HybridCoOpProvider:
         self,
         nvsr: EnhancementProvider | None = None,
         flashsr: EnhancementProvider | None = None,
+        neural_enabled: bool = True,
     ) -> None:
-        self.nvsr = nvsr or NVSRProvider()
-        self.flashsr = flashsr or FlashSRProvider()
+        self.nvsr = nvsr or NVSRProvider(neural_enabled=neural_enabled)
+        self.flashsr = flashsr or FlashSRProvider(neural_enabled=neural_enabled)
+        self.neural_enabled = neural_enabled
 
     @property
     def name(self) -> str:
@@ -40,7 +42,16 @@ class HybridCoOpProvider:
 
     @property
     def is_available(self) -> bool:
+        if not self.neural_enabled:
+            return False
         return self.nvsr.is_available and self.flashsr.is_available
+
+    def set_neural_enabled(self, enabled: bool) -> None:
+        self.neural_enabled = enabled
+        if hasattr(self.nvsr, "neural_enabled"):
+            self.nvsr.neural_enabled = enabled
+        if hasattr(self.flashsr, "neural_enabled"):
+            self.flashsr.neural_enabled = enabled
 
     def generate_residual(
         self,

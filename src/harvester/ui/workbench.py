@@ -140,8 +140,9 @@ class WorkbenchWidget(Widget):
         super().__init__(id=id, classes=classes)
         self.on_exported = on_exported
         self.preview_manager = PreviewManager()
-        self.exporter = EnhancementExporter()
+        self.exporter = EnhancementExporter(neural_enabled=False)
         self.selected_preset_id: str = "conservative"
+        self.neural_enabled: bool = False
         self.audition_cache_dir = Path(platformdirs.user_cache_dir("omnirip")) / "audition"
         self.audition_cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -178,6 +179,8 @@ class WorkbenchWidget(Widget):
         with Horizontal(id="wb-controls-row"):
             options = [(preset.name, preset.id) for preset in PRESETS.values()]
             yield Select(options=options, value=self.selected_preset_id, id="wb-preset-select")
+            yield Button("🌱 ECO MODE", id="wb-btn-neural-toggle", variant="default")
+            yield Button("📥 AI MODELS", id="wb-btn-models-download", variant="default")
             yield Button("⤓ DOWNLOAD ENHANCED", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-inspector-container"):
@@ -323,8 +326,12 @@ class WorkbenchWidget(Widget):
                 "hybrid": "Hybrid (NVSR + FlashSR)",
             }
             engine_str = engine_names.get(provider_type, provider_type.upper())
+            if not self.neural_enabled:
+                engine_display = f"🌱 Eco DSP ({engine_str} - Cool & Zero Heat)"
+            else:
+                engine_display = f"⚡ Neural AI ({engine_str} - Accelerated)"
             self.query_one("#wb-spec-engine", Label).update(
-                f"• Model Engine  : [bold]{engine_str}[/bold]"
+                f"• Model Engine  : [bold]{engine_display}[/bold]"
             )
 
             is_enh = self.active_stream == "ENH"
@@ -414,7 +421,8 @@ class WorkbenchWidget(Widget):
 
     async def _async_render_enh(self, src: Path, preset) -> None:
         try:
-            cache_dest = self.audition_cache_dir / f"{src.stem}_{preset.id}.mp3"
+            mode_tag = "neural" if self.neural_enabled else "eco"
+            cache_dest = self.audition_cache_dir / f"{src.stem}_{preset.id}_{mode_tag}.mp3"
             out_path = await asyncio.to_thread(
                 self.exporter.export_enhanced_derivative,
                 input_path=src,
@@ -476,9 +484,9 @@ class WorkbenchWidget(Widget):
 
             # If audition file for this preset is already cached, reuse it instantly!
             if self.path_mp3:
-                cached_audition = (
-                    self.audition_cache_dir / f"{self.path_mp3.stem}_{self.selected_preset_id}.mp3"
-                )
+                mode_tag = "neural" if self.neural_enabled else "eco"
+                cache_name = f"{self.path_mp3.stem}_{self.selected_preset_id}_{mode_tag}.mp3"
+                cached_audition = self.audition_cache_dir / cache_name
                 if cached_audition.exists():
                     self.path_enh = cached_audition
                     if self.active_stream == "ENH":
@@ -503,8 +511,106 @@ class WorkbenchWidget(Widget):
             self.set_active_stream("MP3")
         elif event.button.id in ("btn-stream-enh", "btn-stream-c"):
             self.set_active_stream("ENH")
+        elif event.button.id == "wb-btn-neural-toggle":
+            self.toggle_neural_engine()
+        elif event.button.id == "wb-btn-models-download":
+            self.trigger_models_download()
         elif event.button.id == "wb-btn-export":
             self._export_derivative()
+
+    def toggle_neural_engine(self) -> None:
+        """Toggle between Eco DSP mode (cool, zero heat) and Neural AI mode."""
+        self.neural_enabled = not self.neural_enabled
+        self.exporter.set_neural_enabled(self.neural_enabled)
+
+        btn = self.query_one("#wb-btn-neural-toggle", Button)
+        if self.neural_enabled:
+            btn.label = "⚡ NEURAL AI"
+            btn.variant = "warning"
+            self.query_one("#wb-status", Label).update(
+                "⚡ Neural AI mode active: Deep neural models enabled."
+            )
+            self.app.notify(
+                "⚡ Neural AI Enabled: Deep models will be used when available.",
+                title="OmniRip Neural Mode",
+                timeout=3.0,
+            )
+        else:
+            btn.label = "🌱 ECO MODE"
+            btn.variant = "default"
+            self.query_one("#wb-status", Label).update(
+                "🌱 Eco DSP mode active: Lightweight, cool & quiet harmonic synthesis (Zero Heat)."
+            )
+            self.app.notify(
+                "🌱 Eco DSP Enabled: Zero GPU/MPS load, keeps device cool & fans silent.",
+                title="OmniRip Eco Mode",
+                timeout=3.0,
+            )
+
+        self._update_inspector()
+
+        # If auditioning ENH, invalidate current cache and re-render with the new engine mode
+        self.path_enh = None
+        if self.path_mp3 and self.path_mp3.exists():
+            if self.active_stream == "ENH":
+                preset = PRESETS.get(self.selected_preset_id)
+                p_name = preset.name if preset else "Enhanced"
+                self.query_one("#wb-status", Label).update(
+                    f"Switching engine: re-synthesizing '{p_name}'..."
+                )
+            self._trigger_enhancement_pregeneration()
+
+    def trigger_models_download(self) -> None:
+        """Download or verify local caching of all AI neural model weights."""
+        from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
+
+        mm = ModelManager()
+        missing = [m for m in SUPPORTED_MODELS if not mm.is_cached(m)]
+        if not missing:
+            self.query_one("#wb-status", Label).update(
+                "✅ All neural models (NVSR & FlashSR) are already downloaded and cached locally."
+            )
+            self.app.notify(
+                "✅ Neural weights verified! NVSR and FlashSR models are ready for use.",
+                title="OmniRip AI Models",
+                timeout=4.0,
+            )
+            return
+
+        self.query_one("#wb-status", Label).update(
+            f"📥 Downloading neural model weights ({', '.join(missing)})..."
+        )
+        self.run_worker(self._async_download_models(missing), name="download-models")
+
+    async def _async_download_models(self, models: list[str]) -> None:
+        from harvester.services.model_manager import ModelManager
+
+        mm = ModelManager()
+        try:
+            for model_name in models:
+                self.query_one("#wb-status", Label).update(
+                    f"📥 Downloading {model_name.upper()} weights from Hugging Face..."
+                )
+                await asyncio.to_thread(mm.download_model, model_name)
+            self.query_one("#wb-status", Label).update(
+                "✅ All neural model weights downloaded successfully!"
+            )
+            self.app.notify(
+                "✅ Model download complete! Neural super-resolution weights are now cached.",
+                title="OmniRip Models Downloaded",
+                timeout=5.0,
+            )
+            self._update_inspector()
+        except Exception as exc:
+            self.query_one("#wb-status", Label).update(
+                f"Model download failed: {exc}"
+            )
+            self.app.notify(
+                f"Model download error: {exc}",
+                title="Download Error",
+                severity="error",
+                timeout=5.0,
+            )
 
     def _export_derivative(self) -> None:
         src = self.path_mp3
