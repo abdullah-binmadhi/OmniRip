@@ -458,6 +458,12 @@ class HarvesterApp(App[None]):
         ("w", "open_workbench", "Workbench"),
         ("t", "cycle_theme", "Theme"),
         ("space", "toggle_playback", "Play/Pause"),
+        ("left", "seek_backward", "Seek -5s"),
+        ("right", "seek_forward", "Seek +5s"),
+        ("bracket_left", "seek_backward_15", "Seek -15s"),
+        ("bracket_right", "seek_forward_15", "Seek +15s"),
+        ("1", "select_stream_mp3", "Stream MP3"),
+        ("2", "select_stream_enh", "Stream ENH"),
         ("v", "toggle_vis_mode", "Visualizer"),
     ]
 
@@ -816,6 +822,54 @@ class HarvesterApp(App[None]):
         """Toggle visualizer between spectrum analyzer and oscilloscope."""
         player = self.query_one(AudioPlayerWidget)
         player.toggle_vis_mode()
+
+    def action_seek_backward(self) -> None:
+        """Seek backward 5 seconds in player."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.seek_relative(-5.0)
+        except Exception:
+            pass
+
+    def action_seek_forward(self) -> None:
+        """Seek forward 5 seconds in player."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.seek_relative(5.0)
+        except Exception:
+            pass
+
+    def action_seek_backward_15(self) -> None:
+        """Seek backward 15 seconds in player."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.seek_relative(-15.0)
+        except Exception:
+            pass
+
+    def action_seek_forward_15(self) -> None:
+        """Seek forward 15 seconds in player."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.seek_relative(15.0)
+        except Exception:
+            pass
+
+    def action_select_stream_mp3(self) -> None:
+        """Switch audition stream to [1] MP3 (Original)."""
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.set_active_stream("MP3")
+        except Exception:
+            pass
+
+    def action_select_stream_enh(self) -> None:
+        """Switch audition stream to [2] ENH (Restored)."""
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.set_active_stream("ENH")
+        except Exception:
+            pass
 
     def _load_selected_into_workbench_and_player(self) -> None:
         if self.orchestrator is None:

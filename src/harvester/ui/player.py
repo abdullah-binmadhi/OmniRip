@@ -9,14 +9,62 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import Button, Label, ProgressBar
+from textual.widgets import Button, Label
 
 from harvester.ui.visualizer import AudioVisualizer
+
+
+class InteractiveScrubber(Widget):
+    """
+    Interactive timeline scrubber allowing instant click-to-seek,
+    showing visual playhead tracking and played/remaining progress.
+    """
+
+    DEFAULT_CSS = """
+    InteractiveScrubber {
+        height: 1;
+        width: 1fr;
+        background: transparent;
+        margin-top: 1;
+    }
+    """
+
+    class SeekRequested(Message):
+        """Dispatched when user clicks anywhere on timeline to seek."""
+
+        def __init__(self, target_pct: float) -> None:
+            super().__init__()
+            self.target_pct = target_pct
+
+    progress: reactive[float] = reactive(0.0)  # 0.0 to 1.0
+
+    def render(self) -> Text:
+        width = max(10, self.size.width)
+        pos = int(self.progress * (width - 1))
+        pos = max(0, min(width - 1, pos))
+
+        t = Text()
+        if pos > 0:
+            t.append("━" * pos, style="bold cyan")
+        t.append("●", style="bold bright_white")
+        remaining = width - pos - 1
+        if remaining > 0:
+            t.append("─" * remaining, style="dim white")
+        return t
+
+    def on_click(self, event: events.Click) -> None:
+        width = max(1, self.size.width)
+        target_pct = max(0.0, min(1.0, event.x / width))
+        self.progress = target_pct
+        self.post_message(self.SeekRequested(target_pct))
 
 
 class AudioPlayerWidget(Widget):
@@ -76,7 +124,7 @@ class AudioPlayerWidget(Widget):
         height: 3;
         content-align: left middle;
     }
-    #player-progress {
+    #player-scrubber {
         height: 1;
         margin-top: 1;
     }
@@ -108,7 +156,7 @@ class AudioPlayerWidget(Widget):
                     yield Button("■ STOP", id="btn-stop")
                     yield Button("ılı. SPEC", id="btn-vis-mode")
                     yield Label("00:00 / 00:00", id="player-time")
-                yield ProgressBar(total=100, show_eta=False, id="player-progress")
+                yield InteractiveScrubber(id="player-scrubber")
             with Vertical(id="player-right"):
                 yield AudioVisualizer(num_bands=24, id="player-visualizer")
 
@@ -213,10 +261,62 @@ class AudioPlayerWidget(Widget):
         try:
             vis = self.query_one("#player-visualizer", AudioVisualizer)
             vis.stop()
-            self.query_one("#player-progress", ProgressBar).progress = 0
+            self.query_one("#player-scrubber", InteractiveScrubber).progress = 0.0
             self._update_time_label()
         except Exception:
             pass
+
+    def seek(self, target_seconds: float) -> None:
+        """Seek playback to an absolute timestamp in seconds."""
+        target_seconds = max(0.0, min(self.duration_s, target_seconds))
+        self.elapsed_s = target_seconds
+        self._update_time_label()
+
+        if self.duration_s > 0:
+            pct = min(1.0, self.elapsed_s / self.duration_s)
+            try:
+                self.query_one("#player-scrubber", InteractiveScrubber).progress = pct
+            except Exception:
+                pass
+
+        try:
+            vis = self.query_one("#player-visualizer", AudioVisualizer)
+            vis.seek(target_seconds)
+        except Exception:
+            pass
+
+        if self.is_playing:
+            self._kill_proc()
+            if self._ffplay_path and self.current_track:
+                cmd = [
+                    self._ffplay_path,
+                    "-nodisp",
+                    "-autoexit",
+                    "-ss", f"{self.elapsed_s:.2f}",
+                    "-loglevel", "quiet",
+                    str(self.current_track),
+                ]
+                try:
+                    self._proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    self._proc = None
+            vis.play()
+
+    def seek_relative(self, delta_s: float) -> None:
+        """Seek forward or backward by delta_s seconds."""
+        self.seek(self.elapsed_s + delta_s)
+
+    def on_interactive_scrubber_seek_requested(
+        self, message: InteractiveScrubber.SeekRequested
+    ) -> None:
+        """Handle timeline click seeking from the InteractiveScrubber."""
+        if self.duration_s > 0:
+            target_time = message.target_pct * self.duration_s
+            self.seek(target_time)
 
     def toggle_vis_mode(self) -> None:
         """Cycle visualizer display mode."""
@@ -247,9 +347,9 @@ class AudioPlayerWidget(Widget):
 
         self.elapsed_s += 0.25
         if self.duration_s > 0:
-            pct = min(100.0, (self.elapsed_s / self.duration_s) * 100.0)
+            pct = min(1.0, self.elapsed_s / self.duration_s)
             try:
-                self.query_one("#player-progress", ProgressBar).progress = pct
+                self.query_one("#player-scrubber", InteractiveScrubber).progress = pct
             except Exception:
                 pass
             if self.elapsed_s >= self.duration_s:

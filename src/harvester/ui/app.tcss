@@ -144,6 +144,42 @@ Button:disabled {
     padding: 0 1;
 }
 
+#wb-improvement-card {
+    height: auto;
+    min-height: 5;
+    border-top: heavy $primary;
+    background: $surface;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#wb-card-title {
+    color: $accent;
+    text-style: bold;
+    height: 1;
+}
+
+#wb-card-grid {
+    height: auto;
+    width: 1fr;
+}
+
+.wb-card-col {
+    width: 1fr;
+    height: auto;
+}
+
+.wb-card-col Label {
+    height: 1;
+    color: $text;
+}
+
+#player-scrubber {
+    height: 1;
+    width: 1fr;
+    margin-top: 1;
+}
+
 .modal-card {
     width: 76;
     max-width: 90%;

@@ -204,6 +204,18 @@ class AudioVisualizer(Widget):
         self._peaks.fill(0.0)
         self.refresh()
 
+    def seek(self, seconds: float) -> None:
+        """Seek the visualizer to an audio timestamp in seconds."""
+        if not self._precomputed_frames:
+            return
+        fps = 30.0  # 735 hop at 22050Hz is ~30 fps
+        target_idx = int(max(0.0, seconds) * fps)
+        self._current_frame_idx = min(target_idx, max(0, len(self._precomputed_frames) - 1))
+        if 0 <= self._current_frame_idx < len(self._precomputed_frames):
+            self._levels = self._precomputed_frames[self._current_frame_idx].copy()
+            self._peaks = np.maximum(self._peaks, self._levels)
+        self.refresh()
+
     def _update_peaks(self) -> None:
         for i in range(self.num_bands):
             if self._levels[i] >= self._peaks[i]:
