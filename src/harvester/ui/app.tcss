@@ -70,10 +70,27 @@ Header {
     margin-left: 1;
 }
 
-#jobs {
-    height: 3fr;
-    min-height: 8;
+#workspace-split {
+    height: 1fr;
+    width: 1fr;
     margin: 1 1 0 1;
+}
+
+#tracks-pane {
+    width: 1fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#workbench-pane {
+    width: 52;
+    height: 1fr;
+}
+
+#jobs {
+    height: 2fr;
+    min-height: 6;
+    margin-bottom: 1;
     border: round $secondary;
     background: $panel;
 }
@@ -90,21 +107,27 @@ Header {
     text-style: bold;
 }
 
-#audio-player {
-    height: 8;
-    min-height: 7;
-    margin: 1 1 0 1;
-    border: round $accent;
+#logs {
+    height: 1fr;
+    min-height: 4;
+    border: round $surface-lighten-1;
+    background: $surface;
+}
+
+#workbench-widget {
+    height: 1fr;
+    border: round $primary;
     background: $panel;
     padding: 0 1;
 }
 
-#logs {
-    height: 1fr;
-    min-height: 5;
+#audio-player {
+    height: 8;
+    min-height: 7;
     margin: 1 1 1 1;
-    border: round $primary;
-    background: $surface;
+    border: round $accent;
+    background: $panel;
+    padding: 0 1;
 }
 
 .modal-card {

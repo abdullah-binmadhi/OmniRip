@@ -37,6 +37,7 @@ from harvester.ui.bridge import FlushPlan, UiBridge
 from harvester.ui.logconsole import LogConsole
 from harvester.ui.player import AudioPlayerWidget
 from harvester.ui.themes import cycle_theme, register_custom_themes
+from harvester.ui.workbench import WorkbenchWidget
 from harvester.util.errors import ConfigError
 from harvester.util.logging_setup import LoggingController, configure_logging
 
@@ -73,7 +74,7 @@ class StatusBar(Static):
         self.refresh()
 
     def render(self) -> str:
-        return "⬢ OMNIRIP   " + "   ".join(self._parts.values())
+        return "OMNIRIP // WORKSTATION   |   " + "   ".join(self._parts.values())
 
 
 class JobTable(DataTable[str]):
@@ -83,6 +84,7 @@ class JobTable(DataTable[str]):
 
     def __init__(self) -> None:
         super().__init__(id="jobs")
+        self.cursor_type = "row"
         self._job_order: list[str] = []
         self._row_hashes: dict[str, tuple[str, ...]] = {}
         self._overflow = 0
@@ -182,7 +184,7 @@ class JobTable(DataTable[str]):
 
     @staticmethod
     def _track_label(job: TrackJob) -> str:
-        return f"📁 {job.display_name}" if job.mode is Mode.BATCH_AUDIT else job.display_name
+        return f"[DIR] {job.display_name}" if job.mode is Mode.BATCH_AUDIT else job.display_name
 
     @staticmethod
     def _original_label(job: TrackJob) -> str:
@@ -203,7 +205,7 @@ class JobTable(DataTable[str]):
     def _phase_label(job: TrackJob) -> str:
         label = job.state.value.replace("_", " ").title()
         if job.spectral.verdict is Verdict.FRAUD:
-            return f"⚠FRAUD→ {label}"
+            return f"[FRAUD] {label}"
         return label
 
     @staticmethod
@@ -213,16 +215,16 @@ class JobTable(DataTable[str]):
             percent = job.progress if job.progress else None
         if percent is None:
             if job.state is State.COMPLETED:
-                return "✔"
+                return "[OK]"
             if job.state is State.SKIPPED:
-                return "⏭"
+                return "[SKIP]"
             if job.state is State.FAILED:
-                return "✖"
+                return "[FAIL]"
             if job.state is State.CANCELLED:
-                return "⦸"
+                return "[CANCEL]"
             return "—"
         filled = max(0, min(10, round(percent / 10)))
-        return f"{'▰' * filled}{'▱' * (10 - filled)} {percent:3.0f}%"
+        return f"{'█' * filled}{'░' * (10 - filled)} {percent:3.0f}%"
 
 
 class HelpScreen(ModalScreen[None]):
@@ -520,11 +522,20 @@ class HarvesterApp(App[None]):
                         id="source-input",
                     )
                     yield Checkbox("Playlists", value=False, id="expand-playlists")
-                    yield Button("GO", id="submit", variant="primary", disabled=True)
-                    yield Button("🎨 Theme", id="btn-theme")
-            yield JobTable()
+                    yield Button("[GO]", id="submit", variant="primary", disabled=True)
+                    yield Button("[THEME]", id="btn-theme")
+            with Horizontal(id="workspace-split"):
+                with Vertical(id="tracks-pane"):
+                    yield JobTable()
+                    yield LogConsole(max_lines=self.config.ui.max_log_lines)
+                with Vertical(id="workbench-pane"):
+                    yield WorkbenchWidget(
+                        on_exported=lambda path: self.notify(
+                            f"Exported: {path.name}", severity="information"
+                        ),
+                        id="workbench-widget",
+                    )
             yield AudioPlayerWidget(id="audio-player")
-            yield LogConsole(max_lines=self.config.ui.max_log_lines)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -584,6 +595,11 @@ class HarvesterApp(App[None]):
             job = orchestrator.jobs.get(job_id)
             if job is not None:
                 table.update_job(job)
+                if job.state is State.COMPLETED:
+                    player = self.query_one(AudioPlayerWidget)
+                    if player.current_track is None:
+                        wb = self.query_one("#workbench-widget", WorkbenchWidget)
+                        wb.load_job(job)
         status.set_jobs(list(orchestrator.jobs.values()))
         for level, text in plan.log_lines:
             console.write_line(level, text)
@@ -750,7 +766,7 @@ class HarvesterApp(App[None]):
             self.run_worker(self.orchestrator.cancel_all(), name="cancel-all")
 
     def action_open_workbench(self) -> None:
-        """Open the Curation Workbench modal for the selected job's audio file."""
+        """Open the detailed Curation Workbench modal for the selected job's audio file."""
         from harvester.ui.screens.curation_workbench import CurationWorkbenchModal
 
         if self.orchestrator is None:
@@ -769,7 +785,11 @@ class HarvesterApp(App[None]):
             self.notify("No audio file on disk for selected job", severity="warning")
             return
 
-        cutoff = job.spectral.cutoff_hz if (job.spectral and job.spectral.cutoff_hz) else 15500.0
+        cutoff = (
+            job.spectral.cutoff_hz
+            if (job.spectral and job.spectral.cutoff_hz)
+            else 15500.0
+        )
         self.push_screen(
             CurationWorkbenchModal(
                 audio_file=target_path,
@@ -789,7 +809,7 @@ class HarvesterApp(App[None]):
         """Play or pause the current track in the audio player."""
         player = self.query_one(AudioPlayerWidget)
         if player.current_track is None:
-            self._load_selected_into_player()
+            self._load_selected_into_workbench_and_player()
         player.toggle_playback()
 
     def action_toggle_vis_mode(self) -> None:
@@ -797,7 +817,7 @@ class HarvesterApp(App[None]):
         player = self.query_one(AudioPlayerWidget)
         player.toggle_vis_mode()
 
-    def _load_selected_into_player(self) -> None:
+    def _load_selected_into_workbench_and_player(self) -> None:
         if self.orchestrator is None:
             return
         job_id = self.query_one(JobTable).current_job_id()
@@ -806,19 +826,19 @@ class HarvesterApp(App[None]):
         job = self.orchestrator.jobs.get(job_id)
         if not job:
             return
-        target_path = job.output_path or job.input_path
-        if target_path and target_path.exists():
-            cutoff = (
-                job.spectral.cutoff_hz
-                if (job.spectral and job.spectral.cutoff_hz)
-                else None
-            )
-            player = self.query_one(AudioPlayerWidget)
-            player.load_track(target_path, title=job.display_name, cutoff_hz=cutoff)
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.load_job(job)
+        except Exception:
+            pass
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """When user selects a job in the table, load its audio into the player."""
-        self._load_selected_into_player()
+        """When user selects a job in the table, load its audio into workbench and player."""
+        self._load_selected_into_workbench_and_player()
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """When user navigates or clicks a job row, immediately load it into workbench."""
+        self._load_selected_into_workbench_and_player()
 
     def action_purge_trash(self) -> None:
         if self.orchestrator is not None and self.orchestrator.last_batch_root is not None:

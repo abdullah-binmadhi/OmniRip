@@ -98,7 +98,7 @@ async def test_apply_flush_renders_job_row(tmp_path) -> None:
         app._apply_flush(FlushPlan(job_ids=["job-1"]))
 
         assert table.has_job("job-1")
-        assert "📁" in table.get_row_at(table.get_row_index("job-1"))[0]
+        assert "[DIR]" in table.get_row_at(table.get_row_index("job-1"))[0]
         job.state = State.FALLBACK_DOWNLOADING
         app._apply_flush(FlushPlan(job_ids=["job-1"]))
         assert table.get_row_at(table.get_row_index("job-1"))[3] == "Fallback Downloading"

@@ -82,7 +82,7 @@ class AudioPlayerWidget(Widget):
 
     is_playing: reactive[bool] = reactive(False)
     current_track: reactive[Path | None] = reactive(None)
-    track_title: reactive[str] = reactive("No track loaded — select a track or press Space")
+    track_title: reactive[str] = reactive("NO TRACK LOADED // SELECT TRACK FROM TABLE")
     duration_s: reactive[float] = reactive(0.0)
     elapsed_s: reactive[float] = reactive(0.0)
 
@@ -102,9 +102,9 @@ class AudioPlayerWidget(Widget):
                 with Horizontal(id="player-title-row"):
                     yield Label(self.track_title, id="player-track-name")
                 with Horizontal(id="player-controls"):
-                    yield Button("▶ Play", id="btn-play", variant="primary")
-                    yield Button("⏹ Stop", id="btn-stop")
-                    yield Button("📊 Mode", id="btn-vis-mode")
+                    yield Button("[PLAY]", id="btn-play", variant="primary")
+                    yield Button("[STOP]", id="btn-stop")
+                    yield Button("[SPEC/WAVE]", id="btn-vis-mode")
                     yield Label("00:00 / 00:00", id="player-time")
                 yield ProgressBar(total=100, show_eta=False, id="player-progress")
             with Vertical(id="player-right"):
@@ -128,7 +128,7 @@ class AudioPlayerWidget(Widget):
     def watch_is_playing(self, playing: bool) -> None:
         try:
             btn = self.query_one("#btn-play", Button)
-            btn.label = "⏸ Pause" if playing else "▶ Play"
+            btn.label = "[PAUSE]" if playing else "[PLAY]"
             btn.variant = "warning" if playing else "primary"
         except Exception:
             pass
