@@ -1,7 +1,7 @@
 # Graph Report - OmniRip  (2026-09-19)
 
 ## Corpus Check
-- 128 files · ~63,242 words
+- 128 files · ~63,288 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 7 file(s) not represented in the graph (top: (none) 4, .toml 1, .tcss 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `652a3bb3`
+- Built from commit: `e2df80ba`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -626,12 +626,12 @@ Nodes (5): RowHighlighted, RowSelected, Play or pause the current track in the a
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AudioPlayerWidget` connect `AudioPlayerWidget` to `HarvesterApp`, `AudioVisualizer`, `test_ui_player.py`, `WorkbenchWidget`, `pathlib`, `ComposeResult`?**
-  _High betweenness centrality (0.039) - this node is a cross-community bridge._
-- **Why does `AppConfig` connect `AppConfig` to `config.py`, `scanner.py`, `AcoustidService`, `PipelineOrchestrator`, `environment.py`, `test_phase4_spectral.py`, `orchestrator.py`, `slskd.py`, `.__init__`, `FfmpegService`, `SlskdService`, `ytdlp.py`, `load_config`, `ValidationError`, `persist_first_run_acceptance`, `acoustid.py`, `YtdlpService`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
 - **Why does `AudioVisualizer` connect `AudioVisualizer` to `WorkbenchWidget`, `test_enhancement_workbench.py`, `pathlib`?**
-  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **Why does `AudioPlayerWidget` connect `AudioPlayerWidget` to `HarvesterApp`, `AudioVisualizer`, `test_ui_player.py`, `WorkbenchWidget`, `pathlib`, `ComposeResult`?**
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `AppConfig` connect `AppConfig` to `config.py`, `scanner.py`, `AcoustidService`, `PipelineOrchestrator`, `environment.py`, `test_phase4_spectral.py`, `orchestrator.py`, `slskd.py`, `.__init__`, `FfmpegService`, `SlskdService`, `ytdlp.py`, `load_config`, `ValidationError`, `persist_first_run_acceptance`, `acoustid.py`, `YtdlpService`?**
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._
 - **Are the 30 inferred relationships involving `ValidationError` (e.g. with `.submit_batch()` and `.submit_playlist()`) actually correct?**
   _`ValidationError` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 12 inferred relationships involving `PipelineOrchestrator` (e.g. with `AppConfig` and `FfmpegService`) actually correct?**

@@ -6460,7 +6460,7 @@
       "file_type": "code",
       "norm_label": ".compose()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L99"
+      "source_location": "L101"
     },
     {
       "id": "src_harvester_ui_visualizer_audiovisualizer_feed_levels",
@@ -6844,7 +6844,7 @@
       "file_type": "code",
       "norm_label": "._async_export()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L294"
+      "source_location": "L299"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_async_render_c",
@@ -6856,7 +6856,7 @@
       "file_type": "code",
       "norm_label": "._async_render_c()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L234"
+      "source_location": "L239"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_compose",
@@ -6868,7 +6868,7 @@
       "file_type": "code",
       "norm_label": ".compose()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L127"
+      "source_location": "L132"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_export_derivative",
@@ -6880,7 +6880,7 @@
       "file_type": "code",
       "norm_label": "._export_derivative()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L284"
+      "source_location": "L289"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_init",
@@ -6892,7 +6892,7 @@
       "file_type": "code",
       "norm_label": ".__init__()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L110"
+      "source_location": "L115"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_load_job",
@@ -6904,7 +6904,7 @@
       "file_type": "code",
       "norm_label": ".load_job()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L147"
+      "source_location": "L152"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_on_button_pressed",
@@ -6916,7 +6916,7 @@
       "file_type": "code",
       "norm_label": ".on_button_pressed()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L274"
+      "source_location": "L279"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_on_select_changed",
@@ -6928,7 +6928,7 @@
       "file_type": "code",
       "norm_label": ".on_select_changed()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L266"
+      "source_location": "L271"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_render_stream_c",
@@ -6940,7 +6940,7 @@
       "file_type": "code",
       "norm_label": "._render_stream_c()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L221"
+      "source_location": "L226"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_route_to_player",
@@ -6952,7 +6952,7 @@
       "file_type": "code",
       "norm_label": "._route_to_player()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L250"
+      "source_location": "L255"
     },
     {
       "id": "src_harvester_ui_workbench_workbenchwidget_set_active_stream",
@@ -6964,7 +6964,7 @@
       "file_type": "code",
       "norm_label": ".set_active_stream()",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L185"
+      "source_location": "L190"
     },
     {
       "id": "tests_test_ui_workbench_test_workbench_abc_stream_switching",
@@ -8248,7 +8248,7 @@
       "file_type": "code",
       "norm_label": "._async_load_frames()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L154"
+      "source_location": "L156"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_init",
@@ -8260,7 +8260,7 @@
       "file_type": "code",
       "norm_label": ".__init__()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L89"
+      "source_location": "L91"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_kill_proc",
@@ -8272,7 +8272,7 @@
       "file_type": "code",
       "norm_label": "._kill_proc()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L263"
+      "source_location": "L270"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_load_track",
@@ -8284,7 +8284,7 @@
       "file_type": "code",
       "norm_label": ".load_track()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L136"
+      "source_location": "L138"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_on_button_pressed",
@@ -8296,7 +8296,7 @@
       "file_type": "code",
       "norm_label": ".on_button_pressed()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L225"
+      "source_location": "L232"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_on_mount",
@@ -8308,7 +8308,7 @@
       "file_type": "code",
       "norm_label": ".on_mount()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L113"
+      "source_location": "L115"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_on_progress_tick",
@@ -8320,7 +8320,7 @@
       "file_type": "code",
       "norm_label": "._on_progress_tick()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L233"
+      "source_location": "L240"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_on_unmount",
@@ -8332,7 +8332,7 @@
       "file_type": "code",
       "norm_label": ".on_unmount()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L116"
+      "source_location": "L118"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_pause",
@@ -8344,7 +8344,7 @@
       "file_type": "code",
       "norm_label": ".pause()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L199"
+      "source_location": "L201"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_play",
@@ -8356,7 +8356,7 @@
       "file_type": "code",
       "norm_label": ".play()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L165"
+      "source_location": "L167"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_probe_duration",
@@ -8368,7 +8368,7 @@
       "file_type": "code",
       "norm_label": "._probe_duration()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L276"
+      "source_location": "L283"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_stop",
@@ -8380,7 +8380,7 @@
       "file_type": "code",
       "norm_label": ".stop()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L206"
+      "source_location": "L208"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_toggle_playback",
@@ -8392,7 +8392,7 @@
       "file_type": "code",
       "norm_label": ".toggle_playback()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L158"
+      "source_location": "L160"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_toggle_vis_mode",
@@ -8404,7 +8404,7 @@
       "file_type": "code",
       "norm_label": ".toggle_vis_mode()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L219"
+      "source_location": "L221"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_update_time_label",
@@ -8416,7 +8416,7 @@
       "file_type": "code",
       "norm_label": "._update_time_label()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L254"
+      "source_location": "L261"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_watch_is_playing",
@@ -8428,7 +8428,7 @@
       "file_type": "code",
       "norm_label": ".watch_is_playing()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L128"
+      "source_location": "L130"
     },
     {
       "id": "src_harvester_ui_player_audioplayerwidget_watch_track_title",
@@ -8440,7 +8440,7 @@
       "file_type": "code",
       "norm_label": ".watch_track_title()",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L122"
+      "source_location": "L124"
     },
     {
       "id": "src_harvester_pipeline_phase1_analyze_analyze_url",
@@ -15851,7 +15851,7 @@
       "source_location": ""
     },
     {
-      "id": "src_harvester_ui_workbench_rationale_148",
+      "id": "src_harvester_ui_workbench_rationale_153",
       "label": "Load a track job into the workbench and resolve its A/B/C streams.",
       "_origin": "ast",
       "community": 28,
@@ -15859,10 +15859,10 @@
       "file_type": "rationale",
       "norm_label": "load a track job into the workbench and resolve its a/b/c streams.",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L148"
+      "source_location": "L153"
     },
     {
-      "id": "src_harvester_ui_workbench_rationale_186",
+      "id": "src_harvester_ui_workbench_rationale_191",
       "label": "Switch audition stream between A (Original), B (MP3), and C (Enhanced).",
       "_origin": "ast",
       "community": 28,
@@ -15870,10 +15870,10 @@
       "file_type": "rationale",
       "norm_label": "switch audition stream between a (original), b (mp3), and c (enhanced).",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L186"
+      "source_location": "L191"
     },
     {
-      "id": "src_harvester_ui_workbench_rationale_222",
+      "id": "src_harvester_ui_workbench_rationale_227",
       "label": "Render enhanced preview slice for stream C if not already available.",
       "_origin": "ast",
       "community": 28,
@@ -15881,10 +15881,10 @@
       "file_type": "rationale",
       "norm_label": "render enhanced preview slice for stream c if not already available.",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L222"
+      "source_location": "L227"
     },
     {
-      "id": "src_harvester_ui_workbench_rationale_251",
+      "id": "src_harvester_ui_workbench_rationale_256",
       "label": "Load audio into the main player and visualizer.",
       "_origin": "ast",
       "community": 28,
@@ -15892,7 +15892,7 @@
       "file_type": "rationale",
       "norm_label": "load audio into the main player and visualizer.",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L251"
+      "source_location": "L256"
     },
     {
       "id": "src_harvester_ui_workbench_rationale_34",
@@ -16654,7 +16654,7 @@
       "source_location": ""
     },
     {
-      "id": "src_harvester_ui_player_rationale_142",
+      "id": "src_harvester_ui_player_rationale_144",
       "label": "Load an audio file into the player and prepare visualizer frames.",
       "_origin": "ast",
       "community": 37,
@@ -16662,10 +16662,10 @@
       "file_type": "rationale",
       "norm_label": "load an audio file into the player and prepare visualizer frames.",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L142"
+      "source_location": "L144"
     },
     {
-      "id": "src_harvester_ui_player_rationale_159",
+      "id": "src_harvester_ui_player_rationale_161",
       "label": "Toggle playback between playing and paused/stopped.",
       "_origin": "ast",
       "community": 37,
@@ -16673,10 +16673,10 @@
       "file_type": "rationale",
       "norm_label": "toggle playback between playing and paused/stopped.",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L159"
+      "source_location": "L161"
     },
     {
-      "id": "src_harvester_ui_player_rationale_166",
+      "id": "src_harvester_ui_player_rationale_168",
       "label": "Begin audio playback and animate visualizer.",
       "_origin": "ast",
       "community": 37,
@@ -16684,10 +16684,10 @@
       "file_type": "rationale",
       "norm_label": "begin audio playback and animate visualizer.",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L166"
+      "source_location": "L168"
     },
     {
-      "id": "src_harvester_ui_player_rationale_207",
+      "id": "src_harvester_ui_player_rationale_209",
       "label": "Stop playback and rewind to start.",
       "_origin": "ast",
       "community": 37,
@@ -16695,10 +16695,10 @@
       "file_type": "rationale",
       "norm_label": "stop playback and rewind to start.",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L207"
+      "source_location": "L209"
     },
     {
-      "id": "src_harvester_ui_player_rationale_220",
+      "id": "src_harvester_ui_player_rationale_222",
       "label": "Cycle visualizer display mode.",
       "_origin": "ast",
       "community": 37,
@@ -16706,7 +16706,7 @@
       "file_type": "rationale",
       "norm_label": "cycle visualizer display mode.",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L220"
+      "source_location": "L222"
     },
     {
       "id": "src_harvester_ui_player_rationale_23",
@@ -25733,6 +25733,30 @@
       "type": "external"
     },
     {
+      "id": "harvester_ui_themes",
+      "label": "harvester_ui_themes",
+      "_origin": "semantic",
+      "community": 63,
+      "community_name": "pathlib",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "harvester_ui_themes",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "harvester_ui_visualizer",
+      "label": "harvester_ui_visualizer",
+      "_origin": "semantic",
+      "community": 63,
+      "community_name": "pathlib",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "harvester_ui_visualizer",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "harvester_util_logging_setup",
       "label": "harvester_util_logging_setup",
       "_origin": "semantic",
@@ -25993,28 +26017,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "types",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "harvester_ui_themes",
-      "label": "harvester_ui_themes",
-      "community": 63,
-      "community_name": "pathlib",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "harvester_ui_themes",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "harvester_ui_visualizer",
-      "label": "harvester_ui_visualizer",
-      "community": 63,
-      "community_name": "pathlib",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "harvester_ui_visualizer",
       "source_file": "",
       "type": "external"
     }
@@ -31225,7 +31227,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L94",
+      "source_location": "L96",
       "weight": 1.0
     },
     {
@@ -31237,7 +31239,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L143",
+      "source_location": "L145",
       "weight": 1.0
     },
     {
@@ -31249,7 +31251,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L147",
+      "source_location": "L149",
       "weight": 1.0
     },
     {
@@ -31261,7 +31263,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L152",
+      "source_location": "L154",
       "weight": 1.0
     },
     {
@@ -31273,7 +31275,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L227",
+      "source_location": "L234",
       "weight": 1.0
     },
     {
@@ -31285,7 +31287,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L229",
+      "source_location": "L236",
       "weight": 1.0
     },
     {
@@ -31297,7 +31299,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L231",
+      "source_location": "L238",
       "weight": 1.0
     },
     {
@@ -31309,7 +31311,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L238",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -31321,7 +31323,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L252",
+      "source_location": "L259",
       "weight": 1.0
     },
     {
@@ -31333,7 +31335,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L117",
+      "source_location": "L119",
       "weight": 1.0
     },
     {
@@ -31345,7 +31347,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L201",
+      "source_location": "L203",
       "weight": 1.0
     },
     {
@@ -31357,7 +31359,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L208",
+      "source_location": "L210",
       "weight": 1.0
     },
     {
@@ -31369,7 +31371,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L215",
+      "source_location": "L217",
       "weight": 1.0
     },
     {
@@ -31381,7 +31383,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L161",
+      "source_location": "L163",
       "weight": 1.0
     },
     {
@@ -31393,7 +31395,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L163",
+      "source_location": "L165",
       "weight": 1.0
     },
     {
@@ -31537,7 +31539,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L246",
+      "source_location": "L251",
       "weight": 1.0
     },
     {
@@ -31549,7 +31551,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L292",
+      "source_location": "L297",
       "weight": 1.0
     },
     {
@@ -31561,7 +31563,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L116",
+      "source_location": "L121",
       "weight": 1.0
     },
     {
@@ -31573,7 +31575,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L181",
+      "source_location": "L186",
       "weight": 1.0
     },
     {
@@ -31585,7 +31587,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L276",
+      "source_location": "L281",
       "weight": 1.0
     },
     {
@@ -31597,7 +31599,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L282",
+      "source_location": "L287",
       "weight": 1.0
     },
     {
@@ -31609,7 +31611,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L272",
+      "source_location": "L277",
       "weight": 1.0
     },
     {
@@ -31621,7 +31623,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L232",
+      "source_location": "L237",
       "weight": 1.0
     },
     {
@@ -31633,7 +31635,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L211",
+      "source_location": "L216",
       "weight": 1.0
     },
     {
@@ -31645,7 +31647,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L217",
+      "source_location": "L222",
       "weight": 1.0
     },
     {
@@ -37393,7 +37395,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L110",
+      "source_location": "L115",
       "weight": 1.0
     },
     {
@@ -48109,7 +48111,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L154",
+      "source_location": "L156",
       "weight": 1.0
     },
     {
@@ -48121,7 +48123,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L136",
+      "source_location": "L138",
       "weight": 1.0
     },
     {
@@ -48133,7 +48135,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L225",
+      "source_location": "L232",
       "weight": 1.0
     },
     {
@@ -48145,7 +48147,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L276",
+      "source_location": "L283",
       "weight": 1.0
     },
     {
@@ -48265,7 +48267,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L294",
+      "source_location": "L299",
       "weight": 1.0
     },
     {
@@ -48277,7 +48279,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L234",
+      "source_location": "L239",
       "weight": 1.0
     },
     {
@@ -48289,7 +48291,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L147",
+      "source_location": "L152",
       "weight": 1.0
     },
     {
@@ -48301,7 +48303,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L274",
+      "source_location": "L279",
       "weight": 1.0
     },
     {
@@ -48313,7 +48315,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L266",
+      "source_location": "L271",
       "weight": 1.0
     },
     {
@@ -48325,7 +48327,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L250",
+      "source_location": "L255",
       "weight": 1.0
     },
     {
@@ -48337,7 +48339,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L185",
+      "source_location": "L190",
       "weight": 1.0
     },
     {
@@ -51001,7 +51003,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L99",
+      "source_location": "L101",
       "weight": 1.0
     },
     {
@@ -51073,7 +51075,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L127",
+      "source_location": "L132",
       "weight": 1.0
     },
     {
@@ -60553,13 +60555,24 @@
     },
     {
       "source": "src_harvester_ui_player_audioplayerwidget",
+      "target": "src_harvester_ui_player_audioplayerwidget_compose",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/harvester/ui/player.py",
+      "source_location": "L101",
+      "weight": 1.0
+    },
+    {
+      "source": "src_harvester_ui_player_audioplayerwidget",
       "target": "src_harvester_ui_player_audioplayerwidget_on_mount",
       "relation": "method",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L113",
+      "source_location": "L115",
       "weight": 1.0
     },
     {
@@ -60570,7 +60583,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L116",
+      "source_location": "L118",
       "weight": 1.0
     },
     {
@@ -60581,7 +60594,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L122",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -60592,7 +60605,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L128",
+      "source_location": "L130",
       "weight": 1.0
     },
     {
@@ -60603,7 +60616,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L136",
+      "source_location": "L138",
       "weight": 1.0
     },
     {
@@ -60614,7 +60627,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L154",
+      "source_location": "L156",
       "weight": 1.0
     },
     {
@@ -60625,7 +60638,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L158",
+      "source_location": "L160",
       "weight": 1.0
     },
     {
@@ -60636,7 +60649,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L165",
+      "source_location": "L167",
       "weight": 1.0
     },
     {
@@ -60647,7 +60660,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L199",
+      "source_location": "L201",
       "weight": 1.0
     },
     {
@@ -60658,7 +60671,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L206",
+      "source_location": "L208",
       "weight": 1.0
     },
     {
@@ -60669,7 +60682,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L219",
+      "source_location": "L221",
       "weight": 1.0
     },
     {
@@ -60680,7 +60693,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L225",
+      "source_location": "L232",
       "weight": 1.0
     },
     {
@@ -60691,7 +60704,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L233",
+      "source_location": "L240",
       "weight": 1.0
     },
     {
@@ -60702,7 +60715,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L254",
+      "source_location": "L261",
       "weight": 1.0
     },
     {
@@ -60713,7 +60726,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L263",
+      "source_location": "L270",
       "weight": 1.0
     },
     {
@@ -60724,7 +60737,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L276",
+      "source_location": "L283",
       "weight": 1.0
     },
     {
@@ -60735,18 +60748,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L89",
-      "weight": 1.0
-    },
-    {
-      "source": "src_harvester_ui_player_audioplayerwidget",
-      "target": "src_harvester_ui_player_audioplayerwidget_compose",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "src/harvester/ui/player.py",
-      "source_location": "L99",
+      "source_location": "L91",
       "weight": 1.0
     },
     {
@@ -60988,7 +60990,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L110",
+      "source_location": "L115",
       "weight": 1.0
     },
     {
@@ -60999,7 +61001,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L127",
+      "source_location": "L132",
       "weight": 1.0
     },
     {
@@ -61010,7 +61012,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L147",
+      "source_location": "L152",
       "weight": 1.0
     },
     {
@@ -61021,7 +61023,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L185",
+      "source_location": "L190",
       "weight": 1.0
     },
     {
@@ -61032,7 +61034,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L221",
+      "source_location": "L226",
       "weight": 1.0
     },
     {
@@ -61043,7 +61045,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L234",
+      "source_location": "L239",
       "weight": 1.0
     },
     {
@@ -61054,7 +61056,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L250",
+      "source_location": "L255",
       "weight": 1.0
     },
     {
@@ -61065,7 +61067,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L266",
+      "source_location": "L271",
       "weight": 1.0
     },
     {
@@ -61076,7 +61078,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L274",
+      "source_location": "L279",
       "weight": 1.0
     },
     {
@@ -61087,7 +61089,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L284",
+      "source_location": "L289",
       "weight": 1.0
     },
     {
@@ -61098,7 +61100,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L294",
+      "source_location": "L299",
       "weight": 1.0
     },
     {
@@ -64996,58 +64998,58 @@
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_player_rationale_142",
+      "source": "src_harvester_ui_player_rationale_144",
       "target": "src_harvester_ui_player_audioplayerwidget_load_track",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L142",
+      "source_location": "L144",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_player_rationale_159",
+      "source": "src_harvester_ui_player_rationale_161",
       "target": "src_harvester_ui_player_audioplayerwidget_toggle_playback",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L159",
+      "source_location": "L161",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_player_rationale_166",
+      "source": "src_harvester_ui_player_rationale_168",
       "target": "src_harvester_ui_player_audioplayerwidget_play",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L166",
+      "source_location": "L168",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_player_rationale_207",
+      "source": "src_harvester_ui_player_rationale_209",
       "target": "src_harvester_ui_player_audioplayerwidget_stop",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L207",
+      "source_location": "L209",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_player_rationale_220",
+      "source": "src_harvester_ui_player_rationale_222",
       "target": "src_harvester_ui_player_audioplayerwidget_toggle_vis_mode",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L220",
+      "source_location": "L222",
       "weight": 1.0
     },
     {
@@ -65249,47 +65251,47 @@
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_workbench_rationale_148",
+      "source": "src_harvester_ui_workbench_rationale_153",
       "target": "src_harvester_ui_workbench_workbenchwidget_load_job",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L148",
+      "source_location": "L153",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_workbench_rationale_186",
+      "source": "src_harvester_ui_workbench_rationale_191",
       "target": "src_harvester_ui_workbench_workbenchwidget_set_active_stream",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L186",
+      "source_location": "L191",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_workbench_rationale_222",
+      "source": "src_harvester_ui_workbench_rationale_227",
       "target": "src_harvester_ui_workbench_workbenchwidget_render_stream_c",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L222",
+      "source_location": "L227",
       "weight": 1.0
     },
     {
-      "source": "src_harvester_ui_workbench_rationale_251",
+      "source": "src_harvester_ui_workbench_rationale_256",
       "target": "src_harvester_ui_workbench_workbenchwidget_route_to_player",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L251",
+      "source_location": "L256",
       "weight": 1.0
     },
     {
@@ -67407,7 +67409,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "src/harvester/ui/player.py",
-      "source_location": "L111",
+      "source_location": "L113",
       "weight": 1.0
     },
     {
@@ -67419,7 +67421,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L143",
+      "source_location": "L148",
       "weight": 1.0
     },
     {
@@ -67431,7 +67433,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L118",
+      "source_location": "L123",
       "weight": 1.0
     },
     {
@@ -67443,7 +67445,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L119",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -68852,7 +68854,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.95,
       "source_file": "src/harvester/ui/workbench.py",
-      "source_location": "L253",
+      "source_location": "L258",
       "weight": 0.8
     },
     {
@@ -76525,5 +76527,5 @@
       "source_file": "CHANGELOG.md"
     }
   ],
-  "built_at_commit": "652a3bb382be54be6f0159ed3da4da17f961bba9"
+  "built_at_commit": "e2df80ba536a576d4b5e81110c1bbddbb3bbb4e4"
 }
