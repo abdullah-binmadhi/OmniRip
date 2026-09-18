@@ -9,8 +9,10 @@ htmlcov/
 config.toml
 .DS_Store
 
-# Local daemon configuration contains Soulseek credentials and the slskd API key.
-tools/slskd/slskd.local.yml
+# Local daemon configuration, credentials, binaries, and runtime data.
+tools/slskd/*
+!tools/slskd/README.md
+!tools/slskd/slskd.yml
 
 # Runtime data; the graphify-out/ knowledge graph is intentionally tracked.
 .harvester/
