@@ -23,8 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--data-dir",
         help="override the platform data directory (useful for isolated profiles)",
     )
-    parser.add_argument("--enhance", help="enhance audio file directly via CLI without TUI", metavar="FILE")
-    parser.add_argument("--preset", default="conservative", help="enhancement preset (default: conservative)")
+    parser.add_argument(
+        "--enhance",
+        help="enhance audio file directly via CLI without TUI",
+        metavar="FILE",
+    )
+    parser.add_argument(
+        "--preset",
+        default="conservative",
+        help="enhancement preset (default: conservative)",
+    )
     parser.add_argument("--bitrate", default="320k", help="output MP3 bitrate (default: 320k)")
     parser.add_argument("--version", action="version", version=f"OmniRip {__version__}")
     return parser
@@ -35,6 +43,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.enhance:
         from pathlib import Path
+
         from harvester.analysis.enhancement.presets import PRESETS
         from harvester.services.enhancement.exporter import EnhancementExporter
 

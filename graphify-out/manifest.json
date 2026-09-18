@@ -12,9 +12,9 @@
     "semantic_hash": "a149d383546e37d405332a5620cb92f5"
   },
   "README.md": {
-    "mtime": 1789757380.9774423,
-    "seen": 1789757387.843555,
-    "ast_hash": "cda34fe6b8fc9d40ba8bf358e1271b75",
+    "mtime": 1789764222.6396754,
+    "seen": 1789764650.218573,
+    "ast_hash": "2bbf6c75682a3d2099aabdf94d7c4dee",
     "semantic_hash": ""
   },
   "docs/01-requirements.md": {
@@ -72,10 +72,10 @@
     "semantic_hash": "311138fa8a0bbcea2f6b463f8f4ac49c"
   },
   "docs/10-roadmap.md": {
-    "mtime": 1789751049.1743248,
-    "seen": 1789751442.713207,
-    "ast_hash": "cb35c3335c3a943f1200d4928e132a47",
-    "semantic_hash": "cb35c3335c3a943f1200d4928e132a47"
+    "mtime": 1789764204.160302,
+    "seen": 1789764650.2185988,
+    "ast_hash": "aae9f78bb1bbd2dbb8aa90565983b957",
+    "semantic_hash": ""
   },
   "docs/11-enhanced-prompt.md": {
     "mtime": 1789718796.126036,
@@ -582,10 +582,10 @@
     "semantic_hash": "8c3e0a65a0d5013a624e2dfc8807df47"
   },
   "CHANGELOG.md": {
-    "mtime": 1789751042.7425303,
-    "seen": 1789751442.713207,
-    "ast_hash": "0d9c0238efbcefc2086e1c7e62dba280",
-    "semantic_hash": "0d9c0238efbcefc2086e1c7e62dba280"
+    "mtime": 1789764210.6129262,
+    "seen": 1789764650.218554,
+    "ast_hash": "a458b86118422caf7906bfbd46ba758a",
+    "semantic_hash": ""
   },
   "OmniRip": {
     "mtime": 1789757584.640024,
@@ -690,10 +690,10 @@
     "semantic_hash": "15d3ef779270a000a6181982cafd1c1a"
   },
   "src/harvester/services/model_manager.py": {
-    "mtime": 1789763612.3296106,
-    "seen": 1789763911.368033,
-    "ast_hash": "d2d1cb395dcaac75646117c1d6c2592f",
-    "semantic_hash": "d2d1cb395dcaac75646117c1d6c2592f"
+    "mtime": 1789764331.4648066,
+    "seen": 1789764650.2185102,
+    "ast_hash": "6664e7f181b7ca633aad051c2eed9ea9",
+    "semantic_hash": ""
   },
   "src/harvester/ui/screens/curation_workbench.py": {
     "mtime": 1789763858.7521114,

@@ -10,7 +10,7 @@ import pytest
 
 from harvester.analysis.enhancement import check_enhancement_available
 from harvester.analysis.enhancement.provider import EnhancementProvider
-from harvester.services.model_manager import ModelManager, SUPPORTED_MODELS
+from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
 
 
 def test_enhancement_provider_protocol_check():

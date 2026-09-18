@@ -112,7 +112,7 @@ class NVSRProvider:
     def _run_inference(self, audio_2d: np.ndarray, sample_rate: int) -> np.ndarray:
         """Internal inference wrapper."""
         if not self.is_available:
-            # When model is not loaded (e.g. testing or missing torch), generate synthetic upper band
+            # When model is not loaded (e.g. testing or missing torch), generate synthetic band
             f_mid = sample_rate / 4.0
             _, high = split_bands(audio_2d, cutoff_hz=f_mid, sample_rate=sample_rate)
             return (high * 0.8).astype(np.float32)
@@ -120,7 +120,11 @@ class NVSRProvider:
         import torch
 
         model = self._load_model()
-        device = next(model.parameters()).device if hasattr(model, "parameters") else torch.device("cpu")
+        device = (
+            next(model.parameters()).device
+            if hasattr(model, "parameters")
+            else torch.device("cpu")
+        )
 
         with torch.no_grad():
             tensor = torch.from_numpy(audio_2d).unsqueeze(0).to(device)

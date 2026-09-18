@@ -33,8 +33,6 @@ def test_conservative_dsp_provider():
     res_fft = np.abs(np.fft.rfft(res))
     freqs = np.fft.rfftfreq(len(signal), 1.0 / sr)
     idx_1k = np.argmin(np.abs(freqs - 1000))
-    idx_16k = np.argmin(np.abs(freqs - 16000))
-
     assert res_fft[idx_1k] < 0.05 * np.max(res_fft)
 
 

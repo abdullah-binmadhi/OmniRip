@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import wave
 
 import numpy as np
 import pytest

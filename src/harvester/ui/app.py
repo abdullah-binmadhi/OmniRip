@@ -760,7 +760,9 @@ class HarvesterApp(App[None]):
             CurationWorkbenchModal(
                 audio_file=target_path,
                 detected_cutoff_hz=cutoff,
-                on_exported=lambda path: self.notify(f"Exported: {path.name}", severity="information"),
+                on_exported=lambda path: self.notify(
+                    f"Exported: {path.name}", severity="information"
+                ),
             )
         )
 

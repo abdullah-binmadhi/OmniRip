@@ -65,7 +65,9 @@ class FlashSRProvider:
         raw_output = self._run_inference(audio_2d, sample_rate)
 
         # Strictly isolate above effective_cutoff
-        _, air_residual = split_bands(raw_output, cutoff_hz=effective_cutoff, sample_rate=sample_rate)
+        _, air_residual = split_bands(
+            raw_output, cutoff_hz=effective_cutoff, sample_rate=sample_rate
+        )
 
         # Enforce gentle spectral decay to avoid digital sizzle
         scaled = match_spectral_slope(

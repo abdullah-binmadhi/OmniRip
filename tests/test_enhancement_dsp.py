@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from harvester.analysis.enhancement.dsp import (
     apply_limiter,
@@ -72,7 +71,9 @@ def test_apply_progressive_mono():
     right = -np.sin(2 * np.pi * 80 * t) + 0.5 * np.sin(2 * np.pi * 1000 * t)
     stereo_in = np.stack([left, right], axis=0).astype(np.float32)
 
-    processed = apply_progressive_mono(stereo_in, sample_rate=sr, low_cut_hz=100.0, high_cut_hz=250.0)
+    processed = apply_progressive_mono(
+        stereo_in, sample_rate=sr, low_cut_hz=100.0, high_cut_hz=250.0
+    )
 
     # Sub-bass: side channel (L - R) at 80 Hz should be 0
     p_left, p_right = processed[0], processed[1]

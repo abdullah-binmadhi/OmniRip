@@ -198,7 +198,8 @@ def recombine_audio(
     ceiling_dbfs: float = -0.1,
 ) -> np.ndarray:
     """
-    Safely recombine the untouched lower band with the high-frequency residual and apply peak limiting.
+    Safely recombine the untouched lower band with the high-frequency residual
+    and apply peak limiting.
     """
     low_2d, was_1d = ensure_2d_audio(lower_band)
     res_2d, _ = ensure_2d_audio(residual_band)

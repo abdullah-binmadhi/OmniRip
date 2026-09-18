@@ -3,23 +3,21 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import subprocess
-from typing import BinaryIO
+from pathlib import Path
 
 import mutagen
-from mutagen.id3 import ID3, COMM, TXXX
 import numpy as np
+from mutagen.id3 import COMM, ID3, TXXX
 
 from harvester.analysis.enhancement.dsp import (
-    apply_limiter,
     apply_progressive_mono,
     ensure_2d_audio,
     match_spectral_slope,
     recombine_audio,
     split_bands,
 )
-from harvester.analysis.enhancement.presets import EnhancementPreset, PRESETS
+from harvester.analysis.enhancement.presets import EnhancementPreset
 from harvester.analysis.enhancement.provider import EnhancementProvider
 from harvester.services.enhancement.conservative_provider import ConservativeDSPProvider
 from harvester.services.enhancement.flashsr_provider import FlashSRProvider
@@ -57,7 +55,7 @@ class EnhancementExporter:
             "pipe:1",
         ]
         try:
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            res = subprocess.run(cmd, capture_output=True, check=True)
             raw = res.stdout
             audio = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2).T
             return audio
@@ -98,10 +96,16 @@ class EnhancementExporter:
             "3",
             str(output_path),
         ]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         stdout, stderr = proc.communicate(input=interleaved)
         if proc.returncode != 0:
-            raise RuntimeError(f"FFmpeg MP3 encoding failed (code {proc.returncode}): {stderr.decode('utf-8')}")
+            err_msg = stderr.decode("utf-8")
+            raise RuntimeError(f"FFmpeg MP3 encoding failed (code {proc.returncode}): {err_msg}")
 
     def render_audio_buffer(
         self,
@@ -131,7 +135,9 @@ class EnhancementExporter:
 
         # 3. Resolve provider
         provider = self._providers.get(preset.provider_type) or self._providers["conservative"]
-        raw_residual = provider.generate_residual(base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz)
+        raw_residual = provider.generate_residual(
+            base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz
+        )
 
         # 4. Mid-Side width control on residual
         if preset.residual_stereo_width != 1.0 and raw_residual.shape[0] >= 2:
@@ -165,7 +171,7 @@ class EnhancementExporter:
         bitrate: str = "320k",
     ) -> Path:
         """
-        Decode input file, render enhanced audio, write MP3 derivative, and attach ID3 provenance tags.
+        Decode input file, render enhanced audio, write MP3 derivative, and attach ID3 tags.
         Original input file is never touched or overwritten.
         """
         input_path = Path(input_path)
@@ -214,8 +220,9 @@ class EnhancementExporter:
             try:
                 source_meta = mutagen.File(source_path)
                 if source_meta is not None and source_meta.tags is not None:
+                    allowed_prefixes = ("TIT2", "TPE1", "TALB", "APIC")
                     for key, val in source_meta.tags.items():
-                        if key.startswith("TIT2") or key.startswith("TPE1") or key.startswith("TALB") or key.startswith("APIC"):
+                        if any(key.startswith(p) for p in allowed_prefixes):
                             target_tags[key] = val
             except Exception as e:
                 logger.debug("Could not copy original metadata: %s", e)

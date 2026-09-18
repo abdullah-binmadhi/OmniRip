@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import mutagen
-from mutagen.id3 import ID3, TXXX, COMM
 import numpy as np
-import pytest
+from mutagen.id3 import ID3
 
 from harvester.analysis.enhancement.presets import PRESETS
 from harvester.services.enhancement.exporter import EnhancementExporter
@@ -33,8 +31,10 @@ def test_render_audio_buffer_all_presets():
     # Stereo input signal
     audio_in = np.random.normal(0, 0.2, (2, n)).astype(np.float32)
 
-    for preset_name, preset in PRESETS.items():
-        out = exporter.render_audio_buffer(audio_in, preset=preset, cutoff_hz=15000.0, sample_rate=sr)
+    for _preset_name, preset in PRESETS.items():
+        out = exporter.render_audio_buffer(
+            audio_in, preset=preset, cutoff_hz=15000.0, sample_rate=sr
+        )
         assert out.shape == (2, n)
         # Peak must not exceed ceiling
         ceiling_linear = 10.0 ** (preset.ceiling_dbfs / 20.0)
@@ -77,7 +77,7 @@ def test_export_preserves_original_master(tmp_path: Path):
 
     dummy_audio = np.zeros((2, 4800), dtype=np.float32)
     with patch.object(exporter, "decode_audio_ffmpeg", return_value=dummy_audio):
-        with patch.object(exporter, "encode_mp3_ffmpeg") as mock_encode:
+        with patch.object(exporter, "encode_mp3_ffmpeg"):
             with patch.object(exporter, "_apply_provenance_tags"):
                 out_file = exporter.export_enhanced_derivative(
                     input_path=source_path,

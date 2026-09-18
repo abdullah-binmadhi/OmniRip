@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import platform
 import subprocess
 import wave
+from pathlib import Path
 
 import numpy as np
 import platformdirs
 
-from harvester.analysis.enhancement.presets import EnhancementPreset, PRESETS
+from harvester.analysis.enhancement.presets import EnhancementPreset
 from harvester.services.enhancement.exporter import EnhancementExporter
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 class PreviewManager:
     """Manages rendering 15-second A/B comparison audio slices and triggering external players."""
 
-    def __init__(self, cache_dir: Path | None = None, exporter: EnhancementExporter | None = None) -> None:
+    def __init__(
+        self,
+        cache_dir: Path | None = None,
+        exporter: EnhancementExporter | None = None,
+    ) -> None:
         if cache_dir is None:
             self.cache_dir = Path(platformdirs.user_cache_dir("omnirip")) / "previews"
         else:

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import platformdirs
 
@@ -105,7 +105,8 @@ class ModelManager:
         """
         key = model_name.lower()
         if key not in SUPPORTED_MODELS:
-            raise KeyError(f"Unknown model '{model_name}'. Supported: {list(SUPPORTED_MODELS.keys())}")
+            models_list = list(SUPPORTED_MODELS.keys())
+            raise KeyError(f"Unknown model '{model_name}'. Supported: {models_list}")
 
         spec = SUPPORTED_MODELS[key]
         dest_path = self.cache_dir / spec.filename

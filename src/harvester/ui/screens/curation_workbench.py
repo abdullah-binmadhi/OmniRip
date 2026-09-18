@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, Static
 
-from harvester.analysis.enhancement.presets import EnhancementPreset, PRESETS
+from harvester.analysis.enhancement.presets import PRESETS
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
 
@@ -81,7 +81,10 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="workbench-dialog"):
-            yield Label(f"🎵 Audio Enhancement Workbench: {self.audio_file.name}", id="workbench-title")
+            yield Label(
+                f"🎵 Audio Enhancement Workbench: {self.audio_file.name}",
+                id="workbench-title",
+            )
             yield Label(
                 f"Source: {self.audio_file.name} | Detected Cutoff: {self.cutoff_hz:.0f} Hz",
                 id="meta-info",

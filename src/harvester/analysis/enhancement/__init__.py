@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+
 from harvester.analysis.enhancement.provider import EnhancementProvider
 
 __all__ = [
