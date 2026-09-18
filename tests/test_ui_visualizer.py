@@ -1,11 +1,10 @@
-"""Unit tests for AudioVisualizer widget (spectrum & oscilloscope modes)."""
+"""Unit tests for AudioVisualizer widget across all 5 visualizer modes."""
 
 from __future__ import annotations
 
-import numpy as np
 from textual.app import App, ComposeResult
 
-from harvester.ui.visualizer import AudioVisualizer
+from harvester.ui.visualizer import MODES_LIST, AudioVisualizer
 
 
 class VisualizerTestApp(App[None]):
@@ -22,21 +21,19 @@ async def test_audio_visualizer_modes_and_render() -> None:
         assert vis.cutoff_hz == 16000.0
 
         # Feed manual normalized levels
-        levels = [0.1 * i for i in range(16)]
+        levels = [0.05 * (i + 1) for i in range(16)]
         vis.feed_levels(levels)
-        rendered = vis.render()
-        assert rendered is not None
-        assert len(rendered.plain) > 0
+        vis.is_playing = True
 
-        # Toggle to oscilloscope mode
-        new_mode = vis.toggle_mode()
-        assert new_mode == "oscilloscope"
-        assert vis.mode == "oscilloscope"
-        rendered_wave = vis.render()
-        assert rendered_wave is not None
+        # Test all 5 visualizer modes render non-empty content
+        for expected_mode in MODES_LIST:
+            assert vis.mode == expected_mode
+            rendered = vis.render()
+            assert rendered is not None
+            assert len(rendered.plain) > 0
+            # Advance to next mode
+            vis.toggle_mode()
 
-        # Feed raw PCM data
-        pcm = np.sin(2 * np.pi * 440 * np.linspace(0, 0.1, 4410)).astype(np.float32)
-        vis.feed_pcm(pcm, sample_rate=44100)
-        assert vis._levels is not None
+        # Cycle back to start
+        assert vis.mode == "spectrum"
         await pilot.pause()

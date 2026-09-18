@@ -329,10 +329,13 @@ class AudioPlayerWidget(Widget):
             vis = self.query_one("#player-visualizer", AudioVisualizer)
             vis.set_cutoff(cutoff_hz)
             vis.seek(self.elapsed_s)
+            if was_playing:
+                vis.play()
         except Exception:
             pass
 
         self._update_time_label()
+        self.run_worker(self._async_load_frames(self.current_track), name="load-vis-frames")
 
         if was_playing:
             self.play()
@@ -460,15 +463,18 @@ class AudioPlayerWidget(Widget):
             self.seek(target_time)
 
     def toggle_vis_mode(self) -> None:
-        """Cycle visualizer display mode."""
+        """Cycle visualizer display mode across all varieties."""
         vis = self.query_one("#player-visualizer", AudioVisualizer)
         mode = vis.toggle_mode()
+        from harvester.ui.visualizer import MODE_LABELS
+
+        btn_label, mode_desc = MODE_LABELS.get(mode, ("ılı. SPEC", "Spectrum"))
         try:
             btn = self.query_one("#btn-vis-mode", Button)
-            btn.label = "∿ WAVE" if mode == "oscilloscope" else "ılı. SPEC"
+            btn.label = btn_label
         except Exception:
             pass
-        self.app.notify(f"Visualizer: {mode.title()}", timeout=2.0)
+        self.app.notify(f"Visualizer: {mode_desc}", timeout=2.0)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-play":
