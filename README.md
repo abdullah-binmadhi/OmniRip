@@ -88,6 +88,28 @@ Two entry modes feed one 5-phase asynchronous pipeline:
   lossy files → queue the rest for upgrade through the same pipeline → atomically replace
   originals (old files preserved in `.trash/`).
 
+## Audio Enhancement Workbench (Milestone 10)
+
+For legacy or compromised files ($116\text{ kbps} \text{--} 192\text{ kbps}$) where no lossless P2P or stream fallback can be acquired, OmniRip provides an **optional, non-destructive enhancement layer**:
+
+- **Sub-$f_c$ Passband Invariance:** Audio below the detected compression cutoff $f_c$ is strictly preserved from the master and never altered by AI models.
+- **DSP Safety Wrappers:** Linear-phase crossover at $f_c$, progressive mono bass blend (<100 Hz mono for punch, 100–250 Hz fade, >250 Hz full stereo preserved), and soft-knee peak limiting.
+- **Five Deterministic Presets:**
+  - `conservative`: Non-neural subtle harmonic excitation (pure NumPy).
+  - `fast_balanced`: NVSR non-diffusion base residual with natural spectral decay.
+  - `de_sizzle`: Attenuated high-frequency residual (-2.5 dB) with steep roll-off.
+  - `extended_air`: Hybrid NVSR mid-highs with FlashSR ultra-high air band (>16 kHz).
+  - `narrow_stereo`: Reduced high-band stereo width (65%) to eliminate headphone flutter.
+- **Interactive TUI Workbench:** Select any completed or local track in the `JobTable` and press `w` to open the Curation Workbench modal. Listen to a 15-second energetic A/B preview in your system player and export a `.enhanced.mp3` derivative.
+- **Headless CLI Enhancer:**
+  ```sh
+  OmniRip --enhance /path/to/track.mp3 --preset fast_balanced --bitrate 320k
+  ```
+- **Optional Neural Extras:**
+  ```sh
+  pip install '.[restore]'   # installs torch, torchaudio, huggingface_hub
+  ```
+
 ```mermaid
 graph TD
     A[Mode A: URL input] --> P1[Phase 1: Input analysis]

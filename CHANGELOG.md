@@ -6,14 +6,22 @@ All notable changes to `harvester` are documented here. Versioning follows
 
 ## [Unreleased]
 
-### Fixed
+## [0.2.0] — 2026-09-18
 
-- **slskd 0.26 API compatibility:** the D6 OpenAPI check now normalizes the
-  version-templated route strings served by slskd 0.26+ (`/api/v{version}/...`),
-  and the download lane targets `POST /api/v0/transfers/downloads/{username}` with
-  the new array body instead of the legacy `/api/v0/users/{username}/downloads/{token}`
-  form. The OpenAPI route picker no longer relies on a dead placeholder regex, so
-  download-route selection is derived from the live API surface again.
+Milestone 10 release: Neural Audio Enhancement Workbench.
+
+### Added
+
+- **M10 — Optional Neural & DSP Audio Enhancement Workbench:**
+  - `restore` optional extra in `pyproject.toml` (`torch`, `torchaudio`, `huggingface_hub`).
+  - `ModelManager` for automated Hugging Face checkpoint download and SHA-256 integrity verification into `~/.cache/omnirip/models/`.
+  - DSP engine: complementary linear-phase crossover (`split_bands`), progressive mono bass filter (`apply_progressive_mono`: <100Hz mono, 100-250Hz fade, >250Hz stereo preserved), spectral slope matching (`match_spectral_slope`), and soft-knee peak limiter (`apply_limiter`).
+  - Four enhancement providers: `ConservativeDSPProvider` (pure NumPy), `NVSRProvider` (Apple Silicon MPS / CPU), `FlashSRProvider` (air-band generator), and `HybridCoOpProvider`.
+  - Five deterministic presets: `Conservative DSP`, `Fast Neural (Balanced)`, `Milder Highs (De-Sizzle)`, `Extended Air (Hybrid)`, and `Narrow Residual`.
+  - Non-destructive `EnhancementExporter`: direct FFmpeg subprocess encoding to 320k MP3 derivatives with explicit Mutagen ID3 provenance tags (`TXXX:DERIVED_FROM_LOSSY`, `TXXX:SYNTHETIC_HIGH_BAND`, etc.).
+  - `PreviewManager`: RMS-based 15s energetic excerpt detection, matched A/B WAV pair generation, and non-blocking system player dispatch.
+  - `CurationWorkbenchModal` in Textual TUI accessible via `w` keybinding in `JobTable`.
+  - Headless CLI flags: `harvester --enhance <file> [--preset <preset>] [--bitrate <bitrate>]`.
 
 ## [0.1.0] — 2026-09-18
 

@@ -14,6 +14,7 @@ milestone per work session with a coding assistant, feeding it
 | 5 | Mode B batch audit | M4 | ✅ Complete — scanner, skip matrix, atomic swap, `.trash/`, batch report |
 | 6 | TUI hardening | M5 | ✅ Complete — bridge throttle/coalesce, modals, keybindings, first-run, status worker, playlist flow |
 | 7 | QA & packaging | M6 | ✅ Complete — CI matrix, coverage gate, quickstart, CHANGELOG |
+| 10 | Neural Audio Enhancement Workbench | M6 | ✅ Complete — model manager, DSP crossover/progressive mono, NVSR/FlashSR providers, presets, preview manager, workbench screen, CLI --enhance |
 
 ---
 
@@ -149,6 +150,22 @@ core-coverage gate). Core coverage measured at 85%. Items 1–6 of the manual sm
 checklist (docs/09 §7.4) remain pending real-service execution on a machine with slskd,
 ffmpeg/ffprobe, and an AcoustID key installed — they are recorded as release gates here,
 not automatable without those binaries.
+
+## M10 — Neural Audio Enhancement Workbench
+
+**Specs:** `m10_enhancement_workbench_plan.md`, band-limited residual isolation, sub-$f_c$ invariance.
+**Build:**
+- Optional dependencies extra `restore = ["huggingface_hub>=0.20", "torch>=2.2", "torchaudio>=2.2"]` in `pyproject.toml`.
+- `ModelManager` with automated Hugging Face checkpoint download and SHA-256 validation.
+- `EnhancementProvider` protocol and 4 providers: `ConservativeDSPProvider` (pure NumPy), `NVSRProvider` (Apple Silicon MPS / CPU), `FlashSRProvider` (distilled diffusion air-band), `HybridCoOpProvider`.
+- DSP engine (`split_bands` zero-phase crossover, `apply_progressive_mono` sub-100Hz mono blend, `match_spectral_slope`, `apply_limiter` soft-knee ceiling at -0.1 dBFS).
+- 5 deterministic presets (`conservative`, `fast_balanced`, `de_sizzle`, `extended_air`, `narrow_stereo`).
+- `EnhancementExporter` rendering 320k MP3 derivatives with Mutagen ID3 provenance tags (`TXXX:DERIVED_FROM_LOSSY=true`, `TXXX:SYNTHETIC_HIGH_BAND=true`, etc.) while leaving original master untouched.
+- `PreviewManager` generating 15s energetic A/B preview WAV pairs and launching non-blocking OS player (`open` / `xdg-open`).
+- `CurationWorkbenchModal` interactive Textual screen accessible via `w` keybinding in `HarvesterApp`.
+- Headless CLI flags: `harvester --enhance FILE [--preset PRESET] [--bitrate BITRATE]`.
+
+**Status:** ✅ Implementation complete. Validated with 28 passing unit and integration tests across DSP, providers, exporter, presets, previews, and UI pilot (`tests/test_model_manager.py`, `tests/test_enhancement_dsp.py`, `tests/test_enhancement_providers.py`, `tests/test_enhancement_exporter.py`, `tests/test_enhancement_workbench.py`, `tests/test_main.py`, `tests/test_ui_pilot.py`). Zero regressions on full project test suite (205 passed).
 
 ---
 

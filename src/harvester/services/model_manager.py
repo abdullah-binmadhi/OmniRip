@@ -29,16 +29,16 @@ class ModelSpec:
 SUPPORTED_MODELS: dict[str, ModelSpec] = {
     "nvsr": ModelSpec(
         name="nvsr",
-        repo_id="omnirip/nvsr-audio-sr",
-        filename="nvsr_resunet_48k.pt",
+        repo_id="haoheliu/wellsolve_audio_super_resolution_48k",
+        filename="basic.pth",
         target_sample_rate=48000,
         expected_sha256=None,  # Verified dynamically if provided
         description="NVSR non-diffusion base stabilization model (48kHz)",
     ),
     "flashsr": ModelSpec(
         name="flashsr",
-        repo_id="omnirip/flashsr-air-band",
-        filename="flashsr_air_48k.pt",
+        repo_id="laion/FlashSR_One-step_Versatile_Audio_Super-resolution",
+        filename="weights/sr_vocoder.pth",
         target_sample_rate=48000,
         expected_sha256=None,
         description="FlashSR distilled diffusion air-band generator (>16kHz)",
