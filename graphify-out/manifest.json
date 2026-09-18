@@ -156,9 +156,9 @@
     "semantic_hash": "728dbc86a45753688333bd2ff1e4fcb6"
   },
   "src/harvester/ui/app.py": {
-    "mtime": 1789766047.246732,
-    "seen": 1789766097.263849,
-    "ast_hash": "a1b766f179e4d09b8839b739bc9bd3be",
+    "mtime": 1789767150.0245652,
+    "seen": 1789767219.270344,
+    "ast_hash": "17bd227659226c6e5bb94df2f6c1b144",
     "semantic_hash": ""
   },
   "src/harvester/util/__init__.py": {
@@ -570,10 +570,10 @@
     "semantic_hash": "d1083df5a676680ad456d714e97a131e"
   },
   "tests/test_ui_pilot.py": {
-    "mtime": 1789764034.4849935,
-    "seen": 1789764052.9083378,
-    "ast_hash": "d43bd44df96750f19aa94bf27b77314e",
-    "semantic_hash": "d43bd44df96750f19aa94bf27b77314e"
+    "mtime": 1789767160.7312338,
+    "seen": 1789767219.270381,
+    "ast_hash": "6ecfb2dccdae95b4798dc43facf758ce",
+    "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
     "mtime": 1789748403.0098052,
@@ -732,9 +732,9 @@
     "semantic_hash": ""
   },
   "src/harvester/ui/player.py": {
-    "mtime": 1789765844.273823,
-    "seen": 1789766097.2638521,
-    "ast_hash": "afa14dae5351e35fa16957a62effb9ee",
+    "mtime": 1789767036.2061532,
+    "seen": 1789767219.270346,
+    "ast_hash": "7f2e14c1c14eea3c56a1c20ef22c17ed",
     "semantic_hash": ""
   },
   "src/harvester/ui/themes.py": {
@@ -765,6 +765,18 @@
     "mtime": 1789766075.899455,
     "seen": 1789766097.263886,
     "ast_hash": "4227be5903684938f43f986bc49134bd",
+    "semantic_hash": ""
+  },
+  "src/harvester/ui/workbench.py": {
+    "mtime": 1789767055.0090387,
+    "seen": 1789767219.270349,
+    "ast_hash": "13587c48812f6884fe50fdb9d0222d38",
+    "semantic_hash": ""
+  },
+  "tests/test_ui_workbench.py": {
+    "mtime": 1789767196.9116752,
+    "seen": 1789767219.270384,
+    "ast_hash": "0e30c6784db3c7b8410842ea290f11c6",
     "semantic_hash": ""
   }
 }
