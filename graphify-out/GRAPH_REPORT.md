@@ -1,24 +1,24 @@
 # Graph Report - OmniRip  (2026-09-18)
 
 ## Corpus Check
-- 120 files · ~59,337 words
+- 120 files · ~59,341 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 7 file(s) not represented in the graph (top: (none) 4, .toml 1, .tcss 1)
 
 ## Summary
-- 1944 nodes · 4120 edges · 144 communities (85 shown, 59 thin omitted)
-- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 527 edges (avg confidence: 0.92)
+- 1950 nodes · 4111 edges · 148 communities (88 shown, 60 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 524 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `27208a47`
+- Built from commit: `3579dc2b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- models.py
+- test_spectral.py
 - config.py
-- QualityEvidence
+- State
 - scanner.py
 - acoustid.py
 - test_orchestrator_m5.py
@@ -26,60 +26,60 @@
 - Milestone M7 — QA & packaging
 - environment.py
 - analysis/restoration.py
-- exporter.py
-- EnhancementExporter
+- ensure_2d_audio
+- pathlib
 - ModelManager
 - TrackJob
 - logging_setup.py
 - ConservativeDSPProvider
 - test_playlist.py
 - HarvesterApp
-- report.py
+- BatchReport
 - ValidationError
 - Harvester (Hybrid Music Harvest & Curation Engine)
-- pytest
+- JobEvent
 - test_orchestrator_m2.py
 - test_orchestrator_m3.py
 - CanonicalMetadata
 - .validate
 - Pipeline orchestrator
 - LogConsole
-- test_analyze_url_rejects_live_streams
+- models.py
 - AppConfig
-- DiskError
+- test_batch_trash.py
 - ComposeResult
 - Phase 1 — Input Analysis
 - PipelineOrchestrator
 - yt-dlp
 - titleclean.py
-- test_spectral.py
+- phase2_hunt.py
 - orchestrator.py
 - Spectral fixture connectivity gap
 - test_orchestrator.py
 - scoring.py
-- test_enhancement_exporter.py
-- slskd.py
+- EnhancementExporter
+- SearchResponse
 - asyncio
-- phase3_identify.py
+- QualityEvidence
 - SlskdService
 - JobTable
 - Textual TUI
 - CircuitBreaker
 - test_slskd.py
-- AppPaths
+- exporter.py
 - HybridCoOpProvider
 - Minimal Implementation Ladder
 - StatusBar
 - phase2_hunt
-- test_enhancement_dsp.py
+- app.py
 - NVSRProvider
 - Mode B — Local Batch Audit
 - test_phase5_polish.py
-- app.py
+- __main__.py
 - Phase 5 — Polish and Sync
 - os
 - Graphify Knowledge Graph
-- pathlib
+- musicbrainz.py
 - Error taxonomy
 - Spectral Anti-Fraud Check — FFT cutoff (brick-wall) detector, v1
 - AcoustID lookup
@@ -90,7 +90,7 @@
 - CoverArtService
 - phase1_analyze
 - P2P candidate scoring
-- FR-7 — Fingerprint before transcode
+- slskd.py
 - FlashSRProvider
 - NFR-1 — Strict async
 - phase3_identify
@@ -149,16 +149,20 @@
 - StrEnum
 - Exception
 - Queue
+- yt-dlp metadata probe
+- presets.py
 - Changed
-- ComposeResult
-- Pressed
 - TrackJob
 - asyncio
 - test_config.py
-- test_ui_smoke.py
+- pytest
 - .public_dict
 - .__init__
+- ComposeResult
 - Path
+- Pressed
+- Any
+- asyncio
 
 ## God Nodes (most connected - your core abstractions)
 1. `ValidationError` - 53 edges
@@ -167,7 +171,7 @@
 4. `CanonicalMetadata` - 44 edges
 5. `AppConfig` - 42 edges
 6. `load_config()` - 38 edges
-7. `HarvesterApp` - 35 edges
+7. `HarvesterApp` - 36 edges
 8. `Mode` - 31 edges
 9. `FfmpegService` - 27 edges
 10. `YtdlpService` - 26 edges
@@ -200,19 +204,19 @@
 - **Release gate definition** — docs_10_roadmap_m7, docs_10_roadmap_smoke_checklist, changelog_0_1_0_release [INFERRED 0.75]
 - **slskd 0.26 OpenAPI compatibility fix** — changelog_slskd_0_26_api_compatibility, docs_10_roadmap_m2, docs_10_roadmap_d6 [INFERRED 0.85]
 
-## Communities (144 total, 59 thin omitted)
+## Communities (148 total, 60 thin omitted)
 
-### Community 0 - "models.py"
+### Community 0 - "test_spectral.py"
 Cohesion: 0.05
-Nodes (55): Pure analysis logic: query cleaning and P2P candidate ranking., analyze(), band_energies_db(), detect_cutoff(), _frames(), _fraud(), noise_reference(), ndarray (+47 more)
+Nodes (67): parametrize, Pure analysis logic: query cleaning and P2P candidate ranking., analyze(), band_energies_db(), detect_cutoff(), _frames(), _fraud(), noise_reference() (+59 more)
 
 ### Community 1 - "config.py"
 Cohesion: 0.15
 Nodes (28): AppPaths, copy, AcoustidConfig, _apply_environment(), BatchConfig, _bool(), _build_config(), section() (+20 more)
 
-### Community 2 - "QualityEvidence"
-Cohesion: 0.08
-Nodes (35): enum, RuntimeError, assess_replacement(), _assessment(), quality_score(), QualityEvidence, Source-quality evidence and replacement decisions for library upgrades. This…, Return a conservative comparable score; synthetic high bands never add quality. (+27 more)
+### Community 2 - "State"
+Cohesion: 0.13
+Nodes (20): enum, RuntimeError, Apply one guarded state transition through the canonical state machine., assert_transition(), IllegalTransition, is_transition_allowed(), legal_transitions(), StrEnum (+12 more)
 
 ### Community 3 - "scanner.py"
 Cohesion: 0.08
@@ -220,75 +224,75 @@ Nodes (53): mutagen_aiff, mutagen_asf, mutagen_mp3, mutagen_mp4, mutagen_wave, m
 
 ### Community 4 - "acoustid.py"
 Cohesion: 0.07
-Nodes (29): Process, sqlite3, AcoustidService, _earliest_release(), Fingerprint, _metadata_from_json(), _metadata_to_json(), _number() (+21 more)
+Nodes (30): json, Process, sqlite3, AcoustidService, _earliest_release(), Fingerprint, _metadata_from_json(), _metadata_to_json() (+22 more)
 
 ### Community 5 - "test_orchestrator_m5.py"
-Cohesion: 0.08
-Nodes (24): _build(), FakeAcoustid, FakeCover, FakeFfmpeg, FakeSlskd, FakeSlskdOffline, FakeTagger, FakeYtdlp (+16 more)
+Cohesion: 0.09
+Nodes (23): _build(), FakeAcoustid, FakeCover, FakeFfmpeg, FakeSlskdOffline, FakeTagger, FakeYtdlp, _mixed_library() (+15 more)
 
 ### Community 6 - "PreviewManager"
 Cohesion: 0.06
-Nodes (33): App, harvester_ui_screens_curation_workbench, Popen, PreviewManager, ndarray, Path, Launch audio file in the host operating system's default media player. Executes…, Manages rendering 15-second A/B comparison audio slices and triggering external… (+25 more)
+Nodes (31): App, Popen, PreviewManager, EnhancementPreset, ndarray, Path, Launch audio file in the host operating system's default media player. Executes…, Manages rendering 15-second A/B comparison audio slices and triggering external… (+23 more)
 
 ### Community 7 - "Milestone M7 — QA & packaging"
 Cohesion: 0.08
 Nodes (45): harvester 0.1.0 milestone-complete release (M0–M7), harvester project CHANGELOG, Milestone M0 — Scaffold & environment (CHANGELOG entry), Milestone M1 — Mode A fallback-only (CHANGELOG entry), Milestone M2 — slskd hunt lane (CHANGELOG entry), Milestone M3 — Ground-truth ID (CHANGELOG entry), Milestone M4 — Spectral anti-fraud (CHANGELOG entry), Milestone M5 — Mode B batch audit (CHANGELOG entry) (+37 more)
 
 ### Community 8 - "environment.py"
-Cohesion: 0.17
-Nodes (12): check_slskd(), DependencyStatus, detect_environment(), EnvironmentStatus, probe_binary(), Asynchronous startup checks for local binaries and optional services., Find a configured executable and run its version command without blocking the…, Check slskd health and, optionally, whether its OpenAPI endpoint is reachable. (+4 more)
+Cohesion: 0.09
+Nodes (22): collections_abc, random, check_slskd(), DependencyStatus, detect_environment(), EnvironmentStatus, probe_binary(), Asynchronous startup checks for local binaries and optional services. (+14 more)
 
 ### Community 9 - "analysis/restoration.py"
 Cohesion: 0.09
 Nodes (35): _apply_limits(), AudioMetrics, _bounded(), correlation_interlock(), _enhance_transients(), measure_metrics(), _positive(), ndarray (+27 more)
 
-### Community 10 - "exporter.py"
-Cohesion: 0.13
-Nodes (29): logging, numpy, apply_limiter(), apply_progressive_mono(), ensure_2d_audio(), match_spectral_slope(), ndarray, Digital Signal Processing (DSP) engine for OmniRip M10 audio enhancement.… (+21 more)
+### Community 10 - "ensure_2d_audio"
+Cohesion: 0.09
+Nodes (33): apply_limiter(), apply_progressive_mono(), ensure_2d_audio(), match_spectral_slope(), ndarray, Digital Signal Processing (DSP) engine for OmniRip M10 audio enhancement.…, Match the residual high-frequency energy to follow the natural spectral decay…, Ensure audio is 2D array of shape (channels, samples). Returns:… (+25 more)
 
-### Community 11 - "EnhancementExporter"
-Cohesion: 0.11
-Nodes (21): dataclasses, platform, platformdirs, EnhancementPreset, Deterministic Enhancement Presets for OmniRip M10., Configuration preset for audio enhancement rendering., EnhancementExporter, ndarray (+13 more)
+### Community 11 - "pathlib"
+Cohesion: 0.15
+Nodes (14): harvester_analysis_enhancement_presets, harvester_ui_screens_curation_workbench, pathlib, platform, platformdirs, Platform-aware runtime directories., Headless preview generation and system audio player dispatch for OmniRip M10., Textual Curation Workbench Modal Screen for OmniRip M10. (+6 more)
 
 ### Community 12 - "ModelManager"
-Cohesion: 0.07
-Nodes (27): hashlib, importlib_util, Path, check_enhancement_available(), OmniRip M10 Enhancement and High-Frequency Reconstruction module., Check if the optional neural restoration dependencies are installed. Returns:…, ModelManager, Manages downloading, caching, and verifying neural enhancement model weights. (+19 more)
+Cohesion: 0.09
+Nodes (23): hashlib, ModelManager, ModelSpec, Path, Model management and checkpoint downloading service for OmniRip M10., Specification of an audio enhancement model checkpoint., Manages downloading, caching, and verifying neural enhancement model weights., Return the local path to a cached model if it exists, else None. (+15 more)
 
 ### Community 13 - "TrackJob"
-Cohesion: 0.20
-Nodes (21): Mode, Mutable job aggregate owned by the orchestrator., TrackJob, _first_orig(), _identity_shift(), metadata_from_orig_tags(), _orig_year(), Canonical-shaped record sourced from the original file's tags (Mode B). (+13 more)
+Cohesion: 0.14
+Nodes (30): difflib, Mode, Mutable job aggregate owned by the orchestrator., TrackJob, _first_orig(), identify_from_fallback(), identify_job(), _identity_shift() (+22 more)
 
 ### Community 14 - "logging_setup.py"
-Cohesion: 0.13
-Nodes (15): logging_handlers, LogRecord, Queue, CallbackHandler, configure_logging(), ContextDefaultsFilter, _level(), LoggingController (+7 more)
+Cohesion: 0.08
+Nodes (24): logging_handlers, LogRecord, Queue, AppPaths, Path, All paths used by harvester runtime state. The object is pure until…, Create runtime directories and return this immutable path set., Return a deterministic per-job directory without creating it. (+16 more)
 
 ### Community 15 - "ConservativeDSPProvider"
-Cohesion: 0.11
-Nodes (13): ConservativeDSPProvider, ndarray, Non-neural harmonic exciter providing subtle, mathematically bounded high-end…, Generate high-frequency residual harmonics based on the top octave of the…, Tests for M10-C Enhancement Providers., Verify ConservativeDSPProvider is available and generates residual above cutoff., Verify NVSRProvider gracefully generates high-pass residual when model weights…, Verify FlashSRProvider produces air-band residual (> 16 kHz). (+5 more)
+Cohesion: 0.12
+Nodes (12): harvester_services_enhancement, ConservativeDSPProvider, Non-neural harmonic exciter providing subtle, mathematically bounded high-end…, Tests for M10-C Enhancement Providers., Verify ConservativeDSPProvider is available and generates residual above cutoff., Verify NVSRProvider gracefully generates high-pass residual when model weights…, Verify FlashSRProvider produces air-band residual (> 16 kHz)., Verify HybridCoOpProvider correctly merges providers. (+4 more)
 
 ### Community 16 - "test_playlist.py"
 Cohesion: 0.10
 Nodes (15): _entries(), FakeAcoustid, FakeCover, FakeFfmpeg, FakeSlskd, FakeTagger, FakeYtdlp, _orchestrator() (+7 more)
 
 ### Community 17 - "HarvesterApp"
-Cohesion: 0.10
-Nodes (8): Changed, FlushPlan, HarvesterApp, wrapped(), Textual application connected to the asynchronous pipeline via a throttled…, Callback from the confirmation modal: queue the confirmed scan., Open the Curation Workbench modal for the selected job's audio file., Submitted
-
-### Community 18 - "report.py"
 Cohesion: 0.11
-Nodes (24): datetime, json, batch_report_name(), BatchReport, job_row(), Path, Mode B batch report: append-only JSONL per completed job (docs/03 §5.4, FR-14)., Report filename per docs/02 §3: ``<dirname>-<UTC timestamp>.jsonl``. (+16 more)
+Nodes (7): FlushPlan, HarvesterApp, wrapped(), Changed, Textual application connected to the asynchronous pipeline via a throttled…, Callback from the confirmation modal: queue the confirmed scan., Submitted
+
+### Community 18 - "BatchReport"
+Cohesion: 0.20
+Nodes (12): BatchReport, Append-only, per-row-flush JSONL report. One row per input file (AC-5)., Serialize ``row`` and persist it immediately (crash loses ≤ 1 record)., Read back every persisted row (used by tests and summaries)., Path, Batch report tests: schema, incremental appends, row builders (FR-14)., test_append_writes_all_schema_fields(), test_appends_are_incremental_and_order_preserved() (+4 more)
 
 ### Community 19 - "ValidationError"
-Cohesion: 0.06
-Nodes (61): ProgressCallback, SourceKind, DownloadProgress, ErrorClass, analyze_url(), build_query(), Mode A URL analysis stage., Validate and normalize a URL before passing it to yt-dlp. (+53 more)
+Cohesion: 0.05
+Nodes (65): ProgressCallback, SourceKind, DownloadProgress, ErrorClass, analyze_url(), build_query(), Mode A URL analysis stage., Validate and normalize a URL before passing it to yt-dlp. (+57 more)
 
 ### Community 20 - "Harvester (Hybrid Music Harvest & Curation Engine)"
-Cohesion: 0.14
-Nodes (20): Metadata fallback chain, Phase 3 — Ground-Truth ID, AcoustID, Audio fingerprinting, Decision D3 - Phase 4 applies only to P2P lossless-claiming files, Requirements (docs/01-requirements.md), Architecture (docs/02-architecture.md), Pipeline Phases (docs/03-pipeline.md) (+12 more)
+Cohesion: 0.09
+Nodes (30): AC-2 — Mode A seeded FLAC end-to-end, AC-4 — Upscaled fixture rejected as FRAUD, AC-9 — AcoustID rate limit + cache, D11 — Dedup skip by MBID, D3 — Spectral check scope: P2P lossless claims only, D9 — Fingerprint before transcode, FR-10 — Provenance-based spectral exemption, FR-7 — Fingerprint before transcode (+22 more)
 
-### Community 21 - "pytest"
-Cohesion: 0.06
-Nodes (37): Apply, collections_abc, pytest, random, ErrorInfo, EventKind, JobEvent, Any (+29 more)
+### Community 21 - "JobEvent"
+Cohesion: 0.09
+Nodes (24): Apply, ErrorInfo, EventKind, JobEvent, Any, coalesce_events(), FlushPlan, Queue (+16 more)
 
 ### Community 22 - "test_orchestrator_m2.py"
 Cohesion: 0.17
@@ -299,8 +303,8 @@ Cohesion: 0.12
 Nodes (10): _build(), FakeAcoustid, FakeCover, FakeFfmpeg, FakeTagger, FakeYtdlp, asyncio, Path (+2 more)
 
 ### Community 24 - "CanonicalMetadata"
-Cohesion: 0.36
-Nodes (4): CanonicalMetadata, MetadataTagger, Path, Write only canonical fields plus explicit provenance and best-effort art.
+Cohesion: 0.16
+Nodes (16): soundfile, CanonicalMetadata, metadata_from_probe(), MetadataTagger, Any, Path, Deterministic MP3 (ID3v2.3) and FLAC (Vorbis + picture) tagging., Build Phase M1 metadata fallback from yt-dlp probe fields. (+8 more)
 
 ### Community 26 - "Pipeline orchestrator"
 Cohesion: 0.12
@@ -310,49 +314,49 @@ Nodes (23): Batch report writer, FFmpeg service, Atomic filesystem helpers, Harv
 Cohesion: 0.12
 Nodes (15): RichLog, level_passes(), LogConsole, next_mode(), Log console: level-filtered, capped RichLog (docs/08 §2/§4)., Return whether ``level`` (upper) should be shown under ``mode``., Return the next filter mode in the cycle., A ``RichLog`` that filters by minimum severity and trims to a line cap. (+7 more)
 
-### Community 28 - "test_analyze_url_rejects_live_streams"
-Cohesion: 0.40
-Nodes (3): asyncio, test_analyze_url_populates_meta_and_query(), test_analyze_url_rejects_live_streams()
+### Community 28 - "models.py"
+Cohesion: 0.13
+Nodes (19): dataclasses, datetime, batch_report_name(), job_row(), Path, Mode B batch report: append-only JSONL per completed job (docs/03 §5.4, FR-14)., Report filename per docs/02 §3: ``<dirname>-<UTC timestamp>.jsonl``., Row for a file left untouched by the scanner (docs/03 §1B.3). (+11 more)
 
 ### Community 29 - "AppConfig"
-Cohesion: 0.25
-Nodes (22): CanonicalMetadata, harvester_util_fsatomic, AppConfig, _batch_target_path(), _choose_output_path(), _mutagen_parses(), polish_batch(), _polish_flac() (+14 more)
+Cohesion: 0.27
+Nodes (21): CanonicalMetadata, harvester_util_fsatomic, AppConfig, _batch_target_path(), _choose_output_path(), _mutagen_parses(), polish_batch(), _polish_flac() (+13 more)
 
-### Community 30 - "DiskError"
+### Community 30 - "test_batch_trash.py"
 Cohesion: 0.19
-Nodes (22): move_to_trash(), purge(), Path, Mode B trash lifecycle: layout, rollback, retention purge (docs/03 §5.3, D5).…, Return the trash directory for a scanned music directory., Move ``original`` into today's trash directory; return the trash path.…, Restore a trashed original to its original location (FR-13 rollback step)., Delete trash day-directories older than ``retention_days``; return count.… (+14 more)
+Nodes (21): shutil, move_to_trash(), purge(), Path, Mode B trash lifecycle: layout, rollback, retention purge (docs/03 §5.3, D5).…, Return the trash directory for a scanned music directory., Move ``original`` into today's trash directory; return the trash path.…, Restore a trashed original to its original location (FR-13 rollback step). (+13 more)
 
 ### Community 31 - "ComposeResult"
-Cohesion: 0.11
-Nodes (10): ComposeResult, Pressed, FirstRunNoticeScreen, HelpScreen, PlaylistConfirmScreen, PurgeConfirmScreen, Non-blocking help overlay for the application., Show entry count and cap before expanding a playlist (docs/08 §2, D10). (+2 more)
+Cohesion: 0.10
+Nodes (10): FirstRunNoticeScreen, HelpScreen, PurgeConfirmScreen, ComposeResult, Pressed, QuitConfirmScreen, Non-blocking help overlay for the application., Confirm quit while jobs are still active (docs/08 §5, FR-17). (+2 more)
 
 ### Community 32 - "Phase 1 — Input Analysis"
 Cohesion: 0.10
 Nodes (21): Mode A URL probe, Mode B directory scan, Phase 1 — Input Analysis, Phase 2 — Hybrid Hunt, Query cleaning, Shared 25-second query budget, slskd health check, Startup OpenAPI verification (+13 more)
 
 ### Community 33 - "PipelineOrchestrator"
-Cohesion: 0.05
-Nodes (48): AcoustidService, BatchScan, CoverArtService, DownloadProgress, EventKind, Exception, harvester_analysis_scoring, harvester_analysis_titleclean (+40 more)
+Cohesion: 0.07
+Nodes (30): AcoustidService, BatchScan, CoverArtService, DownloadProgress, EventKind, Exception, JobEvent, _number() (+22 more)
 
 ### Community 34 - "yt-dlp"
-Cohesion: 0.08
-Nodes (26): AC-3 — slskd stopped fallback to yt-dlp, D10 — Playlist cap 50 + confirmation, D12 — fallback_attempted anti-loop flag, D6 — slskd OpenAPI route verification, FR-1 — Extract metadata without downloading, FR-2 — slskd lossless search & scoring, FR-3 — P2P timeout fallback to yt-dlp, FR-4 — yt-dlp best audio-only raw download (+18 more)
+Cohesion: 0.11
+Nodes (20): AC-3 — slskd stopped fallback to yt-dlp, D10 — Playlist cap 50 + confirmation, D12 — fallback_attempted anti-loop flag, D6 — slskd OpenAPI route verification, FR-1 — Extract metadata without downloading, FR-2 — slskd lossless search & scoring, FR-3 — P2P timeout fallback to yt-dlp, FR-4 — yt-dlp best audio-only raw download (+12 more)
 
 ### Community 35 - "titleclean.py"
 Cohesion: 0.16
 Nodes (18): Match, re, build_queries(), clean_title(), _ellipsis_if_noise(), fold_unicode(), _normalize(), Deterministic query construction for the P2P hunt. Implements docs/03 Phase… (+10 more)
 
-### Community 36 - "test_spectral.py"
-Cohesion: 0.17
-Nodes (26): mutagen_flac, parametrize, soundfile, _content(), fixture_fraud_128(), fixture_fraud_192(), fixture_honest_full(), fixture_honest_rolloff() (+18 more)
+### Community 36 - "phase2_hunt.py"
+Cohesion: 0.12
+Nodes (20): harvester_analysis_scoring, harvester_analysis_titleclean, harvester_services_slskd, mutagen, mutagen_flac, P2PCandidate, build_hunt_queries(), hunt_and_score() (+12 more)
 
 ### Community 37 - "orchestrator.py"
 Cohesion: 0.10
 Nodes (19): collections, harvester_batch_report, harvester_batch_scanner, harvester_batch_trash, harvester_pipeline_phase1_analyze, harvester_pipeline_phase3_identify, harvester_pipeline_phase4_spectral, harvester_services_acoustid (+11 more)
 
 ### Community 38 - "Spectral fixture connectivity gap"
-Cohesion: 0.22
-Nodes (11): Generated audio fixtures, Spectral fixture layer, M4 milestone, Phase 4, Spectral analysis responsibility split, Spectral analysis architecture conclusion, Spectral detector, Spectral fixture connectivity gap (+3 more)
+Cohesion: 0.12
+Nodes (19): Retry and circuit-breaker utilities, Fallback triggers, slskd circuit breaker, slskd degraded mode, Fallback audio download, Machine-readable progress, Fallback post-download validation, Circuit breaker (+11 more)
 
 ### Community 39 - "test_orchestrator.py"
 Cohesion: 0.17
@@ -362,21 +366,21 @@ Nodes (9): FakeFfmpeg, FakeSlskdOffline, FakeTagger, FakeYtdlp, asyncio, Path, D
 Cohesion: 0.20
 Nodes (17): _expected_size(), _has_spam_hint(), is_hard_filtered(), _looks_transcoded(), rank_candidates(), P2P candidate hard filters and weighted scoring (docs/06 §7-§8)., Return whether a candidate fails the Phase 2 hard filters., Compute the documented weighted score for one candidate. (+9 more)
 
-### Community 41 - "test_enhancement_exporter.py"
-Cohesion: 0.17
-Nodes (12): mutagen, mutagen_id3, Path, Tests for EnhancementExporter and Presets (Milestone 10-D)., Verify all 5 planned presets exist and have valid attributes., Verify render_audio_buffer produces valid audio for every preset., Verify that ID3 provenance tags are correctly added to MP3 derivative., Verify that exporting never alters or removes the original file. (+4 more)
+### Community 41 - "EnhancementExporter"
+Cohesion: 0.12
+Nodes (20): mutagen_id3, EnhancementExporter, EnhancementPreset, ndarray, Path, Decode input file, render enhanced audio, write MP3 derivative, and attach ID3…, Copy metadata tags from source and append strict provenance headers., Renders enhanced audio and exports MP3 derivatives with explicit provenance… (+12 more)
 
-### Community 42 - "slskd.py"
-Cohesion: 0.20
-Nodes (11): _bool_or_none(), _float_or_none(), _int_or_none(), _matches_candidate(), _parse_search_payload(), Any, Async slskd REST client with health, search, download, and transfer polling., SearchResponse (+3 more)
+### Community 42 - "SearchResponse"
+Cohesion: 0.18
+Nodes (5): SearchResponse, SlskdFile, FakeSlskd, FakeSlskd, FakeSlskd
 
 ### Community 43 - "asyncio"
 Cohesion: 0.22
 Nodes (11): asyncio, _app(), UI pilot tests for M6 bindings, modals, and bridge rendering (docs/08 §9)., Minimal orchestrator stand-in for UI pilots (no services, no network)., StubOrchestrator, test_apply_flush_log_lines_reach_console(), test_apply_flush_renders_job_row(), test_log_level_cycles_on_l_key() (+3 more)
 
-### Community 44 - "phase3_identify.py"
-Cohesion: 0.17
-Nodes (16): difflib, identify_from_fallback(), identify_job(), metadata_from_query(), M3 identity stage: AcoustID ground truth with the documented fallback chain., Resolve canonical metadata, degrading to probe/original metadata when needed., Resolve a useful canonical-shaped record from the docs/03 \u00a7\u00a712-4…, Canonical-shaped record derived from a query/filename parse (Level 3). (+8 more)
+### Community 44 - "QualityEvidence"
+Cohesion: 0.21
+Nodes (16): assess_replacement(), _assessment(), quality_score(), QualityEvidence, Source-quality evidence and replacement decisions for library upgrades. This…, Return a conservative comparable score; synthetic high bands never add quality., Measured or probed evidence about one candidate audio source., Explain whether a candidate is safe to offer as a replacement. (+8 more)
 
 ### Community 45 - "SlskdService"
 Cohesion: 0.20
@@ -398,13 +402,13 @@ Nodes (9): BreakerState, CircuitBreaker, StrEnum, Circuit breaker for the slskd 
 Cohesion: 0.31
 Nodes (10): _config(), asyncio, Path, test_download_completes_and_locates_file(), test_download_uses_legacy_object_body_for_legacy_route(), test_health_check_and_openapi_verification(), handler(), test_openapi_version_templates_normalize_and_pick_0_26_route() (+2 more)
 
-### Community 50 - "AppPaths"
-Cohesion: 0.15
-Nodes (11): AppPaths, Path, Platform-aware runtime directories., All paths used by harvester runtime state. The object is pure until…, Create runtime directories and return this immutable path set., Return a deterministic per-job directory without creating it., Path, test_app_paths_are_isolated_and_created() (+3 more)
+### Community 50 - "exporter.py"
+Cohesion: 0.25
+Nodes (9): harvester_services_enhancement_conservative_provider, logging, numpy, Enhancement provider protocol and base types for OmniRip M10., Non-destructive Enhancement Exporter and FFmpeg Audio I/O for OmniRip M10., FlashSR (Distilled Diffusion Air-Band) provider for OmniRip M10., Hybrid Co-Op Provider (NVSR + FlashSR) for OmniRip M10., OmniRip M10 Enhancement services. (+1 more)
 
 ### Community 51 - "HybridCoOpProvider"
-Cohesion: 0.14
-Nodes (9): Protocol, EnhancementProvider, ndarray, Protocol governing high-frequency audio enhancement providers., Human-readable name of the enhancement provider., Whether the provider's dependencies and weights are ready for inference., Generate the high-frequency residual signal strictly above cutoff_hz. Args:…, HybridCoOpProvider (+1 more)
+Cohesion: 0.10
+Nodes (15): importlib_util, Protocol, check_enhancement_available(), OmniRip M10 Enhancement and High-Frequency Reconstruction module., Check if the optional neural restoration dependencies are installed. Returns:…, EnhancementProvider, ndarray, Protocol governing high-frequency audio enhancement providers. (+7 more)
 
 ### Community 52 - "Minimal Implementation Ladder"
 Cohesion: 0.18
@@ -418,13 +422,13 @@ Nodes (7): DependencyStatus, EnvironmentStatus, FatalSetupScreen, Shown when a r
 Cohesion: 0.14
 Nodes (14): phase2_hunt, q_hunt stage queue, q_p2p_dl stage queue, Candidate scoring analysis, Direct slskd REST client, slskd service, State machine, Title cleaning analysis (+6 more)
 
-### Community 55 - "test_enhancement_dsp.py"
-Cohesion: 0.14
-Nodes (13): Tests for DSP engine (Milestone 10-B)., Verify peak limiter confines signal to ceiling., Verify safe recombination of bands., Verify 1D and 2D conversions., Verify complementary band splitting sums to original signal., Verify sub-100Hz is mono and >250Hz preserves stereo., Verify residual energy is scaled to match reference band decay., test_apply_limiter() (+5 more)
+### Community 55 - "app.py"
+Cohesion: 0.20
+Nodes (9): harvester_pipeline_orchestrator, harvester_services_environment, harvester_ui_bridge, harvester_ui_logconsole, harvester_util_logging_setup, Textual UI: throttled bridge, level-filtered console, and M6 hardening…, textual_containers, textual_coordinate (+1 more)
 
 ### Community 56 - "NVSRProvider"
 Cohesion: 0.18
-Nodes (8): NVSRProvider, Any, ndarray, Path, Internal inference wrapper., NVSR non-diffusion base neural stabilization provider. Executes super-…, True if torch is installed and weights are cached., Generate high-frequency residual using NVSR, isolating strictly the band >…
+Nodes (8): Any, NVSRProvider, ndarray, Path, Internal inference wrapper., NVSR non-diffusion base neural stabilization provider. Executes super-…, True if torch is installed and weights are cached., Generate high-frequency residual using NVSR, isolating strictly the band >…
 
 ### Community 57 - "Mode B — Local Batch Audit"
 Cohesion: 0.22
@@ -434,25 +438,25 @@ Nodes (13): AC-5 — Mode B mixed directory audit, AC-6 — SIGTERM mid-batch sa
 Cohesion: 0.23
 Nodes (11): _config(), asyncio, Phase 5 polish unit tests: path helpers, target selection, keep-opus guard., test_batch_target_canonical_when_enabled(), test_batch_target_default_keeps_original_path(), test_choose_output_path_collision_suffix(), test_mutagen_parses_rejects_garbage(), test_polish_stream_rejects_keep_opus() (+3 more)
 
-### Community 59 - "app.py"
-Cohesion: 0.12
-Nodes (18): argparse, ArgumentParser, harvester, harvester_pipeline_orchestrator, harvester_services_environment, harvester_ui_bridge, harvester_ui_logconsole, harvester_util_errors (+10 more)
+### Community 59 - "__main__.py"
+Cohesion: 0.23
+Nodes (10): argparse, ArgumentParser, harvester, build_parser(), main(), Command-line entry point for the OmniRip TUI., sys, test_enhance_cli_nonexistent_file() (+2 more)
 
 ### Community 60 - "Phase 5 — Polish and Sync"
-Cohesion: 0.11
-Nodes (20): Batch trash manager, Retry and circuit-breaker utilities, Fallback transcoding, Fallback triggers, Incremental JSONL batch report, Mode A final placement, Mode B atomic swap, Phase 4 — Spectral Check (+12 more)
+Cohesion: 0.17
+Nodes (12): Batch trash manager, Fallback transcoding, Incremental JSONL batch report, Mode A final placement, Mode B atomic swap, Phase 4 — Spectral Check, Phase 5 — Polish and Sync, P2P spectral gate (+4 more)
 
 ### Community 61 - "os"
-Cohesion: 0.32
-Nodes (7): os, atomic_replace(), fsync_directory(), Path, Atomic filesystem helpers: fsync, replace, and crash-safe swaps (docs/02,…, fsync a directory fd so renames inside it survive a crash (POSIX only)., Atomically move ``source`` onto ``destination`` and persist the rename.
+Cohesion: 0.27
+Nodes (9): os, atomic_replace(), fsync_directory(), fsync_file(), Path, Atomic filesystem helpers: fsync, replace, and crash-safe swaps (docs/02,…, fsync a file's contents to stable storage., fsync a directory fd so renames inside it survive a crash (POSIX only). (+1 more)
 
 ### Community 62 - "Graphify Knowledge Graph"
 Cohesion: 0.27
 Nodes (10): Graph Sources (README.md, docs/*.md, Future Code), graphify-out/graph.json — Persistent Source of Truth, Graphify CLI Installation (uv tool install graphifyy / pip fallback), Optional Graphify Hook Hardening (post-commit auto-rebuild), Graphify Knowledge Graph, graphify-out Pipeline Outputs (graph.json, graph.html, GRAPH_REPORT.md), Query-First Rule (graphify query before re-reading files), Mandatory Per-Turn Update Rule (/graphify . --update) (+2 more)
 
-### Community 63 - "pathlib"
-Cohesion: 0.29
-Nodes (9): httpx, pathlib, Cover Art Archive client with a release-MBID disk cache., _config(), asyncio, Path, test_fetch_front_returns_bytes_and_caches(), handler() (+1 more)
+### Community 63 - "musicbrainz.py"
+Cohesion: 0.31
+Nodes (8): httpx, Cover Art Archive client with a release-MBID disk cache., _config(), asyncio, Path, test_fetch_front_returns_bytes_and_caches(), handler(), test_missing_cover_returns_none()
 
 ### Community 64 - "Error taxonomy"
 Cohesion: 0.20
@@ -479,8 +483,8 @@ Cohesion: 0.22
 Nodes (9): CI Workflow, GitHub Actions, harvester.analysis, harvester.batch, harvester.pipeline, harvester.util, pytest, Ruff (+1 more)
 
 ### Community 70 - ".__init__"
-Cohesion: 0.22
-Nodes (3): AppConfig, QuitConfirmScreen, Confirm quit while jobs are still active (docs/08 §5, FR-17).
+Cohesion: 0.29
+Nodes (3): AppConfig, PlaylistConfirmScreen, Show entry count and cap before expanding a playlist (docs/08 §2, D10).
 
 ### Community 71 - "CoverArtService"
 Cohesion: 0.25
@@ -494,9 +498,9 @@ Nodes (8): Batch scanner, phase1_analyze, q_analyze stage queue, q_fallback_dl s
 Cohesion: 0.29
 Nodes (7): P2P candidate scoring, P2P download lifecycle, slskd file handoff, P2P hard filters, P2P validation quarantine, Search and transfer polling, slskd search request
 
-### Community 74 - "FR-7 — Fingerprint before transcode"
-Cohesion: 0.20
-Nodes (10): AC-2 — Mode A seeded FLAC end-to-end, AC-4 — Upscaled fixture rejected as FRAUD, AC-9 — AcoustID rate limit + cache, D11 — Dedup skip by MBID, D3 — Spectral check scope: P2P lossless claims only, D9 — Fingerprint before transcode, FR-10 — Provenance-based spectral exemption, FR-7 — Fingerprint before transcode (+2 more)
+### Community 74 - "slskd.py"
+Cohesion: 0.47
+Nodes (8): _bool_or_none(), _float_or_none(), _int_or_none(), _matches_candidate(), _parse_search_payload(), Any, Async slskd REST client with health, search, download, and transfer polling., _text()
 
 ### Community 75 - "FlashSRProvider"
 Cohesion: 0.24
@@ -538,24 +542,36 @@ Nodes (3): OmniRip script, HARVESTER_CONFIG, SLSKD_API_KEY
 Cohesion: 0.29
 Nodes (3): BatchConfirmScreen, Confirmation for scans that queue more than 25 upgrade jobs (docs/03 §1B.5)., Scan a directory; queue immediately unless confirmation is required.
 
+### Community 133 - "yt-dlp metadata probe"
+Cohesion: 0.33
+Nodes (6): yt-dlp binary management, yt-dlp metadata probe, Playlist expansion, yt-dlp subprocess lane, Fake external services, Integration test plan
+
+### Community 134 - "presets.py"
+Cohesion: 0.50
+Nodes (3): EnhancementPreset, Deterministic Enhancement Presets for OmniRip M10., Configuration preset for audio enhancement rendering.
+
 ### Community 139 - "test_config.py"
 Cohesion: 0.53
 Nodes (5): Path, test_defaults_are_valid_and_use_the_requested_data_dir(), test_invalid_url_is_rejected(), test_precedence_is_cli_over_environment_over_file(), test_secret_values_are_never_in_public_config()
 
+### Community 140 - "pytest"
+Cohesion: 0.33
+Nodes (5): pytest, asyncio, test_registry_terminates_process_by_job_prefix(), asyncio, test_m0_shell_mounts_without_startup_checks()
+
 ## Knowledge Gaps
 - **163 isolated node(s):** `harvester`, `Answer`, `Source Nodes`, `Five phase workers`, `Batch adapter` (+158 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 729 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **59 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 733 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **60 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `PipelineOrchestrator` connect `PipelineOrchestrator` to `models.py`, `orchestrator.py`, `test_orchestrator_m5.py`, `test_orchestrator.py`, `test_playlist.py`, `HarvesterApp`, `ValidationError`, `test_orchestrator_m2.py`, `test_orchestrator_m3.py`, `AppConfig`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **Why does `AppConfig` connect `AppConfig` to `models.py`, `config.py`, `PipelineOrchestrator`, `scanner.py`, `persist_first_run_acceptance`, `orchestrator.py`, `acoustid.py`, `CoverArtService`, `environment.py`, `analysis/restoration.py`, `slskd.py`, `.public_dict`, `.__init__`, `SlskdService`, `ValidationError`, `.validate`, `pathlib`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **Why does `load_config()` connect `config.py` to `models.py`, `scanner.py`, `acoustid.py`, `test_orchestrator_m5.py`, `test_config.py`, `test_ui_smoke.py`, `test_playlist.py`, `test_orchestrator_m2.py`, `test_orchestrator_m3.py`, `AppConfig`, `test_orchestrator.py`, `asyncio`, `test_slskd.py`, `AppPaths`, `test_phase5_polish.py`, `app.py`, `pathlib`, `persist_first_run_acceptance`, `.__init__`?**
-  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+- **Why does `AppConfig` connect `AppConfig` to `test_spectral.py`, `config.py`, `PipelineOrchestrator`, `scanner.py`, `persist_first_run_acceptance`, `orchestrator.py`, `acoustid.py`, `CoverArtService`, `environment.py`, `analysis/restoration.py`, `slskd.py`, `.public_dict`, `.__init__`, `SlskdService`, `ValidationError`, `.validate`, `musicbrainz.py`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `HarvesterApp` connect `HarvesterApp` to `.__init__`, `PreviewManager`, `asyncio`, `pytest`, `BatchConfirmScreen`, `app.py`, `__main__.py`, `ComposeResult`?**
+  _High betweenness centrality (0.052) - this node is a cross-community bridge._
+- **Why does `PipelineOrchestrator` connect `PipelineOrchestrator` to `test_spectral.py`, `orchestrator.py`, `test_orchestrator_m5.py`, `test_orchestrator.py`, `test_playlist.py`, `HarvesterApp`, `ValidationError`, `test_orchestrator_m2.py`, `test_orchestrator_m3.py`, `AppConfig`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **Are the 30 inferred relationships involving `ValidationError` (e.g. with `.submit_batch()` and `.submit_playlist()`) actually correct?**
   _`ValidationError` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 12 inferred relationships involving `PipelineOrchestrator` (e.g. with `AppConfig` and `FfmpegService`) actually correct?**
