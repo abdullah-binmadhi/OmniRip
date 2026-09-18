@@ -2,7 +2,7 @@
 Integrated In-Page Curation & Audio Enhancement Workbench for OmniRip.
 
 Provides in-layout stream auditioning ([1] MP3 vs [2] ENH), cutoff frequency analysis,
-spectral mastering deck, preset selection, and full-track derivative export.
+dynamic mastering deck, preset selection, and full-track derivative export.
 """
 
 from __future__ import annotations
@@ -95,14 +95,14 @@ class WorkbenchWidget(Widget):
     }
     #wb-inspector-container {
         height: 1fr;
-        min-height: 12;
+        min-height: 14;
         border: round $secondary;
         background: $surface;
         padding: 0;
     }
     #wb-inspector-body {
-        height: auto;
-        min-height: 9;
+        height: 1fr;
+        min-height: 14;
         border-top: heavy $primary;
         background: $panel;
         padding: 0 1;
@@ -115,8 +115,7 @@ class WorkbenchWidget(Widget):
     #wb-gauge-orig, #wb-gauge-enh {
         height: 1;
     }
-    #wb-spec-cutoff, #wb-spec-bandwidth, #wb-spec-gain,
-    #wb-spec-base, #wb-spec-slope, #wb-spec-stereo, #wb-spec-stream {
+    .wb-spec-line {
         height: 1;
         color: $text;
     }
@@ -184,16 +183,18 @@ class WorkbenchWidget(Widget):
                 yield Label("✦ RESTORATION MASTERING DECK", id="wb-inspector-title")
                 yield Label("", id="wb-gauge-orig")
                 yield Label("", id="wb-gauge-enh")
-                yield Label("• Cutoff Frequency  : -- kHz detected", id="wb-spec-cutoff")
-                yield Label("• Restored Bandwidth: -- kHz (+0.0 kHz Air)", id="wb-spec-bandwidth")
-                yield Label("• High-Band Energy  : +3.8 dB synthesized", id="wb-spec-gain")
-                yield Label("• Sub-Cutoff Floor  : 100% Bit-Exact Verbatim", id="wb-spec-base")
-                yield Label("• Acoustic Roll-off : -4.5 dB/oct Natural Slope", id="wb-spec-slope")
-                yield Label(
-                    "• Spatial Processing: Progressive Stereo (<100Hz mono)",
-                    id="wb-spec-stereo",
-                )
-                yield Label("• Active Audition   : [ ♫ MP3 ORIGINAL ]", id="wb-spec-stream")
+                yield Label("", id="wb-spec-cutoff", classes="wb-spec-line")
+                yield Label("", id="wb-spec-bandwidth", classes="wb-spec-line")
+                yield Label("", id="wb-spec-gain", classes="wb-spec-line")
+                yield Label("", id="wb-spec-trim", classes="wb-spec-line")
+                yield Label("", id="wb-spec-slope", classes="wb-spec-line")
+                yield Label("", id="wb-spec-stereo", classes="wb-spec-line")
+                yield Label("", id="wb-spec-base", classes="wb-spec-line")
+                yield Label("", id="wb-spec-ceiling", classes="wb-spec-line")
+                yield Label("", id="wb-spec-engine", classes="wb-spec-line")
+                yield Label("", id="wb-spec-stream", classes="wb-spec-line")
+                yield Label("", id="wb-spec-profile-header", classes="wb-spec-line")
+                yield Label("", id="wb-spec-profile-desc", classes="wb-spec-line")
 
         yield Label("", id="wb-status")
 
@@ -240,57 +241,112 @@ class WorkbenchWidget(Widget):
         self.set_active_stream("MP3")
 
     def _update_inspector(self) -> None:
-        """Update comparative spectral gauges and technical mastering metrics."""
+        """Update comparative spectral gauges and dynamic mastering metrics based on preset."""
         cutoff_khz = self.cutoff_hz / 1000.0
         restored_khz = 22.05
         delta_khz = max(0.0, restored_khz - cutoff_khz)
-        preset = PRESETS.get(self.selected_preset_id)
-        preset_name = preset.name if preset else "Conservative DSP"
+        preset = PRESETS.get(self.selected_preset_id) or PRESETS["conservative"]
+        preset_name = preset.name
+        gain_db = preset.residual_gain_db
+        decay_slope = preset.target_decay_db_per_oct
+        stereo_width = preset.residual_stereo_width
+        provider_type = preset.provider_type
+        ceiling = preset.ceiling_dbfs
+        description = preset.description
 
         try:
             self.query_one("#wb-inspector-title", Label).update(
-                f"✦ RESTORATION MASTERING DECK // {preset_name.upper()} ACTIVE"
+                f"✦ MASTERING DECK // {preset_name.upper()}"
             )
 
-            # Frequency expansion diagram
+            # Clean frequency expansion diagram without bracket leaks or overflow
             self.query_one("#wb-gauge-orig", Label).update(
-                f"[bold cyan]Baseband :[/bold cyan] [cyan][ 0 kHz ═════════ "
-                f"{cutoff_khz:.1f} kHz[/cyan] [red]── CUTOFF ─── 22.05 kHz ][/red]"
+                f"[bold cyan]Baseband:[/bold cyan] [cyan]0k ═════ "
+                f"{cutoff_khz:.1f}k[/cyan] [red]── CUTOFF ── 22k[/red]"
             )
             self.query_one("#wb-gauge-enh", Label).update(
-                f"[bold green]Restored :[/bold green] [cyan][ 0 kHz ═════════ "
-                f"{cutoff_khz:.1f} kHz[/cyan] [bold green]✦✦✦✦ "
-                f"{restored_khz:.1f} kHz ][/bold green]"
+                f"[bold green]Restored:[/bold green] [cyan]0k ═════ "
+                f"{cutoff_khz:.1f}k[/cyan] [bold green]✦✦✦✦✦✦ 22.05k[/bold green]"
             )
 
             self.query_one("#wb-spec-cutoff", Label).update(
-                f"• Cutoff Frequency  : [bold cyan]{cutoff_khz:.2f} kHz[/bold cyan] "
-                "(Original limit)"
+                f"• Cutoff Limit  : [bold cyan]{cutoff_khz:.2f} kHz[/bold cyan] (Original)"
             )
             self.query_one("#wb-spec-bandwidth", Label).update(
-                f"• Restored Bandwidth: [bold green]{restored_khz:.2f} kHz[/bold green] "
-                f"([green]+{delta_khz:.2f} kHz Air extension[/green])"
+                f"• Restored Band : [bold green]{restored_khz:.2f} kHz[/bold green] "
+                f"([green]+{delta_khz:.2f}k Air[/green])"
             )
-            self.query_one("#wb-spec-gain", Label).update(
-                "• High-Band Energy  : [bold green]+3.8 dB[/bold green] synthesized overtones"
-            )
-            self.query_one("#wb-spec-base", Label).update(
-                f"• Sub-Cutoff Floor  : [bold]0 – {cutoff_khz:.1f} kHz 100% Bit-Exact[/bold]"
-            )
+
+            # Dynamic Gain / Loss display
+            if gain_db > 0:
+                gain_markup = f"[bold green]+{gain_db:.1f} dB (Air Boost)[/bold green]"
+                trim_bar = "[cyan]-- 0dB [/cyan][bold green]══▲══ +3dB[/bold green]"
+            elif gain_db < 0:
+                gain_markup = f"[bold red]{gain_db:.1f} dB (De-Sizzle Cut)[/bold red]"
+                trim_bar = "[bold red]-3dB ══▲══[/bold red][cyan] 0dB --[/cyan]"
+            else:
+                gain_markup = "[bold cyan]0.0 dB (Neutral Overtones)[/bold cyan]"
+                trim_bar = "[cyan]-3dB ─── ▲ ─── +3dB[/cyan]"
+
+            self.query_one("#wb-spec-gain", Label).update(f"• High-Band Gain: {gain_markup}")
+            self.query_one("#wb-spec-trim", Label).update(f"• Gain Trim Bar : {trim_bar}")
+
             self.query_one("#wb-spec-slope", Label).update(
-                "• Acoustic Roll-off : [bold]-4.5 dB/oct[/bold] natural decay slope"
+                f"• Acoustic Slope: [bold]-{decay_slope:.1f} dB/oct[/bold] (Roll-off)"
             )
-            self.query_one("#wb-spec-stereo", Label).update(
-                "• Spatial Processing: [bold]Progressive Stereo[/bold] (<100Hz mono anchor)"
+
+            stereo_pct = int(round(stereo_width * 100))
+            if stereo_pct < 80:
+                stereo_str = f"[yellow]{stereo_pct}% Focused (Headphone)[/yellow]"
+            else:
+                stereo_str = f"[cyan]{stereo_pct}% Stereo (Mono <100Hz)[/cyan]"
+            self.query_one("#wb-spec-stereo", Label).update(f"• Stereo Width  : {stereo_str}")
+
+            self.query_one("#wb-spec-base", Label).update(
+                f"• Sub-Cutoff Base: [bold]0–{cutoff_khz:.1f}k Bit-Exact[/bold]"
+            )
+            self.query_one("#wb-spec-ceiling", Label).update(
+                f"• Limiter Guard : [bold]{ceiling:.1f} dBFS[/bold] Headroom"
+            )
+
+            engine_names = {
+                "conservative": "Non-Neural DSP Exciter",
+                "nvsr": "NVSR Multi-Band Residual",
+                "hybrid": "Hybrid (NVSR + FlashSR)",
+            }
+            engine_str = engine_names.get(provider_type, provider_type.upper())
+            self.query_one("#wb-spec-engine", Label).update(
+                f"• Model Engine  : [bold]{engine_str}[/bold]"
             )
 
             is_enh = self.active_stream == "ENH"
             stream_style = (
                 "[bold green]✦ NEURAL RESTORED ACTIVE (A/B)[/bold green]"
                 if is_enh
-                else "[bold cyan]♫ MP3 ORIGINAL TRANSCODE (A/B)[/bold cyan]"
+                else "[bold cyan]♫ MP3 ORIGINAL BASEBAND (A/B)[/bold cyan]"
             )
-            self.query_one("#wb-spec-stream", Label).update(f"• Active Audition   : {stream_style}")
+            self.query_one("#wb-spec-stream", Label).update(f"• Active Stream : {stream_style}")
+
+            # Wrapped profile description to utilize bottom space
+            words = description.split()
+            w1: list[str] = []
+            w2: list[str] = []
+            cur_l = 0
+            for w in words:
+                if cur_l + len(w) + 1 <= 36 and not w2:
+                    w1.append(w)
+                    cur_l += len(w) + 1
+                else:
+                    w2.append(w)
+            desc1 = " ".join(w1)
+            desc2 = " ".join(w2)
+
+            self.query_one("#wb-spec-profile-header", Label).update(
+                f"• Sonic Goal    : [dim italic]{desc1}[/dim italic]"
+            )
+            self.query_one("#wb-spec-profile-desc", Label).update(
+                f"  [dim italic]{desc2}[/dim italic]" if desc2 else ""
+            )
         except Exception:
             pass
 

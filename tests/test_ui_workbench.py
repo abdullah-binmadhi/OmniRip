@@ -47,7 +47,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
 
         # Check mastering deck metrics
         deck_title = app.query_one("#wb-inspector-title")
-        assert "RESTORATION MASTERING DECK" in str(deck_title.render())
+        assert "MASTERING DECK" in str(deck_title.render())
         spec_cutoff = app.query_one("#wb-spec-cutoff")
         assert "16.00 kHz" in str(spec_cutoff.render())
 
@@ -67,11 +67,20 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
         assert player.current_track == dummy_mp3
         assert monitor.is_enhanced is False
 
-        # Preset selection change
+        # Test dynamic preset changes (de_sizzle -> -2.5 dB loss/cut)
         select = app.query_one("#wb-preset-select")
-        select.value = "fast_balanced"
+        select.value = "de_sizzle"
         await pilot.pause()
-        assert wb.selected_preset_id == "fast_balanced"
+        assert wb.selected_preset_id == "de_sizzle"
+        gain_label = app.query_one("#wb-spec-gain")
+        assert "-2.5 dB" in str(gain_label.render())
+
+        # Test dynamic preset changes (extended_air -> +0.8 dB boost)
+        select.value = "extended_air"
+        await pilot.pause()
+        assert wb.selected_preset_id == "extended_air"
+        gain_label = app.query_one("#wb-spec-gain")
+        assert "+0.8 dB" in str(gain_label.render())
 
 
 async def test_player_interactive_scrubber_and_seeking(tmp_path: Path) -> None:
