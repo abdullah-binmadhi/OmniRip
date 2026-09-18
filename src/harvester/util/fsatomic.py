@@ -8,8 +8,13 @@ from pathlib import Path
 
 def fsync_file(path: Path) -> None:
     """fsync a file's contents to stable storage."""
-    with path.open("rb") as handle:
-        os.fsync(handle.fileno())
+    try:
+        # On Windows (NT), _commit requires the file descriptor to be opened for writing
+        mode = "r+b" if os.name == "nt" else "rb"
+        with path.open(mode) as handle:
+            os.fsync(handle.fileno())
+    except OSError:
+        pass
 
 
 def fsync_directory(path: Path) -> None:

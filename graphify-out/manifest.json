@@ -480,10 +480,10 @@
     "semantic_hash": "310875dfd32acef89ab73285187ba57b"
   },
   "src/harvester/util/fsatomic.py": {
-    "mtime": 1789745561.1071172,
-    "seen": 1789747206.3789618,
-    "ast_hash": "8d61ce434efd3f27ce9dd977cbc23866",
-    "semantic_hash": "8d61ce434efd3f27ce9dd977cbc23866"
+    "mtime": 1789770935.2817316,
+    "seen": 1789770974.738098,
+    "ast_hash": "abfe877f4d2f25733e2309332aec14a8",
+    "semantic_hash": "abfe877f4d2f25733e2309332aec14a8"
   },
   "tests/test_batch_report.py": {
     "mtime": 1789745561.046533,
@@ -498,10 +498,10 @@
     "semantic_hash": "d54ebc15d10b644762243a3b77ed5b1e"
   },
   "tests/test_batch_swap.py": {
-    "mtime": 1789746081.591798,
-    "seen": 1789747206.378968,
-    "ast_hash": "dce88eec870ed58db987d53de5cd2119",
-    "semantic_hash": "dce88eec870ed58db987d53de5cd2119"
+    "mtime": 1789770961.9628603,
+    "seen": 1789770974.738235,
+    "ast_hash": "b3612417c37f40546f741a0804674b30",
+    "semantic_hash": "b3612417c37f40546f741a0804674b30"
   },
   "tests/test_batch_trash.py": {
     "mtime": 1789745366.9324312,
@@ -576,10 +576,10 @@
     "semantic_hash": "6ecfb2dccdae95b4798dc43facf758ce"
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1789748403.0098052,
-    "seen": 1789748843.8285282,
-    "ast_hash": "8c3e0a65a0d5013a624e2dfc8807df47",
-    "semantic_hash": "8c3e0a65a0d5013a624e2dfc8807df47"
+    "mtime": 1789770800.7661405,
+    "seen": 1789770830.913177,
+    "ast_hash": "ade109bb17afce6901feaaa6973e0b14",
+    "semantic_hash": ""
   },
   "CHANGELOG.md": {
     "mtime": 1789764210.6129262,

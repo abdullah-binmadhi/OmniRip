@@ -77,3 +77,28 @@ def test_swap_with_nested_file_uses_batch_root_for_trash(tmp_path: Path) -> None
     # .trash lives in the scanned root, not the file's subdirectory (docs/02 §3).
     assert trash_path.parent.parent == root / ".trash"
     assert original.read_bytes() == b"NEW"
+
+
+def test_fsatomic_helpers(tmp_path: Path, monkeypatch) -> None:
+    from harvester.util.fsatomic import atomic_replace, fsync_directory, fsync_file
+
+    test_file = tmp_path / "test.dat"
+    test_file.write_bytes(b"DATA")
+    fsync_file(test_file)
+
+    # Test Windows NT branch of fsync_file
+    monkeypatch.setattr("os.name", "nt")
+    fsync_file(test_file)
+
+    # Test non-posix fsync_directory
+    fsync_directory(tmp_path)
+
+    # Test posix fsync_directory
+    monkeypatch.setattr("os.name", "posix")
+    fsync_directory(tmp_path)
+
+    # Test atomic_replace
+    target_file = tmp_path / "replaced.dat"
+    atomic_replace(test_file, target_file)
+    assert target_file.read_bytes() == b"DATA"
+    assert not test_file.exists()
