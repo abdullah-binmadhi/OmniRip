@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Label, ProgressBar, Select
 
@@ -690,3 +691,71 @@ async def test_workbench_stem_separation_and_auditioning(tmp_path: Path) -> None
 
             exported_inst = tmp_path / "stem_song_instrumental.wav"
             assert exported_inst.exists()
+
+            # Verify stem progress bar is present in workbench DOM
+            pb_stem = app.query_one("#wb-stem-progress", ProgressBar)
+            assert pb_stem is not None
+
+
+@pytest.mark.asyncio
+async def test_workbench_multi_song_stem_isolation(tmp_path: Path) -> None:
+    """Verify workbench preserves stem paths per track across job switches."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+
+        track_1 = tmp_path / "track_1.mp3"
+        track_1.write_bytes(b"TRACK1AUDIO" * 200)
+        job_1 = TrackJob(mode=Mode.SINGLE_URL, input_path=track_1)
+        job_1.output_path = track_1
+
+        track_2 = tmp_path / "track_2.mp3"
+        track_2.write_bytes(b"TRACK2AUDIO" * 200)
+        job_2 = TrackJob(mode=Mode.SINGLE_URL, input_path=track_2)
+        job_2.output_path = track_2
+
+        # Mock cache directories for track 1 and track 2
+        cache_dir_1 = (
+            Path.home()
+            / ".cache"
+            / "omnirip"
+            / "stems"
+            / f"{track_1.stem}_{track_1.stat().st_size}"
+        )
+        cache_dir_2 = (
+            Path.home()
+            / ".cache"
+            / "omnirip"
+            / "stems"
+            / f"{track_2.stem}_{track_2.stat().st_size}"
+        )
+        cache_dir_1.mkdir(parents=True, exist_ok=True)
+        cache_dir_2.mkdir(parents=True, exist_ok=True)
+
+        voc_1 = cache_dir_1 / f"{track_1.stem}_neural_vocals.wav"
+        inst_1 = cache_dir_1 / f"{track_1.stem}_neural_instrumental.wav"
+        voc_1.write_bytes(b"VOC1")
+        inst_1.write_bytes(b"INST1")
+
+        voc_2 = cache_dir_2 / f"{track_2.stem}_neural_vocals.wav"
+        inst_2 = cache_dir_2 / f"{track_2.stem}_neural_instrumental.wav"
+        voc_2.write_bytes(b"VOC2")
+        inst_2.write_bytes(b"INST2")
+
+        # Load Track 1
+        wb.load_job(job_1)
+        await pilot.pause()
+        assert wb.path_voc == voc_1
+        assert wb.path_inst == inst_1
+
+        # Switch to Track 2
+        wb.load_job(job_2)
+        await pilot.pause()
+        assert wb.path_voc == voc_2
+        assert wb.path_inst == inst_2
+
+        # Switch back to Track 1
+        wb.load_job(job_1)
+        await pilot.pause()
+        assert wb.path_voc == voc_1
+        assert wb.path_inst == inst_1

@@ -280,7 +280,9 @@ async def restart_slskd_daemon(repo_root: Path | None = None) -> bool:
     # Kill any existing slskd process started by this user
     try:
         pkill = await asyncio.create_subprocess_exec(
-            "pkill", "-f", "slskd.*slskd.local.yml",
+            "pkill",
+            "-f",
+            "slskd.*slskd.local.yml",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

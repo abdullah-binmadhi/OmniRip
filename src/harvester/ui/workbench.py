@@ -324,6 +324,12 @@ class WorkbenchWidget(Widget):
         display: none;
         margin-top: 1;
     }
+    #wb-stem-progress {
+        height: 1;
+        width: 1fr;
+        display: none;
+        margin-top: 1;
+    }
     #wb-status {
         height: 1;
         color: $warning;
@@ -362,6 +368,7 @@ class WorkbenchWidget(Widget):
         self.path_inst: Path | None = None
         self._is_generating_enh: bool = False
         self._is_generating_stems: bool = False
+        self._active_stem_tasks: set[Path] = set()
 
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
@@ -450,6 +457,8 @@ class WorkbenchWidget(Widget):
             yield Button("[4] INST", id="btn-stream-inst", variant="default")
             yield Button("ECO DSP", id="wb-btn-neural-toggle", variant="default")
             yield Button("MODELS", id="wb-btn-models-download", variant="default")
+
+        yield ProgressBar(id="wb-stem-progress", total=100, show_eta=False, show_percentage=True)
 
         with Horizontal(id="wb-controls-row"):
             preset_options = AI_PRESET_OPTIONS if self.neural_enabled else ECO_PRESET_OPTIONS
@@ -580,6 +589,15 @@ class WorkbenchWidget(Widget):
             if v_cand.exists() and i_cand.exists():
                 self.path_voc = v_cand
                 self.path_inst = i_cand
+
+        try:
+            pb = self.query_one("#wb-stem-progress", ProgressBar)
+            if self.path_mp3 and self.path_mp3 in self._active_stem_tasks:
+                pb.styles.display = "block"
+            else:
+                pb.styles.display = "none"
+        except Exception:
+            pass
 
         # Check if enhanced derivative is available (exported or in audition cache)
         if self.path_mp3:
@@ -845,9 +863,7 @@ class WorkbenchWidget(Widget):
                     "Auditioning [VOC]: Isolated Vocals (Acapella)"
                 )
             elif self.path_mp3 and self.path_mp3.exists():
-                self.query_one("#wb-status", Label).update(
-                    "Separating stems: isolating vocals..."
-                )
+                self.query_one("#wb-status", Label).update("Separating stems: isolating vocals...")
                 self._trigger_stem_separation("VOC")
             else:
                 self.query_one("#wb-status", Label).update("No audio loaded to separate.")
@@ -873,54 +889,113 @@ class WorkbenchWidget(Widget):
 
     def _trigger_stem_separation(self, target_stream: str = "VOC") -> None:
         """Initiate background stem separation for current track."""
-        if self._is_generating_stems or not self.path_mp3 or not self.path_mp3.exists():
+        if not self.path_mp3 or not self.path_mp3.exists():
             return
-        asyncio.create_task(self._async_separate_stems(target_stream))
-
-    async def _async_separate_stems(self, target_stream: str) -> None:
-        """Run stem separation asynchronously and route active stream when ready."""
+        if self.path_mp3 in self._active_stem_tasks:
+            self.query_one("#wb-status", Label).update(
+                "Stem separation is already processing for this track..."
+            )
+            return
+        self._active_stem_tasks.add(self.path_mp3)
         self._is_generating_stems = True
+        asyncio.create_task(self._async_separate_stems(self.path_mp3, target_stream))
+
+    async def _async_separate_stems(self, source_path: Path, target_stream: str) -> None:
+        """Run stem separation asynchronously with live progress and route stream when ready."""
+        pb = None
+        try:
+            pb = self.query_one("#wb-stem-progress", ProgressBar)
+            pb.styles.display = "block"
+            pb.progress = 0.0
+            pb.total = 100.0
+        except Exception:
+            pass
+
+        def on_progress(pct: float, step: str) -> None:
+            def _ui() -> None:
+                try:
+                    if pb and self.path_mp3 == source_path:
+                        pb.progress = pct
+                    if self.path_mp3 == source_path:
+                        self.query_one("#wb-status", Label).update(
+                            f"Stem Separation [{int(pct)}%]: {step}"
+                        )
+                except Exception:
+                    pass
+
+            self.app.call_from_thread(_ui)
+
         try:
             from harvester.analysis.enhancement.stem_separator import StemSeparator
 
             separator = StemSeparator()
-            # Default to Neural AI (HDEMUCS); auto-falls back to Eco DSP if unavailable
             res = await asyncio.to_thread(
                 separator.separate_file,
-                self.path_mp3,
+                source_path,
                 mode="neural",
+                progress_callback=on_progress,
             )
-            mode = res.mode
-            self.path_voc = res.vocals_path
-            self.path_inst = res.instrumental_path
-            track_name = self.path_mp3.name if self.path_mp3 else "Audio"
 
-            if self.active_stream == "VOC":
-                self._route_to_player(
-                    self.path_voc,
-                    title=f"[VOC] Isolated Vocals ({track_name})",
-                    is_enhanced=True,
-                )
-                self.query_one("#wb-status", Label).update(
-                    f"Stems Ready: Auditioning Vocals ({mode.upper()})"
-                )
-            elif self.active_stream == "INST":
-                self._route_to_player(
-                    self.path_inst,
-                    title=f"[INST] Karaoke Backing ({track_name})",
-                    is_enhanced=True,
-                )
-                self.query_one("#wb-status", Label).update(
-                    f"Stems Ready: Auditioning Karaoke ({mode.upper()})"
-                )
+            if self.path_mp3 == source_path:
+                self.path_voc = res.vocals_path
+                self.path_inst = res.instrumental_path
+                track_name = source_path.name
+
+                if self.active_stream == "VOC":
+                    self._route_to_player(
+                        self.path_voc,
+                        title=f"[VOC] Isolated Vocals ({track_name})",
+                        is_enhanced=True,
+                    )
+                    self.query_one("#wb-status", Label).update(
+                        f"Stems Ready: Auditioning Vocals ({res.mode.upper()})"
+                    )
+                elif self.active_stream == "INST":
+                    self._route_to_player(
+                        self.path_inst,
+                        title=f"[INST] Karaoke Backing ({track_name})",
+                        is_enhanced=True,
+                    )
+                    self.query_one("#wb-status", Label).update(
+                        f"Stems Ready: Auditioning Karaoke ({res.mode.upper()})"
+                    )
+                else:
+                    self.query_one("#wb-status", Label).update(
+                        f"Stems Ready: Vocals & Instrumental ({res.mode.upper()})"
+                    )
+
+            self.app.notify(
+                f"Separation Complete: {source_path.stem}\nVocals & Instrumental ready.",
+                title="OmniRip Stems",
+                timeout=4.0,
+            )
+
+            if pb and self.path_mp3 == source_path:
+                pb.progress = 100.0
+                await asyncio.sleep(0.6)
+                pb.styles.display = "none"
+
         except Exception as err:
-            logger.error("Stem separation failed: %s", err)
+            logger.error("Stem separation failed for %s: %s", source_path, err)
             try:
-                self.query_one("#wb-status", Label).update(f"Stem separation error: {err}")
+                if self.path_mp3 == source_path:
+                    self.query_one("#wb-status", Label).update(f"Stem separation error: {err}")
             except Exception:
                 pass
+            self.app.notify(
+                f"Stem separation error: {err}",
+                title="Separation Error",
+                severity="error",
+                timeout=4.0,
+            )
         finally:
-            self._is_generating_stems = False
+            self._active_stem_tasks.discard(source_path)
+            self._is_generating_stems = bool(self._active_stem_tasks)
+            try:
+                if pb and self.path_mp3 == source_path:
+                    pb.styles.display = "none"
+            except Exception:
+                pass
 
     def _get_eq_cache_tag(self) -> str:
         """Generate a short cache tag representing active EQ settings."""
