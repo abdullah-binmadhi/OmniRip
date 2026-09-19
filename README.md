@@ -123,14 +123,34 @@ cd OmniRip
 uv sync --extra dev
 ```
 
-### 3. Launch the Studio
+### 3. Connect Your Soulseek Account (Recommended)
+To hunt lossless FLAC and WAV audio across the Soulseek P2P network:
+1. Copy the configuration template:
+   ```sh
+   cp tools/slskd/slskd.yml tools/slskd/slskd.local.yml
+   ```
+2. Open `tools/slskd/slskd.local.yml` in any text editor and fill in your Soulseek account username, password, and a secret local API key:
+   ```yaml
+   soulseek:
+     username: your_soulseek_username      # Your standard Soulseek account name
+     password: your_soulseek_password      # Your Soulseek password
+
+   web:
+     authentication:
+       api_key: my_secret_local_key_12345  # A local secret key (or run: openssl rand -hex 32)
+   ```
+
+> [!NOTE]
+> If you do not have a Soulseek account yet, you can create one for free inside the [SoulseekQt client](http://www.slsknet.org/), or run OmniRip in web-stream-only mode using `./OmniRip --no-slskd`.
+
+### 4. Launch the Studio
 Launch the unified TUI:
 ```sh
 ./OmniRip
 ```
 
 > [!TIP]
-> **One-Command Daemon Integration:** The `./OmniRip` launcher automatically reads local Soulseek credentials from `tools/slskd/slskd.local.yml`, boots the daemon if it’s offline, connects to the P2P swarm, and opens the TUI in a single terminal.
+> **Automatic Background Daemon:** The `./OmniRip` launcher automatically reads your credentials from `tools/slskd/slskd.local.yml`, boots the `slskd` P2P engine in the background if it's not already running, connects to the Soulseek swarm, and opens the workstation immediately.
 
 ---
 
