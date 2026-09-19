@@ -567,8 +567,16 @@ class WorkbenchWidget(Widget):
                 / "stems"
                 / f"{self.path_mp3.stem}_{self.path_mp3.stat().st_size}"
             )
-            v_cand = stem_dir / f"{self.path_mp3.stem}_vocals.wav"
-            i_cand = stem_dir / f"{self.path_mp3.stem}_instrumental.wav"
+            # Prefer high-fidelity neural stems if cached
+            v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals.wav"
+            i_cand = stem_dir / f"{self.path_mp3.stem}_neural_instrumental.wav"
+            if not (v_cand.exists() and i_cand.exists()):
+                v_cand = stem_dir / f"{self.path_mp3.stem}_vocals.wav"
+                i_cand = stem_dir / f"{self.path_mp3.stem}_instrumental.wav"
+            if not (v_cand.exists() and i_cand.exists()):
+                v_cand = stem_dir / f"{self.path_mp3.stem}_eco_vocals.wav"
+                i_cand = stem_dir / f"{self.path_mp3.stem}_eco_instrumental.wav"
+
             if v_cand.exists() and i_cand.exists():
                 self.path_voc = v_cand
                 self.path_inst = i_cand
@@ -876,12 +884,13 @@ class WorkbenchWidget(Widget):
             from harvester.analysis.enhancement.stem_separator import StemSeparator
 
             separator = StemSeparator()
-            mode = "neural" if self.neural_enabled else "eco"
+            # Default to Neural AI (HDEMUCS); auto-falls back to Eco DSP if unavailable
             res = await asyncio.to_thread(
                 separator.separate_file,
                 self.path_mp3,
-                mode=mode,
+                mode="neural",
             )
+            mode = res.mode
             self.path_voc = res.vocals_path
             self.path_inst = res.instrumental_path
             track_name = self.path_mp3.name if self.path_mp3 else "Audio"

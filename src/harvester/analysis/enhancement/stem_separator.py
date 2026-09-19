@@ -130,8 +130,8 @@ class StemSeparator:
         stem_dir = output_dir or (self.cache_dir / f"{input_path.stem}_{input_path.stat().st_size}")
         stem_dir.mkdir(parents=True, exist_ok=True)
 
-        vocals_path = stem_dir / f"{input_path.stem}_vocals.wav"
-        inst_path = stem_dir / f"{input_path.stem}_instrumental.wav"
+        vocals_path = stem_dir / f"{input_path.stem}_{mode}_vocals.wav"
+        inst_path = stem_dir / f"{input_path.stem}_{mode}_instrumental.wav"
 
         # Check existing cache
         if (
@@ -268,41 +268,57 @@ class StemSeparator:
         model = bundle.get_model().to(device)
         model.eval()
 
-        waveform, sr = torchaudio.load(str(input_path))
-        target_sr = bundle.sample_rate
-
-        if sr != target_sr:
-            import torchaudio.transforms as T
-
-            resampler = T.Resample(orig_freq=sr, new_freq=target_sr)
-            waveform = resampler(waveform)
-            sr = target_sr
-
+        audio_np, sr = load_audio_numpy(input_path, target_sr=bundle.sample_rate)
+        waveform = torch.from_numpy(audio_np)
         if waveform.shape[0] == 1:
             waveform = waveform.repeat(2, 1)
 
-        # Process waveform
-        waveform = waveform.to(device)
-        ref = waveform.mean(0)
-        waveform = (waveform - ref.mean()) / ref.std()
+        total_samples = waveform.shape[1]
+        chunk_len = int(10 * sr)
+        hop_len = int(8 * sr)
 
-        with torch.no_grad():
-            # HDEMUCS expects (batch, channels, time)
-            sources = model(waveform.unsqueeze(0))[0]  # (sources, channels, time)
-            sources = sources * ref.std() + ref.mean()
+        if total_samples <= chunk_len:
+            ref = waveform.mean(0)
+            norm = (waveform - ref.mean()) / (ref.std() + 1e-8)
+            with torch.no_grad():
+                srcs = model(norm.unsqueeze(0).to(device))[0].cpu()
+                srcs = srcs * (ref.std() + 1e-8) + ref.mean()
+            output = srcs
+        else:
+            output = torch.zeros(4, 2, total_samples)
+            weight = torch.zeros(total_samples)
+            window = torch.hann_window(chunk_len)
+
+            for start in range(0, total_samples, hop_len):
+                end = min(start + chunk_len, total_samples)
+                chunk = waveform[:, start:end]
+                act_len = chunk.shape[1]
+                if act_len < chunk_len:
+                    chunk = torch.nn.functional.pad(chunk, (0, chunk_len - act_len))
+                ref = chunk.mean(0)
+                norm = (chunk - ref.mean()) / (ref.std() + 1e-8)
+                with torch.no_grad():
+                    srcs = model(norm.unsqueeze(0).to(device))[0].cpu()
+                    srcs = srcs * (ref.std() + 1e-8) + ref.mean()
+                w = window[:act_len]
+                output[:, :, start:end] += srcs[:, :, :act_len] * w
+                weight[start:end] += w
+
+            weight[weight == 0] = 1.0
+            output = output / weight
 
         # Sources: [0: drums, 1: bass, 2: other, 3: vocals]
-        drums = sources[0].cpu().numpy()
-        bass = sources[1].cpu().numpy()
-        other = sources[2].cpu().numpy()
-        vocals = sources[3].cpu().numpy()
+        drums = output[0].numpy()
+        bass = output[1].numpy()
+        other = output[2].numpy()
+        vocals = output[3].numpy()
 
         instrumental = drums + bass + other
 
         save_audio_numpy(vocals, vocals_path, sr)
         save_audio_numpy(instrumental, inst_path, sr)
 
-        duration = waveform.shape[1] / max(1, sr)
+        duration = total_samples / max(1, sr)
         return StemResult(
             vocals_path=vocals_path,
             instrumental_path=inst_path,
