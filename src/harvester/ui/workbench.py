@@ -580,6 +580,9 @@ class WorkbenchWidget(Widget):
             v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals.wav"
             i_cand = stem_dir / f"{self.path_mp3.stem}_neural_instrumental.wav"
             if not (v_cand.exists() and i_cand.exists()):
+                v_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_vocals.wav"
+                i_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_instrumental.wav"
+            if not (v_cand.exists() and i_cand.exists()):
                 v_cand = stem_dir / f"{self.path_mp3.stem}_vocals.wav"
                 i_cand = stem_dir / f"{self.path_mp3.stem}_instrumental.wav"
             if not (v_cand.exists() and i_cand.exists()):

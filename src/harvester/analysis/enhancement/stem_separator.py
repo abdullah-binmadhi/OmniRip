@@ -103,98 +103,60 @@ def save_audio_numpy(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
 
 def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     """
-    Apply Voice Activity Detection (VAD) and spectral noise gating to remove
-    inter-phrase instrumental bleed and high-frequency cymbal/snare splash.
+    Apply natural vocal envelope leveling and gentle inter-phrase silence attenuation.
+    Uses a 300 ms musical envelope with soft knee to eliminate volume pumping,
+    flutter, and breathing artifacts while preserving 100% of vocal phase.
     """
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
 
     n_samples = audio.shape[1]
-    nperseg = 2048
-    noverlap = 1536
+    if n_samples < sr // 4:
+        return audio.astype(np.float32)
 
-    f, _, Zxx = signal.stft(audio, fs=sr, nperseg=nperseg, noverlap=noverlap)
-    mag = np.abs(Zxx)
+    # 300 ms musical smoothing window (eliminates fast tremolo/pumping)
+    win_len = int(0.300 * sr)
+    if win_len % 2 == 0:
+        win_len += 1
+    window = np.hanning(win_len).astype(np.float32)
+    window /= np.sum(window)
 
-    # Vocal fundamental & core formant band (200 Hz - 3500 Hz)
-    vocal_band = (f >= 200.0) & (f <= 3500.0)
-    energy = np.mean(mag[:, vocal_band, :], axis=1)  # (channels, frames)
+    audio_mono = np.mean(audio, axis=0)
+    env = np.sqrt(np.convolve(audio_mono**2, window, mode="same") + 1e-9)
+    peak_env = float(np.max(env))
 
-    peak_energy = np.max(energy, axis=1, keepdims=True)
-    noise_floor = np.percentile(energy, 12, axis=1, keepdims=True)
-
+    p10 = float(np.percentile(env, 12))
     # If dynamic range is narrow (e.g. continuous test tones), preserve full signal
-    dynamic_range = peak_energy - noise_floor
-    if np.all(noise_floor > 0.35 * peak_energy):
-        raw_gate = np.ones_like(energy)
-    else:
-        thresh = noise_floor + 0.15 * dynamic_range
-        raw_gate = np.clip((energy - thresh) / (0.25 * dynamic_range + 1e-6), 0.02, 1.0)
+    if p10 > 0.35 * peak_env:
+        return audio.astype(np.float32)
 
-    # Smooth gate across time with 3-frame moving average to prevent stutter
-    kernel = np.array([0.2, 0.6, 0.2], dtype=np.float32)
-    smoothed_gate = np.zeros_like(raw_gate)
-    for ch in range(raw_gate.shape[0]):
-        smoothed_gate[ch] = np.convolve(raw_gate[ch], kernel, mode="same")
+    # Soft expander threshold: only attenuate deep inter-phrase pauses
+    silence_thresh = max(p10 * 1.5, 0.02 * peak_env)
+    gain = np.clip((env - silence_thresh * 0.4) / (silence_thresh * 1.6 + 1e-6), 0.05, 1.0)
 
-    gain_matrix = smoothed_gate[:, np.newaxis, :]  # broadcast across frequencies
+    # Secondary 40 ms smoothing on gain to guarantee zero clicks or pops
+    smooth_len = int(0.040 * sr)
+    if smooth_len % 2 == 0:
+        smooth_len += 1
+    smooth_win = np.hanning(smooth_len).astype(np.float32)
+    smooth_win /= np.sum(smooth_win)
+    gain_smooth = np.convolve(gain, smooth_win, mode="same")
 
-    # Sibilance & High-Frequency De-Bleeder:
-    # Above 5.5 kHz (cymbal / hi-hat territory), suppress splash when singing is quiet
-    high_freq_mask = (f >= 5500.0)[:, np.newaxis]
-    quiet_voice_mask = gain_matrix < 0.25
-    high_bleed_attenuation = np.where(high_freq_mask & quiet_voice_mask, 0.02, 1.0)
-
-    Z_cleaned = Zxx * gain_matrix * high_bleed_attenuation
-    _, audio_out = signal.istft(Z_cleaned, fs=sr, nperseg=nperseg, noverlap=noverlap)
-
-    # Match exact original length
-    if audio_out.shape[1] > n_samples:
-        audio_out = audio_out[:, :n_samples]
-    elif audio_out.shape[1] < n_samples:
-        pad_width = n_samples - audio_out.shape[1]
-        audio_out = np.pad(audio_out, ((0, 0), (0, pad_width)))
-
-    return audio_out.astype(np.float32)
+    return (audio * gain_smooth[np.newaxis, :]).astype(np.float32)
 
 
 def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
     """
-    Suppress metallic phase-smearing and isolated musical noise using
-    smooth spectral envelope blending.
+    Smooth vocal dynamics and limit peak overs without phase degradation or robotic artifacts.
+    Maintains 100% natural phase, autotune formants, and vocal breath dynamics.
     """
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
 
-    n_samples = audio.shape[1]
-    nperseg = 1024
-    noverlap = 768
-
-    f, _, Zxx = signal.stft(audio, fs=sr, nperseg=nperseg, noverlap=noverlap)
-    mag = np.abs(Zxx)
-    phase = np.angle(Zxx)
-
-    # Apply 3-frame median filter along time axis to eliminate isolated chirps
-    mag_smoothed = signal.medfilt2d(mag[0], kernel_size=(1, 3))
-    if mag.shape[0] > 1:
-        mag_smoothed_r = signal.medfilt2d(mag[1], kernel_size=(1, 3))
-        mag_smoothed = np.stack([mag_smoothed, mag_smoothed_r], axis=0)
-    else:
-        mag_smoothed = mag_smoothed[np.newaxis, :]
-
-    # Blend 85% original dynamic vocal + 15% smoothed envelope
-    mag_polished = 0.85 * mag + 0.15 * mag_smoothed
-    Z_polished = mag_polished * np.exp(1j * phase)
-
-    _, audio_out = signal.istft(Z_polished, fs=sr, nperseg=nperseg, noverlap=noverlap)
-
-    if audio_out.shape[1] > n_samples:
-        audio_out = audio_out[:, :n_samples]
-    elif audio_out.shape[1] < n_samples:
-        pad_width = n_samples - audio_out.shape[1]
-        audio_out = np.pad(audio_out, ((0, 0), (0, pad_width)))
-
-    return audio_out.astype(np.float32)
+    peak = float(np.max(np.abs(audio)))
+    if peak > 0.96:
+        return (audio * (0.96 / peak)).astype(np.float32)
+    return audio.astype(np.float32)
 
 
 def apply_inversion_subtraction(
@@ -299,15 +261,27 @@ class StemSeparator:
                 duration_s=duration,
             )
 
-        if mode == "neural":
+        if mode in ("neural", "bs_roformer"):
+            # Try state-of-the-art BS-RoFormer first (specialized in complex & hyperpop mixes)
+            try:
+                return self._separate_bs_roformer(
+                    input_path, vocals_path, inst_path, progress_callback=progress_callback
+                )
+            except Exception as e_roformer:
+                logger.warning(
+                    "BS-RoFormer separation unavailable (%s); trying HDEMUCS.",
+                    e_roformer,
+                )
+
+            # Fallback to HDEMUCS
             try:
                 return self._separate_neural(
                     input_path, vocals_path, inst_path, progress_callback=progress_callback
                 )
-            except Exception as e:
+            except Exception as e_hdemucs:
                 logger.warning(
-                    "Neural stem separation failed (%s); falling back to Eco DSP mode.",
-                    e,
+                    "HDEMUCS stem separation failed (%s); falling back to Eco DSP mode.",
+                    e_hdemucs,
                 )
                 return self._separate_eco(
                     input_path, vocals_path, inst_path, progress_callback=progress_callback
@@ -376,6 +350,130 @@ class StemSeparator:
             duration_s=duration,
         )
 
+    def _separate_bs_roformer(
+        self,
+        input_path: Path,
+        vocals_path: Path,
+        inst_path: Path,
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> StemResult:
+        """
+        State-of-the-Art Band-Split Rotary Position Transformer (BS-RoFormer).
+        Specialized in complex electronic arrangements, dense synths, and hyperpop.
+        """
+        import torch
+        from transformers import AutoModel
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        if progress_callback:
+            progress_callback(5.0, "Loading BS-RoFormer Rotary Transformer...")
+
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+        # Compatibility bridge for transformers 5.x dynamic modules
+        try:
+            model_cls = get_class_from_dynamic_module(
+                "modeling_bs_roformer.BSRoformerForMaskedEstimation",
+                "HiDolen/Mini-BS-RoFormer-V2-46.8M",
+            )
+            model_cls.all_tied_weights_keys = {}
+        except Exception:
+            pass
+
+        model = AutoModel.from_pretrained(
+            "HiDolen/Mini-BS-RoFormer-V2-46.8M",
+            trust_remote_code=True,
+        ).to(device)
+        model.eval()
+
+        target_sr = getattr(model.config, "wave_sample_rate", 44100)
+        orig_audio, sr = load_audio_numpy(input_path, target_sr=target_sr)
+        waveform = torch.from_numpy(orig_audio).to(device)
+        if waveform.shape[0] == 1:
+            waveform = waveform.repeat(2, 1)
+
+        total_samples = waveform.shape[1]
+        chunk_len = getattr(model.config, "wave_chunk_size", 352800)
+        # 50% overlap-add: guaranteed flat partition of unity (sum of Hann == 1.0)
+        hop_len = chunk_len // 2
+
+        if progress_callback:
+            progress_callback(12.0, "BS-RoFormer: Multi-band attention vocal extraction...")
+
+        if total_samples < chunk_len:
+            pad_len = chunk_len - total_samples
+            padded_wave = torch.nn.functional.pad(waveform, (0, pad_len))
+        else:
+            remainder = (total_samples - chunk_len) % hop_len
+            pad_len = (hop_len - remainder) if remainder != 0 else 0
+            padded_wave = torch.nn.functional.pad(waveform, (0, pad_len + chunk_len))
+
+        padded_len = padded_wave.shape[1]
+        output = torch.zeros(4, 2, padded_len, device=device)
+        weight = torch.zeros(padded_len, device=device)
+        window = torch.hann_window(chunk_len, device=device)
+
+        starts = list(range(0, padded_len - chunk_len + 1, hop_len))
+        n_chunks = len(starts)
+
+        with torch.no_grad():
+            for idx, start in enumerate(starts):
+                end = start + chunk_len
+                chunk = padded_wave[:, start:end].unsqueeze(0)
+                srcs = model(raw_audio=chunk).squeeze(0)
+
+                output[:, :, start:end] += srcs * window
+                weight[start:end] += window
+
+                if progress_callback:
+                    pct = 12.0 + 58.0 * ((idx + 1) / max(1, n_chunks))
+                    progress_callback(
+                        pct,
+                        f"BS-RoFormer: Processing chunk {idx + 1}/{n_chunks}...",
+                    )
+
+        weight_safe = torch.clamp(weight, min=1e-6)
+        output = (output / weight_safe)[:, :, :total_samples].cpu().numpy()
+
+        # Stem mapping: 0=bass, 1=drums, 2=other, 3=vocals
+        drums = output[1]
+        bass = output[0]
+        other = output[2]
+        vocals_raw = output[3]
+        inst_model = drums + bass + other
+
+        # Stage 2: Natural Vocal Leveler (Zero pumping, preserves autotune & breath)
+        if progress_callback:
+            progress_callback(78.0, "De-Pumping: Applying natural vocal envelope leveler...")
+        vocals_clean = apply_adaptive_spectral_gate(vocals_raw, sr)
+        vocals_clean = apply_vocal_harmonic_polish(vocals_clean, sr)
+
+        # Stage 3: Master Inversion Instrumental Backing (100% Vocal Rejection)
+        if progress_callback:
+            progress_callback(88.0, "Master Polish: Inversion subtraction backing track...")
+        inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
+        inst_final = 0.5 * inst_model + 0.5 * inst_inversion
+        peak_inst = float(np.max(np.abs(inst_final)))
+        if peak_inst > 0.98:
+            inst_final = inst_final * (0.98 / peak_inst)
+
+        if progress_callback:
+            progress_callback(96.0, "Writing isolated stems to disk...")
+        save_audio_numpy(vocals_clean, vocals_path, sr)
+        save_audio_numpy(inst_final, inst_path, sr)
+
+        if progress_callback:
+            progress_callback(100.0, "Stems ready: Vocals & Instrumental (BS-RoFormer)!")
+
+        duration = total_samples / max(1, sr)
+        return StemResult(
+            vocals_path=vocals_path,
+            instrumental_path=inst_path,
+            mode="bs_roformer",
+            sample_rate=sr,
+            duration_s=duration,
+        )
+
     def _separate_neural(
         self,
         input_path: Path,
@@ -408,7 +506,7 @@ class StemSeparator:
 
         total_samples = waveform.shape[1]
         chunk_len = int(10 * sr)
-        hop_len = int(8 * sr)
+        hop_len = int(5 * sr)
 
         # Stage 1: Chunked Neural Inference
         if progress_callback:

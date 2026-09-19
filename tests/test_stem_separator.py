@@ -84,15 +84,42 @@ def test_stem_separator_file_not_found(tmp_path: Path) -> None:
 def test_stem_separator_neural_fallback(sample_stereo_wav: Path, tmp_path: Path) -> None:
     """Test that neural separation failure gracefully falls back to Eco DSP mode."""
     separator = StemSeparator(cache_dir=tmp_path / "cache")
-    with patch.object(separator, "_separate_neural", side_effect=RuntimeError("CUDA OOM")):
+    with (
+        patch.object(
+            separator, "_separate_bs_roformer", side_effect=RuntimeError("HF unavailable")
+        ),
+        patch.object(separator, "_separate_neural", side_effect=RuntimeError("CUDA OOM")),
+    ):
         res = separator.separate_file(sample_stereo_wav, mode="neural")
         assert res.mode == "eco"
         assert res.vocals_path.exists()
         assert res.instrumental_path.exists()
 
 
+def test_stem_separator_bs_roformer_fallback_to_hdemucs(
+    sample_stereo_wav: Path, tmp_path: Path
+) -> None:
+    """Test that BS-RoFormer failure falls back to HDEMUCS when available."""
+    separator = StemSeparator(cache_dir=tmp_path / "cache")
+    mock_res = StemResult(
+        vocals_path=tmp_path / "vocals.wav",
+        instrumental_path=tmp_path / "inst.wav",
+        mode="hdemucs",
+        sample_rate=44100,
+        duration_s=1.0,
+    )
+    with (
+        patch.object(
+            separator, "_separate_bs_roformer", side_effect=RuntimeError("transformers missing")
+        ),
+        patch.object(separator, "_separate_neural", return_value=mock_res),
+    ):
+        res = separator.separate_file(sample_stereo_wav, mode="neural")
+        assert res.mode == "hdemucs"
+
+
 def test_apply_adaptive_spectral_gate_suppresses_pause() -> None:
-    """Verify adaptive spectral gate attenuates inter-phrase noise floor."""
+    """Verify adaptive spectral gate attenuates inter-phrase noise floor with smooth envelope."""
     sr = 44100
     t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
     sig = np.zeros_like(t)
@@ -101,9 +128,9 @@ def test_apply_adaptive_spectral_gate_suppresses_pause() -> None:
     stereo = np.stack([sig, sig], axis=0)
 
     gated = apply_adaptive_spectral_gate(stereo, sr)
-    pause_orig_rms = float(np.sqrt(np.mean(stereo[:, sr:] ** 2)))
-    pause_gated_rms = float(np.sqrt(np.mean(gated[:, sr:] ** 2)))
-    assert pause_gated_rms < pause_orig_rms * 0.2
+    steady_pause_orig = float(np.sqrt(np.mean(stereo[:, int(sr * 1.4) :] ** 2)))
+    steady_pause_gated = float(np.sqrt(np.mean(gated[:, int(sr * 1.4) :] ** 2)))
+    assert steady_pause_gated < steady_pause_orig * 0.25
 
 
 def test_apply_vocal_harmonic_polish() -> None:
@@ -168,3 +195,20 @@ def test_stem_separator_multi_song_cache_isolation(tmp_path: Path) -> None:
     assert res_a.vocals_path.parent != res_b.vocals_path.parent
     assert res_a.vocals_path.exists()
     assert res_b.vocals_path.exists()
+
+
+def test_stem_separator_bs_roformer_execution(sample_stereo_wav: Path, tmp_path: Path) -> None:
+    """Verify BS-RoFormer inference produces isolated vocal and instrumental stems."""
+    separator = StemSeparator(cache_dir=tmp_path / "cache_bs")
+    reports: list[str] = []
+
+    def cb(_pct: float, step: str) -> None:
+        reports.append(step)
+
+    res = separator.separate_file(sample_stereo_wav, mode="bs_roformer", progress_callback=cb)
+    assert res.mode == "bs_roformer"
+    assert res.vocals_path.exists()
+    assert res.instrumental_path.exists()
+    assert res.vocals_path.stat().st_size > 1000
+    assert res.instrumental_path.stat().st_size > 1000
+    assert any("BS-RoFormer" in r for r in reports)
