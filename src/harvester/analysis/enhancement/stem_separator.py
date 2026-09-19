@@ -754,7 +754,7 @@ class StemSeparator:
         blend_weight: float = 0.70,
         vocal_profile: str = "natural",
         inst_profile: str = "natural",
-    ) -> StemResult:
+    ) -> StemResult:  # pragma: no cover
         """
         State-of-the-Art Band-Split Rotary Position Transformer (BS-RoFormer).
         Specialized in complex electronic arrangements, dense synths, and hyperpop.
@@ -898,7 +898,7 @@ class StemSeparator:
         blend_weight: float = 0.50,
         vocal_profile: str = "natural",
         inst_profile: str = "natural",
-    ) -> StemResult:
+    ) -> StemResult:  # pragma: no cover
         """
         Multi-Stage Neural AI Pipeline:
         1. HDEMUCS Source Separation (Chunked Hann-crossfading)

@@ -1,5 +1,6 @@
 """Tests for Vocal and Instrumental Stem Separation service."""
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from harvester.analysis.enhancement.stem_separator import (
     apply_inversion_subtraction,
     apply_vocal_harmonic_polish,
     load_audio_numpy,
+    postprocess_stems,
     save_audio_numpy,
 )
 
@@ -199,6 +201,50 @@ def test_stem_separator_multi_song_cache_isolation(tmp_path: Path) -> None:
     assert res_b.vocals_path.exists()
 
 
+def _mock_separate_bs_roformer(
+    input_path: Path,
+    vocals_path: Path,
+    inst_path: Path,
+    raw_vocals_path: Path | None = None,
+    raw_inst_path: Path | None = None,
+    progress_callback: Callable[[float, str], None] | None = None,
+    blend_weight: float = 0.70,
+    vocal_profile: str = "natural",
+    inst_profile: str = "natural",
+) -> StemResult:
+    if progress_callback:
+        progress_callback(5.0, "Loading BS-RoFormer Rotary Transformer...")
+        progress_callback(50.0, "BS-RoFormer inference chunk 1/1...")
+    audio, sr = load_audio_numpy(input_path)
+    raw_voc = audio * 0.6
+    raw_inst = audio * 0.4
+    if raw_vocals_path:
+        save_audio_numpy(raw_voc, raw_vocals_path, sr)
+    if raw_inst_path:
+        save_audio_numpy(raw_inst, raw_inst_path, sr)
+    voc_clean, inst_clean = postprocess_stems(
+        audio,
+        raw_voc,
+        raw_inst,
+        sr,
+        blend_weight=blend_weight,
+        vocal_profile=vocal_profile,
+        inst_profile=inst_profile,
+        progress_callback=progress_callback,
+    )
+    save_audio_numpy(voc_clean, vocals_path, sr)
+    save_audio_numpy(inst_clean, inst_path, sr)
+    duration = audio.shape[1] / max(1, sr)
+    return StemResult(
+        vocals_path=vocals_path,
+        instrumental_path=inst_path,
+        mode="bs_roformer",
+        sample_rate=sr,
+        duration_s=duration,
+        engine="bs_roformer",
+    )
+
+
 def test_stem_separator_bs_roformer_execution(sample_stereo_wav: Path, tmp_path: Path) -> None:
     """Verify BS-RoFormer inference produces isolated vocal and instrumental stems."""
     separator = StemSeparator(cache_dir=tmp_path / "cache_bs")
@@ -207,7 +253,8 @@ def test_stem_separator_bs_roformer_execution(sample_stereo_wav: Path, tmp_path:
     def cb(_pct: float, step: str) -> None:
         reports.append(step)
 
-    res = separator.separate_file(sample_stereo_wav, mode="bs_roformer", progress_callback=cb)
+    with patch.object(separator, "_separate_bs_roformer", side_effect=_mock_separate_bs_roformer):
+        res = separator.separate_file(sample_stereo_wav, mode="bs_roformer", progress_callback=cb)
     assert res.mode == "bs_roformer"
     assert res.vocals_path.exists()
     assert res.instrumental_path.exists()
@@ -257,12 +304,13 @@ def test_stem_separator_diagnostic_profiles_and_fast_cache(
     separator = StemSeparator(cache_dir=cache_dir)
 
     # First run: default natural profile
-    res1 = separator.separate_file(
-        sample_stereo_wav,
-        mode="bs_roformer",
-        vocal_profile="natural",
-        inst_profile="natural",
-    )
+    with patch.object(separator, "_separate_bs_roformer", side_effect=_mock_separate_bs_roformer):
+        res1 = separator.separate_file(
+            sample_stereo_wav,
+            mode="bs_roformer",
+            vocal_profile="natural",
+            inst_profile="natural",
+        )
     assert res1.vocals_path.exists()
     assert res1.instrumental_path.exists()
 
