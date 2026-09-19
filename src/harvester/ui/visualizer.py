@@ -460,14 +460,10 @@ class AudioVisualizer(Widget):
                         lines[row].append((" " * gap_w, Style()))
 
         margin_str = " " * margin_left
-        for row_idx, line in enumerate(lines):
+        for line in lines:
             text.append(margin_str, style=Style())
             for char_seg, style in line:
                 text.append(char_seg, style=style)
-            if row_idx == 0 and self.cutoff_hz:
-                text.append(
-                    f"  fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", style="bold yellow"
-                )
             text.append("\n")
 
         # Calibrated 10-band frequency scale along bottom

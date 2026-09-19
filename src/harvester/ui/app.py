@@ -465,6 +465,8 @@ class HarvesterApp(App[None]):
         ("bracket_right", "seek_forward_15", "Seek +15s"),
         ("1", "select_stream_mp3", "Stream MP3"),
         ("2", "select_stream_enh", "Stream ENH"),
+        ("3", "select_stream_voc", "Stream VOC"),
+        ("4", "select_stream_inst", "Stream INST"),
         ("v", "toggle_vis_mode", "Visualizer"),
     ]
 
@@ -895,6 +897,22 @@ class HarvesterApp(App[None]):
         try:
             wb = self.query_one("#workbench-widget", WorkbenchWidget)
             wb.set_active_stream("ENH")
+        except Exception:
+            pass
+
+    def action_select_stream_voc(self) -> None:
+        """Switch audition stream to [3] VOC (Isolated Vocals)."""
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.set_active_stream("VOC")
+        except Exception:
+            pass
+
+    def action_select_stream_inst(self) -> None:
+        """Switch audition stream to [4] INST (Isolated Instrumental / Karaoke)."""
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.set_active_stream("INST")
         except Exception:
             pass
 

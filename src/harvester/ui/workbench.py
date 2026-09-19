@@ -8,6 +8,7 @@ dynamic mastering deck, preset selection, and full-track derivative export.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -32,6 +33,8 @@ from harvester.ui.visualizer import AudioVisualizer
 
 if TYPE_CHECKING:
     from harvester.ui.player import AudioPlayerWidget
+
+logger = logging.getLogger(__name__)
 
 StreamId = Literal["MP3", "ENH", "A", "B", "C"]
 
@@ -352,10 +355,13 @@ class WorkbenchWidget(Widget):
         self.eq_settings: MasteringEQSettings = MasteringEQSettings()
         self._eq_debounce_timer: asyncio.TimerHandle | None = None
 
-        # Stream paths: MP3 (Original) and ENH (Enhanced derivative)
+        # Stream paths: MP3 (Original), ENH (Restored), VOC (Vocals), INST (Instrumental)
         self.path_mp3: Path | None = None
         self.path_enh: Path | None = None
+        self.path_voc: Path | None = None
+        self.path_inst: Path | None = None
         self._is_generating_enh: bool = False
+        self._is_generating_stems: bool = False
 
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
@@ -440,6 +446,8 @@ class WorkbenchWidget(Widget):
         with Horizontal(id="wb-stream-row"):
             yield Button("[1] MP3", id="btn-stream-mp3", variant="primary")
             yield Button("[2] ENH", id="btn-stream-enh", variant="default")
+            yield Button("[3] VOC", id="btn-stream-voc", variant="default")
+            yield Button("[4] INST", id="btn-stream-inst", variant="default")
             yield Button("ECO DSP", id="wb-btn-neural-toggle", variant="default")
             yield Button("MODELS", id="wb-btn-models-download", variant="default")
 
@@ -547,6 +555,23 @@ class WorkbenchWidget(Widget):
             self.path_mp3 = job.input_path
         else:
             self.path_mp3 = None
+
+        # Check if separated stems are already available in cache
+        self.path_voc = None
+        self.path_inst = None
+        if self.path_mp3:
+            stem_dir = (
+                Path.home()
+                / ".cache"
+                / "omnirip"
+                / "stems"
+                / f"{self.path_mp3.stem}_{self.path_mp3.stat().st_size}"
+            )
+            v_cand = stem_dir / f"{self.path_mp3.stem}_vocals.wav"
+            i_cand = stem_dir / f"{self.path_mp3.stem}_instrumental.wav"
+            if v_cand.exists() and i_cand.exists():
+                self.path_voc = v_cand
+                self.path_inst = i_cand
 
         # Check if enhanced derivative is available (exported or in audition cache)
         if self.path_mp3:
@@ -747,9 +772,17 @@ class WorkbenchWidget(Widget):
         except Exception:
             pass
 
-    def set_active_stream(self, stream: StreamId) -> None:
-        """Switch audition stream between [1] MP3 (Original) and [2] ENH (Restored)."""
-        normalized: StreamId = "ENH" if stream in ("ENH", "C") else "MP3"
+    def set_active_stream(self, stream: str) -> None:
+        """Switch audition stream: [1] MP3, [2] ENH, [3] VOC, or [4] INST."""
+        if stream in ("ENH", "C"):
+            normalized = "ENH"
+        elif stream in ("VOC", "V"):
+            normalized = "VOC"
+        elif stream in ("INST", "I", "KARAOKE"):
+            normalized = "INST"
+        else:
+            normalized = "MP3"
+
         self.active_stream = normalized
         preset = PRESETS.get(self.selected_preset_id)
         p_name = preset.name if preset else "Conservative DSP"
@@ -757,11 +790,16 @@ class WorkbenchWidget(Widget):
         try:
             btn_mp3 = self.query_one("#btn-stream-mp3", Button)
             btn_enh = self.query_one("#btn-stream-enh", Button)
+            btn_voc = self.query_one("#btn-stream-voc", Button)
+            btn_inst = self.query_one("#btn-stream-inst", Button)
             btn_mp3.variant = "primary" if normalized == "MP3" else "default"
             btn_enh.variant = "primary" if normalized == "ENH" else "default"
+            btn_voc.variant = "primary" if normalized == "VOC" else "default"
+            btn_inst.variant = "primary" if normalized == "INST" else "default"
         except Exception:
             pass
 
+        track_name = self.path_mp3.name if self.path_mp3 else "Audio"
         if normalized == "MP3":
             if self.path_mp3 and self.path_mp3.exists():
                 self._route_to_player(
@@ -788,8 +826,92 @@ class WorkbenchWidget(Widget):
                     f"Synthesizing restoration with '{p_name}'..."
                 )
                 self._trigger_enhancement_pregeneration()
+        elif normalized == "VOC":
+            if self.path_voc and self.path_voc.exists():
+                self._route_to_player(
+                    self.path_voc,
+                    title=f"[VOC] Isolated Vocals ({track_name})",
+                    is_enhanced=True,
+                )
+                self.query_one("#wb-status", Label).update(
+                    "Auditioning [VOC]: Isolated Vocals (Acapella)"
+                )
+            elif self.path_mp3 and self.path_mp3.exists():
+                self.query_one("#wb-status", Label).update(
+                    "Separating stems: isolating vocals..."
+                )
+                self._trigger_stem_separation("VOC")
+            else:
+                self.query_one("#wb-status", Label).update("No audio loaded to separate.")
+        elif normalized == "INST":
+            if self.path_inst and self.path_inst.exists():
+                self._route_to_player(
+                    self.path_inst,
+                    title=f"[INST] Karaoke Backing ({track_name})",
+                    is_enhanced=True,
+                )
+                self.query_one("#wb-status", Label).update(
+                    "Auditioning [INST]: Karaoke Instrumental"
+                )
+            elif self.path_mp3 and self.path_mp3.exists():
+                self.query_one("#wb-status", Label).update(
+                    "Separating stems: creating karaoke backing..."
+                )
+                self._trigger_stem_separation("INST")
+            else:
+                self.query_one("#wb-status", Label).update("No audio loaded to separate.")
 
         self._update_inspector()
+
+    def _trigger_stem_separation(self, target_stream: str = "VOC") -> None:
+        """Initiate background stem separation for current track."""
+        if self._is_generating_stems or not self.path_mp3 or not self.path_mp3.exists():
+            return
+        asyncio.create_task(self._async_separate_stems(target_stream))
+
+    async def _async_separate_stems(self, target_stream: str) -> None:
+        """Run stem separation asynchronously and route active stream when ready."""
+        self._is_generating_stems = True
+        try:
+            from harvester.analysis.enhancement.stem_separator import StemSeparator
+
+            separator = StemSeparator()
+            mode = "neural" if self.neural_enabled else "eco"
+            res = await asyncio.to_thread(
+                separator.separate_file,
+                self.path_mp3,
+                mode=mode,
+            )
+            self.path_voc = res.vocals_path
+            self.path_inst = res.instrumental_path
+            track_name = self.path_mp3.name if self.path_mp3 else "Audio"
+
+            if self.active_stream == "VOC":
+                self._route_to_player(
+                    self.path_voc,
+                    title=f"[VOC] Isolated Vocals ({track_name})",
+                    is_enhanced=True,
+                )
+                self.query_one("#wb-status", Label).update(
+                    f"Stems Ready: Auditioning Vocals ({mode.upper()})"
+                )
+            elif self.active_stream == "INST":
+                self._route_to_player(
+                    self.path_inst,
+                    title=f"[INST] Karaoke Backing ({track_name})",
+                    is_enhanced=True,
+                )
+                self.query_one("#wb-status", Label).update(
+                    f"Stems Ready: Auditioning Karaoke ({mode.upper()})"
+                )
+        except Exception as err:
+            logger.error("Stem separation failed: %s", err)
+            try:
+                self.query_one("#wb-status", Label).update(f"Stem separation error: {err}")
+            except Exception:
+                pass
+        finally:
+            self._is_generating_stems = False
 
     def _get_eq_cache_tag(self) -> str:
         """Generate a short cache tag representing active EQ settings."""
@@ -1064,6 +1186,10 @@ class WorkbenchWidget(Widget):
             self.set_active_stream("MP3")
         elif btn_id in ("btn-stream-enh", "btn-stream-c"):
             self.set_active_stream("ENH")
+        elif btn_id == "btn-stream-voc":
+            self.set_active_stream("VOC")
+        elif btn_id == "btn-stream-inst":
+            self.set_active_stream("INST")
         elif btn_id == "wb-btn-neural-toggle":
             self.toggle_neural_engine()
         elif btn_id == "wb-btn-models-download":
@@ -1246,9 +1372,14 @@ class WorkbenchWidget(Widget):
             return
 
         preset = PRESETS.get(self.selected_preset_id) or PRESETS["conservative"]
-        self.query_one("#wb-status", Label).update(
-            f"Downloading Enhanced MP3 with '{preset.name}'..."
-        )
+        if self.active_stream == "VOC":
+            self.query_one("#wb-status", Label).update("Saving Isolated Vocals (Acapella)...")
+        elif self.active_stream == "INST":
+            self.query_one("#wb-status", Label).update("Saving Karaoke Instrumental...")
+        else:
+            self.query_one("#wb-status", Label).update(
+                f"Downloading Enhanced MP3 with '{preset.name}'..."
+            )
         try:
             pb = self.query_one("#wb-download-progress", ProgressBar)
             pb.styles.display = "block"
@@ -1297,6 +1428,33 @@ class WorkbenchWidget(Widget):
 
                 out_dir = Path(load_config().general.output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
+
+            # Handle isolated stem export if active stream is VOC or INST
+            if self.active_stream == "VOC" and self.path_voc and self.path_voc.exists():
+                target_dest = out_dir / f"{src.stem}_vocals.wav"
+                temp_dest = target_dest.with_suffix(f".tmp_{uuid.uuid4().hex[:6]}.wav")
+                await asyncio.to_thread(shutil.copy2, self.path_voc, temp_dest)
+                os.replace(temp_dest, target_dest)
+                if pb:
+                    pb.progress = 100.0
+                self.query_one("#wb-status", Label).update(
+                    f"Saved Vocals (Acapella): {target_dest.name}"
+                )
+                self.app.notify(f"Saved Acapella: {target_dest.name}", title="OmniRip Stems")
+                return
+
+            if self.active_stream == "INST" and self.path_inst and self.path_inst.exists():
+                target_dest = out_dir / f"{src.stem}_instrumental.wav"
+                temp_dest = target_dest.with_suffix(f".tmp_{uuid.uuid4().hex[:6]}.wav")
+                await asyncio.to_thread(shutil.copy2, self.path_inst, temp_dest)
+                os.replace(temp_dest, target_dest)
+                if pb:
+                    pb.progress = 100.0
+                self.query_one("#wb-status", Label).update(
+                    f"Saved Instrumental (Karaoke): {target_dest.name}"
+                )
+                self.app.notify(f"Saved Instrumental: {target_dest.name}", title="OmniRip Stems")
+                return
 
             target_dest = out_dir / f"{src.stem}.enhanced.mp3"
 

@@ -142,6 +142,16 @@ Button:disabled {
     padding: 0 1;
 }
 
+#wb-stream-row {
+    height: 3;
+    align: left middle;
+}
+
+#wb-stream-row > Button {
+    margin-right: 1;
+    min-width: 9;
+}
+
 #audio-player {
     height: 10;
     min-height: 9;

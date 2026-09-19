@@ -625,3 +625,68 @@ async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
         btn_reset.press()
         await pilot.pause()
         assert player.audio_filter == ""
+
+
+async def test_workbench_stem_separation_and_auditioning(tmp_path: Path) -> None:
+    """Verify Workbench vocal and instrumental stem switching and export."""
+    from harvester.analysis.enhancement.stem_separator import StemResult
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "stem_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.id = "job-stem-test"
+        job.output_path = dummy_mp3
+
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        btn_voc = app.query_one("#btn-stream-voc", Button)
+        btn_inst = app.query_one("#btn-stream-inst", Button)
+        assert "[3] VOC" in str(btn_voc.label)
+        assert "[4] INST" in str(btn_inst.label)
+
+        # Mock stem separator result
+        voc_file = tmp_path / "stem_song_vocals.wav"
+        inst_file = tmp_path / "stem_song_instrumental.wav"
+        voc_file.write_bytes(b"RIFFdummyvocalswav")
+        inst_file.write_bytes(b"RIFFdummyinstwav")
+
+        mock_res = StemResult(
+            vocals_path=voc_file,
+            instrumental_path=inst_file,
+            mode="eco",
+            sample_rate=44100,
+            duration_s=2.5,
+        )
+
+        with patch(
+            "harvester.analysis.enhancement.stem_separator.StemSeparator.separate_file",
+            return_value=mock_res,
+        ):
+            # Press [3] VOC
+            btn_voc.press()
+            await pilot.pause()
+
+            assert wb.active_stream == "VOC"
+            assert btn_voc.variant == "primary"
+            assert wb.path_voc == voc_file
+
+            # Press [4] INST
+            btn_inst.press()
+            await pilot.pause()
+
+            assert wb.active_stream == "INST"
+            assert btn_inst.variant == "primary"
+            assert wb.path_inst == inst_file
+
+            # Export while on INST
+            btn_export = app.query_one("#wb-btn-export", Button)
+            btn_export.press()
+            await pilot.pause()
+
+            exported_inst = tmp_path / "stem_song_instrumental.wav"
+            assert exported_inst.exists()

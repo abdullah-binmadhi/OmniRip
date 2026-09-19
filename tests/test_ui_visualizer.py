@@ -64,5 +64,5 @@ async def test_audio_visualizer_10bands_and_full_width_ruler() -> None:
         assert band_label in plain
 
     # Verify cutoff marker indicator
-    assert "fc: 15.5 kHz (Cutoff)" in plain
     assert "┆" in plain
+    assert vis.cutoff_hz == 15500.0
