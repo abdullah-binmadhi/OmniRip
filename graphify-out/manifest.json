@@ -798,9 +798,9 @@
     "semantic_hash": ""
   },
   "docs/assets/omnirip_workbench_live.png": {
-    "mtime": 1789826065.2737708,
-    "seen": 1789826102.546203,
-    "ast_hash": "76e31455c647be987346a3ad6a540d00",
+    "mtime": 1789829786.522017,
+    "seen": 1789831891.997946,
+    "ast_hash": "243976215a7f573591e52200c9406a75",
     "semantic_hash": ""
   },
   "docs/assets/omnirip_demo.mp4": {
@@ -828,9 +828,9 @@
     "semantic_hash": "e79ae9f5b58905b92f305f47f8811aff"
   },
   "docs/assets/omnirip_demo.gif": {
-    "mtime": 1789826539.1882641,
-    "seen": 1789827977.400942,
-    "ast_hash": "457dcd62e5242d112f359701b64905b5",
+    "mtime": 1789829783.0489228,
+    "seen": 1789831891.997944,
+    "ast_hash": "10273fb2087e55a93f03b7f95b3e5576",
     "semantic_hash": ""
   },
   "src/harvester/analysis/enhancement/stem_separator.py": {
