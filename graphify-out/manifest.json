@@ -804,10 +804,10 @@
     "semantic_hash": ""
   },
   "docs/assets/omnirip_demo.mp4": {
-    "mtime": 1789826065.2705913,
-    "seen": 1789827028.154196,
-    "ast_hash": "4703adead039446709139b76b2ad4d48",
-    "semantic_hash": "4703adead039446709139b76b2ad4d48"
+    "mtime": 1789829767.110379,
+    "seen": 1789829800.8184729,
+    "ast_hash": "6e59055e1b0066c6eda039f1a5eacfb8",
+    "semantic_hash": "6e59055e1b0066c6eda039f1a5eacfb8"
   },
   "src/harvester/services/slskd_config.py": {
     "mtime": 1789827872.8193116,

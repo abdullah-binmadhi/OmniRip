@@ -9,7 +9,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3ef8ec63`
+- Built from commit: `cad5b872`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -667,11 +667,11 @@ Nodes (3): Answer, Q: Seven architecture questions about Phase 2, the orchestrat
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `PipelineOrchestrator` connect `PipelineOrchestrator` to `TrackJob`, `orchestrator.py`, `CircuitBreaker`, `test_orchestrator_m5.py`, `test_orchestrator_m2.py`, `test_orchestrator.py`, `.wait_for_idle`, `test_orchestrator_m4.py`, `environment.py`, `test_playlist.py`, `.submit_batch`, `.submit_playlist`, `AppConfig`, `FfmpegService`, `.__init__`, `BatchReport`?**
-  _High betweenness centrality (0.059) - this node is a cross-community bridge._
+  _High betweenness centrality (0.063) - this node is a cross-community bridge._
 - **Why does `HarvesterApp` connect `HarvesterApp` to `.__init__`, `test_slskd_config.py`, `PreviewManager`, `WorkbenchWidget`, `__main__.py`, `app.py`, `cycle_theme`, `AudioPlayerWidget`, `ComposeResult`, `test_ui_pilot.py`, `._load_selected_into_workbench_and_player`, `environment.py`, `pytest`?**
+  _High betweenness centrality (0.050) - this node is a cross-community bridge._
+- **Why does `EnhancementExporter` connect `EnhancementExporter` to `PreviewManager`, `__main__.py`, `FlashSRProvider`, `numpy`, `test_enhancement_workbench.py`?**
   _High betweenness centrality (0.049) - this node is a cross-community bridge._
-- **Why does `WorkbenchWidget` connect `WorkbenchWidget` to `AudioVisualizer`, `HarvesterApp`, `app.py`, `test_ui_workbench.py`, `AudioPlayerWidget`, `ModelManager`?**
-  _High betweenness centrality (0.048) - this node is a cross-community bridge._
 - **Are the 6 inferred relationships involving `HarvesterApp` (e.g. with `AudioPlayerWidget` and `CurationWorkbenchModal`) actually correct?**
   _`HarvesterApp` has 6 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 13 inferred relationships involving `PipelineOrchestrator` (e.g. with `BatchReport` and `AppConfig`) actually correct?**

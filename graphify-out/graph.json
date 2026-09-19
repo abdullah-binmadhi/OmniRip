@@ -28543,6 +28543,18 @@
       "type": "external"
     },
     {
+      "id": "harvester_services_slskd_config",
+      "label": "harvester_services_slskd_config",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "app.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "harvester_services_slskd_config",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "harvester_ui_bridge",
       "label": "harvester_ui_bridge",
       "_origin": "semantic",
@@ -28779,17 +28791,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "pytest",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "harvester_services_slskd_config",
-      "label": "harvester_services_slskd_config",
-      "community": 8,
-      "community_name": "app.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "harvester_services_slskd_config",
       "source_file": "",
       "type": "external"
     }
@@ -82297,5 +82298,5 @@
       "source_file": "CHANGELOG.md"
     }
   ],
-  "built_at_commit": "3ef8ec632b4c4b66e7bfcc2bf0ccef5248305b3b"
+  "built_at_commit": "cad5b872da3be76358e43c4a38889b4c008a713a"
 }
