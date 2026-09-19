@@ -75,8 +75,11 @@ def load_audio_numpy(audio_path: Path, target_sr: int = 44100) -> tuple[np.ndarr
 
 
 def save_audio_numpy(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
-    """Save 2D float32 numpy array (channels, samples) to audio file."""
+    """Save 2D float32 numpy array (channels, samples) to audio file with -1.0 dBFS headroom."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    peak = float(np.max(np.abs(audio))) if audio.size > 0 else 0.0
+    if peak > 0.891:
+        audio = audio * (0.891 / peak)
     audio_clipped = np.clip(audio, -1.0, 1.0)
 
     try:
@@ -154,8 +157,8 @@ def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
         audio = audio[np.newaxis, :]
 
     peak = float(np.max(np.abs(audio)))
-    if peak > 0.96:
-        return (audio * (0.96 / peak)).astype(np.float32)
+    if peak > 0.891:
+        return (audio * (0.891 / peak)).astype(np.float32)
     return audio.astype(np.float32)
 
 
@@ -199,10 +202,10 @@ def apply_inversion_subtraction(
     elif inst_out.shape[1] < min_len:
         inst_out = np.pad(inst_out, ((0, 0), (0, min_len - inst_out.shape[1])))
 
-    # Normalize to prevent digital overs
-    peak = np.max(np.abs(inst_out))
-    if peak > 0.98:
-        inst_out = inst_out * (0.98 / peak)
+    # Normalize to -1.0 dBFS true-peak headroom to eliminate digital clipping
+    peak = float(np.max(np.abs(inst_out))) if inst_out.size > 0 else 0.0
+    if peak > 0.891:
+        inst_out = inst_out * (0.891 / peak)
 
     return inst_out.astype(np.float32)
 
@@ -383,12 +386,20 @@ class StemSeparator:
         model = AutoModel.from_pretrained(
             "HiDolen/Mini-BS-RoFormer-V2-46.8M",
             trust_remote_code=True,
-        ).to(device)
+        ).float().to(device)
         model.eval()
+
+        # Re-initialize corrupted STFT buffer windows with clean float32 Hann windows
+        model.stft_window = torch.hann_window(
+            model.config.stft_n_fft, dtype=torch.float32, device=device
+        )
+        model.stft_out_window = torch.hann_window(
+            model.config.stft_n_fft_out, dtype=torch.float32, device=device
+        )
 
         target_sr = getattr(model.config, "wave_sample_rate", 44100)
         orig_audio, sr = load_audio_numpy(input_path, target_sr=target_sr)
-        waveform = torch.from_numpy(orig_audio).to(device)
+        waveform = torch.from_numpy(orig_audio).float().to(device)
         if waveform.shape[0] == 1:
             waveform = waveform.repeat(2, 1)
 
@@ -447,15 +458,18 @@ class StemSeparator:
             progress_callback(78.0, "De-Pumping: Applying natural vocal envelope leveler...")
         vocals_clean = apply_adaptive_spectral_gate(vocals_raw, sr)
         vocals_clean = apply_vocal_harmonic_polish(vocals_clean, sr)
+        peak_voc = float(np.max(np.abs(vocals_clean))) if vocals_clean.size > 0 else 0.0
+        if peak_voc > 0.891:
+            vocals_clean = vocals_clean * (0.891 / peak_voc)
 
         # Stage 3: Master Inversion Instrumental Backing (100% Vocal Rejection)
         if progress_callback:
             progress_callback(88.0, "Master Polish: Inversion subtraction backing track...")
         inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
         inst_final = 0.5 * inst_model + 0.5 * inst_inversion
-        peak_inst = float(np.max(np.abs(inst_final)))
-        if peak_inst > 0.98:
-            inst_final = inst_final * (0.98 / peak_inst)
+        peak_inst = float(np.max(np.abs(inst_final))) if inst_final.size > 0 else 0.0
+        if peak_inst > 0.891:
+            inst_final = inst_final * (0.891 / peak_inst)
 
         if progress_callback:
             progress_callback(96.0, "Writing isolated stems to disk...")
