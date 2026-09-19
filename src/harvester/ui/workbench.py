@@ -330,6 +330,40 @@ class WorkbenchWidget(Widget):
         display: none;
         margin-top: 1;
     }
+    #wb-blend-row {
+        height: auto;
+        width: 1fr;
+        margin-top: 1;
+        align: left middle;
+    }
+    .wb-blend-label {
+        width: 1fr;
+        height: 1;
+        color: $accent;
+        text-style: bold;
+    }
+    .wb-blend-val {
+        width: 6;
+        height: 1;
+        text-align: center;
+        color: $warning;
+        text-style: bold;
+    }
+    .wb-blend-btn {
+        height: 1;
+        min-width: 3;
+        width: 3;
+        padding: 0;
+        margin: 0 0 0 1;
+        border: solid $secondary;
+        background: $surface;
+        color: $secondary;
+        text-style: bold;
+    }
+    .wb-blend-btn:hover {
+        background: $secondary;
+        color: #000000;
+    }
     #wb-status {
         height: 1;
         color: $warning;
@@ -360,6 +394,10 @@ class WorkbenchWidget(Widget):
         self.active_page: str = "deck"
         self.eq_settings: MasteringEQSettings = MasteringEQSettings()
         self._eq_debounce_timer: asyncio.TimerHandle | None = None
+
+        # Stem blend weights: how much to trust neural model output vs. inversion subtraction
+        self.stem_bsr_blend: float = 0.70    # BS-RoFormer (specialized transformer)
+        self.stem_hdemucs_blend: float = 0.50  # HDEMUCS (general-purpose model)
 
         # Stream paths: MP3 (Original), ENH (Restored), VOC (Vocals), INST (Instrumental)
         self.path_mp3: Path | None = None
@@ -453,8 +491,8 @@ class WorkbenchWidget(Widget):
         with Horizontal(id="wb-stream-row"):
             yield Button("[1] MP3", id="btn-stream-mp3", variant="primary")
             yield Button("[2] ENH", id="btn-stream-enh", variant="default")
-            yield Button("[3] VOC", id="btn-stream-voc", variant="default")
-            yield Button("[4] INST", id="btn-stream-inst", variant="default")
+            yield Button("[3] VOC", id="btn-stream-voc", variant="default", disabled=True)
+            yield Button("[4] INST", id="btn-stream-inst", variant="default", disabled=True)
             yield Button("ECO DSP", id="wb-btn-neural-toggle", variant="default")
             yield Button("MODELS", id="wb-btn-models-download", variant="default")
 
@@ -517,6 +555,29 @@ class WorkbenchWidget(Widget):
                         yield Label("", id="wb-telem-limiter", classes="wb-spec-line")
                         yield Label("", id="wb-telem-format", classes="wb-spec-line")
                         yield Label("", id="wb-telem-destination", classes="wb-spec-line")
+
+                # --- Stem Blend Weight Controls ---
+                yield Label(
+                    "STEM BLEND WEIGHTS (Neural ↔ Inversion)",
+                    classes="wb-section-title",
+                )
+                with Horizontal(id="wb-blend-row"):
+                    yield Label("BS-RoFormer:", classes="wb-blend-label")
+                    yield Label(
+                        f"{int(self.stem_bsr_blend * 100)}%",
+                        id="wb-blend-bsr-val",
+                        classes="wb-blend-val",
+                    )
+                    yield Button("+", id="wb-blend-bsr-up", classes="wb-blend-btn")
+                    yield Button("-", id="wb-blend-bsr-dn", classes="wb-blend-btn")
+                    yield Label("  HDEMUCS:", classes="wb-blend-label")
+                    yield Label(
+                        f"{int(self.stem_hdemucs_blend * 100)}%",
+                        id="wb-blend-hdemucs-val",
+                        classes="wb-blend-val",
+                    )
+                    yield Button("+", id="wb-blend-hdemucs-up", classes="wb-blend-btn")
+                    yield Button("-", id="wb-blend-hdemucs-dn", classes="wb-blend-btn")
 
             with Vertical(id="wb-page-eq"):
                 with Horizontal(id="wb-eq-toolbar"):
@@ -856,6 +917,11 @@ class WorkbenchWidget(Widget):
                 )
                 self._trigger_enhancement_pregeneration()
         elif normalized == "VOC":
+            if not self.neural_enabled:
+                self.query_one("#wb-status", Label).update(
+                    "⚠ Stem separation requires Neural AI mode — enable it first."
+                )
+                return
             if self.path_voc and self.path_voc.exists():
                 self._route_to_player(
                     self.path_voc,
@@ -871,6 +937,11 @@ class WorkbenchWidget(Widget):
             else:
                 self.query_one("#wb-status", Label).update("No audio loaded to separate.")
         elif normalized == "INST":
+            if not self.neural_enabled:
+                self.query_one("#wb-status", Label).update(
+                    "⚠ Stem separation requires Neural AI mode — enable it first."
+                )
+                return
             if self.path_inst and self.path_inst.exists():
                 self._route_to_player(
                     self.path_inst,
@@ -937,6 +1008,8 @@ class WorkbenchWidget(Widget):
                 source_path,
                 mode="neural",
                 progress_callback=on_progress,
+                bs_roformer_weight=self.stem_bsr_blend,
+                hdemucs_weight=self.stem_hdemucs_blend,
             )
 
             if self.path_mp3 == source_path:
@@ -951,7 +1024,7 @@ class WorkbenchWidget(Widget):
                         is_enhanced=True,
                     )
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready: Auditioning Vocals ({res.mode.upper()})"
+                        f"Stems Ready [{res.engine.upper()}]: Auditioning Vocals"
                     )
                 elif self.active_stream == "INST":
                     self._route_to_player(
@@ -960,11 +1033,11 @@ class WorkbenchWidget(Widget):
                         is_enhanced=True,
                     )
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready: Auditioning Karaoke ({res.mode.upper()})"
+                        f"Stems Ready [{res.engine.upper()}]: Auditioning Karaoke"
                     )
                 else:
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready: Vocals & Instrumental ({res.mode.upper()})"
+                        f"Stems Ready [{res.engine.upper()}]: Vocals & Instrumental"
                     )
 
             self.app.notify(
@@ -980,16 +1053,23 @@ class WorkbenchWidget(Widget):
 
         except Exception as err:
             logger.error("Stem separation failed for %s: %s", source_path, err)
+            err_msg = str(err)
+            is_ai_unavailable = "BS-RoFormer and HDEMUCS are unavailable" in err_msg
+            display_msg = (
+                "⛔ Neural AI models unavailable — install torch & torchaudio."
+                if is_ai_unavailable
+                else f"Stem separation error: {err}"
+            )
             try:
                 if self.path_mp3 == source_path:
-                    self.query_one("#wb-status", Label).update(f"Stem separation error: {err}")
+                    self.query_one("#wb-status", Label).update(display_msg)
             except Exception:
                 pass
             self.app.notify(
-                f"Stem separation error: {err}",
-                title="Separation Error",
+                display_msg,
+                title="Separation Error — AI Models Unavailable" if is_ai_unavailable else "Separation Error",
                 severity="error",
-                timeout=4.0,
+                timeout=6.0 if is_ai_unavailable else 4.0,
             )
         finally:
             self._active_stem_tasks.discard(source_path)
@@ -1323,6 +1403,36 @@ class WorkbenchWidget(Widget):
             self.eq_settings.output_trim_db = trims[next_idx]
             self._update_eq_ui()
             self._schedule_eq_render()
+        elif btn_id == "wb-blend-bsr-up":
+            self.stem_bsr_blend = min(1.0, round(self.stem_bsr_blend + 0.05, 2))
+            self._update_blend_ui()
+        elif btn_id == "wb-blend-bsr-dn":
+            self.stem_bsr_blend = max(0.0, round(self.stem_bsr_blend - 0.05, 2))
+            self._update_blend_ui()
+        elif btn_id == "wb-blend-hdemucs-up":
+            self.stem_hdemucs_blend = min(1.0, round(self.stem_hdemucs_blend + 0.05, 2))
+            self._update_blend_ui()
+        elif btn_id == "wb-blend-hdemucs-dn":
+            self.stem_hdemucs_blend = max(0.0, round(self.stem_hdemucs_blend - 0.05, 2))
+            self._update_blend_ui()
+
+    def _update_blend_ui(self) -> None:
+        """Refresh blend weight value labels after a change."""
+        try:
+            self.query_one("#wb-blend-bsr-val", Label).update(
+                f"{int(self.stem_bsr_blend * 100)}%"
+            )
+            self.query_one("#wb-blend-hdemucs-val", Label).update(
+                f"{int(self.stem_hdemucs_blend * 100)}%"
+            )
+            self.query_one("#wb-status", Label).update(
+                f"Blend weights — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% neural / "
+                f"{int((1 - self.stem_bsr_blend) * 100)}% inversion  |  "
+                f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% neural / "
+                f"{int((1 - self.stem_hdemucs_blend) * 100)}% inversion"
+            )
+        except Exception:
+            pass
 
     def toggle_neural_engine(self) -> None:
         """Toggle between Eco DSP mode (cool, zero heat) and Neural AI mode."""
@@ -1343,6 +1453,8 @@ class WorkbenchWidget(Widget):
             if self.selected_preset_id not in valid_ai_ids:
                 self.selected_preset_id = "extended_air"
             sel.value = self.selected_preset_id
+            self.query_one("#btn-stream-voc", Button).disabled = False
+            self.query_one("#btn-stream-inst", Button).disabled = False
 
             self.query_one("#wb-status", Label).update(
                 "Neural AI mode active: Deep neural models enabled."
@@ -1360,6 +1472,8 @@ class WorkbenchWidget(Widget):
             if self.selected_preset_id not in valid_eco_ids:
                 self.selected_preset_id = "conservative"
             sel.value = self.selected_preset_id
+            self.query_one("#btn-stream-voc", Button).disabled = True
+            self.query_one("#btn-stream-inst", Button).disabled = True
 
             self.query_one("#wb-status", Label).update(
                 "Eco DSP mode active: Lightweight, cool & quiet harmonic synthesis (Zero Heat)."

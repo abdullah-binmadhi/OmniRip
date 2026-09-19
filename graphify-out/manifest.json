@@ -834,15 +834,21 @@
     "semantic_hash": ""
   },
   "src/harvester/analysis/enhancement/stem_separator.py": {
-    "mtime": 1789834846.339248,
-    "seen": 1789834914.851056,
-    "ast_hash": "e5cb4263c979af6c6c8eb66d4d20dc04",
-    "semantic_hash": "e5cb4263c979af6c6c8eb66d4d20dc04"
+    "mtime": 1789835306.7593174,
+    "seen": 1789836956.2106502,
+    "ast_hash": "fc4586ff8689f4d99c4a3ae820d78359",
+    "semantic_hash": ""
   },
   "tests/test_stem_separator.py": {
     "mtime": 1789834777.164369,
     "seen": 1789834914.852913,
     "ast_hash": "7dc9b935b9bf7d013a475c73f51c6160",
     "semantic_hash": "7dc9b935b9bf7d013a475c73f51c6160"
+  },
+  ".vscode/settings.json": {
+    "mtime": 1789836920.7284524,
+    "seen": 1789836956.2106361,
+    "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
+    "semantic_hash": ""
   }
 }

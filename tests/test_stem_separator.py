@@ -82,18 +82,20 @@ def test_stem_separator_file_not_found(tmp_path: Path) -> None:
 
 
 def test_stem_separator_neural_fallback(sample_stereo_wav: Path, tmp_path: Path) -> None:
-    """Test that neural separation failure gracefully falls back to Eco DSP mode."""
+    """Test that neural separation raises RuntimeError when both AI models fail.
+
+    Since eco-DSP fallback was removed (user decision: surface error instead),
+    both BS-RoFormer and HDEMUCS failing must propagate as a clear RuntimeError.
+    """
     separator = StemSeparator(cache_dir=tmp_path / "cache")
     with (
         patch.object(
             separator, "_separate_bs_roformer", side_effect=RuntimeError("HF unavailable")
         ),
         patch.object(separator, "_separate_neural", side_effect=RuntimeError("CUDA OOM")),
+        pytest.raises(RuntimeError, match="BS-RoFormer and HDEMUCS are unavailable"),
     ):
-        res = separator.separate_file(sample_stereo_wav, mode="neural")
-        assert res.mode == "eco"
-        assert res.vocals_path.exists()
-        assert res.instrumental_path.exists()
+        separator.separate_file(sample_stereo_wav, mode="neural")
 
 
 def test_stem_separator_bs_roformer_fallback_to_hdemucs(

@@ -34,6 +34,7 @@ class StemResult:
     duration_s: float
     drums_path: Path | None = None
     bass_path: Path | None = None
+    engine: str = "unknown"  # "bs_roformer" | "hdemucs" | "eco"
 
 
 def load_audio_numpy(audio_path: Path, target_sr: int = 44100) -> tuple[np.ndarray, int]:
@@ -225,6 +226,8 @@ class StemSeparator:
         output_dir: Path | None = None,
         mode: str = "neural",
         progress_callback: Callable[[float, str], None] | None = None,
+        bs_roformer_weight: float = 0.70,
+        hdemucs_weight: float = 0.50,
     ) -> StemResult:
         """
         Separate audio track into isolated vocals and instrumental backing using
@@ -233,8 +236,11 @@ class StemSeparator:
         Args:
             input_path: Path to the source audio file.
             output_dir: Destination directory for separated stems.
-            mode: 'neural' (HDEMUCS + De-Bleed) or 'eco' (DSP phase matrixing).
+            mode: 'neural' (BS-RoFormer → HDEMUCS) or 'eco' (DSP phase matrixing).
             progress_callback: Callback receiving (percentage, step_description).
+            bs_roformer_weight: Neural-vs-inversion blend for BS-RoFormer (0.0–1.0).
+                Higher = trust the transformer more; lower = rely more on inversion.
+            hdemucs_weight: Neural-vs-inversion blend for HDEMUCS (0.0–1.0).
         """
         if not input_path.exists():
             raise FileNotFoundError(f"Input file does not exist: {input_path}")
@@ -268,7 +274,11 @@ class StemSeparator:
             # Try state-of-the-art BS-RoFormer first (specialized in complex & hyperpop mixes)
             try:
                 return self._separate_bs_roformer(
-                    input_path, vocals_path, inst_path, progress_callback=progress_callback
+                    input_path,
+                    vocals_path,
+                    inst_path,
+                    progress_callback=progress_callback,
+                    blend_weight=bs_roformer_weight,
                 )
             except Exception as e_roformer:
                 logger.warning(
@@ -279,16 +289,22 @@ class StemSeparator:
             # Fallback to HDEMUCS
             try:
                 return self._separate_neural(
-                    input_path, vocals_path, inst_path, progress_callback=progress_callback
+                    input_path,
+                    vocals_path,
+                    inst_path,
+                    progress_callback=progress_callback,
+                    blend_weight=hdemucs_weight,
                 )
             except Exception as e_hdemucs:
-                logger.warning(
-                    "HDEMUCS stem separation failed (%s); falling back to Eco DSP mode.",
+                logger.error(
+                    "HDEMUCS stem separation also failed (%s). Neural AI unavailable.",
                     e_hdemucs,
                 )
-                return self._separate_eco(
-                    input_path, vocals_path, inst_path, progress_callback=progress_callback
-                )
+                raise RuntimeError(
+                    "Neural AI stem separation failed: both BS-RoFormer and HDEMUCS are "
+                    "unavailable on this system. Install torch and torchaudio to enable AI "
+                    "separation."
+                ) from e_hdemucs
 
         return self._separate_eco(
             input_path, vocals_path, inst_path, progress_callback=progress_callback
@@ -351,6 +367,7 @@ class StemSeparator:
             mode="eco",
             sample_rate=sr,
             duration_s=duration,
+            engine="eco",
         )
 
     def _separate_bs_roformer(
@@ -359,6 +376,7 @@ class StemSeparator:
         vocals_path: Path,
         inst_path: Path,
         progress_callback: Callable[[float, str], None] | None = None,
+        blend_weight: float = 0.70,
     ) -> StemResult:
         """
         State-of-the-Art Band-Split Rotary Position Transformer (BS-RoFormer).
@@ -466,7 +484,11 @@ class StemSeparator:
         if progress_callback:
             progress_callback(88.0, "Master Polish: Inversion subtraction backing track...")
         inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
-        inst_final = 0.5 * inst_model + 0.5 * inst_inversion
+        # Adaptive blend: blend_weight controls trust in the transformer's instrument output.
+        # The complementary (1 - blend_weight) share comes from inversion subtraction
+        # which guarantees zero residual vocal bleed regardless of model quality.
+        inv_weight = 1.0 - blend_weight
+        inst_final = blend_weight * inst_model + inv_weight * inst_inversion
         peak_inst = float(np.max(np.abs(inst_final))) if inst_final.size > 0 else 0.0
         if peak_inst > 0.891:
             inst_final = inst_final * (0.891 / peak_inst)
@@ -486,6 +508,7 @@ class StemSeparator:
             mode="bs_roformer",
             sample_rate=sr,
             duration_s=duration,
+            engine="bs_roformer",
         )
 
     def _separate_neural(
@@ -494,6 +517,7 @@ class StemSeparator:
         vocals_path: Path,
         inst_path: Path,
         progress_callback: Callable[[float, str], None] | None = None,
+        blend_weight: float = 0.50,
     ) -> StemResult:
         """
         Multi-Stage Neural AI Pipeline:
@@ -565,6 +589,8 @@ class StemSeparator:
             output = output / weight
 
         vocals_raw = output[3].numpy()
+        # Reconstruct HDEMUCS instrumental from the three non-vocal stems
+        inst_model_np = output[0].numpy() + output[1].numpy() + output[2].numpy()  # bass+drums+other
 
         # Stage 2: Adaptive Spectral Noise Gate & Sibilance De-Bleeder
         if progress_callback:
@@ -576,15 +602,21 @@ class StemSeparator:
             progress_callback(72.0, "De-Robotize: Smoothing metallic phase artifacts...")
         vocals_polished = apply_vocal_harmonic_polish(vocals_gated, sr)
 
-        # Stage 4: Instrumental Inversion Subtraction
+        # Stage 4: Adaptive Blend — user-adjustable weight controls trust vs. inversion.
         if progress_callback:
-            progress_callback(88.0, "Master Polish: Inversion subtraction backing track...")
-        inst_polished = apply_inversion_subtraction(orig_audio, vocals_polished, sr)
+            progress_callback(88.0, "Master Polish: Adaptive blend + inversion subtraction...")
+        inst_inversion = apply_inversion_subtraction(orig_audio, vocals_polished, sr)
+        inv_weight = 1.0 - blend_weight
+        min_len = min(inst_model_np.shape[1], inst_inversion.shape[1])
+        inst_blended = blend_weight * inst_model_np[:, :min_len] + inv_weight * inst_inversion[:, :min_len]
+        peak_blend = float(np.max(np.abs(inst_blended))) if inst_blended.size > 0 else 0.0
+        if peak_blend > 0.891:
+            inst_blended = inst_blended * (0.891 / peak_blend)
 
         if progress_callback:
             progress_callback(96.0, "Writing isolated stems to disk...")
         save_audio_numpy(vocals_polished, vocals_path, sr)
-        save_audio_numpy(inst_polished, inst_path, sr)
+        save_audio_numpy(inst_blended, inst_path, sr)
 
         if progress_callback:
             progress_callback(100.0, "Stems ready: Vocals & Instrumental!")
@@ -596,4 +628,5 @@ class StemSeparator:
             mode="neural",
             sample_rate=sr,
             duration_s=duration,
+            engine="hdemucs",
         )

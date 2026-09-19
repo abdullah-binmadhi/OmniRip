@@ -662,12 +662,21 @@ async def test_workbench_stem_separation_and_auditioning(tmp_path: Path) -> None
             mode="eco",
             sample_rate=44100,
             duration_s=2.5,
+            engine="eco",
         )
 
         with patch(
             "harvester.analysis.enhancement.stem_separator.StemSeparator.separate_file",
             return_value=mock_res,
         ):
+            # Enable Neural AI mode first — VOC/INST buttons are gated behind it
+            btn_neural = app.query_one("#wb-btn-neural-toggle", Button)
+            btn_neural.press()
+            await pilot.pause()
+            assert wb.neural_enabled, "Neural mode must be active to use stem separation"
+            assert not btn_voc.disabled, "VOC button should be enabled after neural toggle"
+            assert not btn_inst.disabled, "INST button should be enabled after neural toggle"
+
             # Press [3] VOC
             btn_voc.press()
             await pilot.pause()
