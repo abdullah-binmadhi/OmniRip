@@ -33,6 +33,7 @@ from harvester.services.environment import (
     check_slskd,
     detect_environment,
 )
+from harvester.services.slskd_config import read_slskd_credentials
 from harvester.ui.bridge import FlushPlan, UiBridge
 from harvester.ui.logconsole import LogConsole
 from harvester.ui.player import AudioPlayerWidget
@@ -457,6 +458,7 @@ class HarvesterApp(App[None]):
         ("p", "purge_trash", "Purge trash"),
         ("w", "open_workbench", "Workbench"),
         ("t", "cycle_theme", "Theme"),
+        ("k", "open_soulseek_login", "Soulseek"),
         ("space", "toggle_playback", "Play/Pause"),
         ("left", "seek_backward", "Seek -5s"),
         ("right", "seek_forward", "Seek +5s"),
@@ -530,6 +532,7 @@ class HarvesterApp(App[None]):
                     yield Checkbox("Playlists", value=False, id="expand-playlists")
                     yield Button("▶ CONVERT", id="submit", variant="primary", disabled=True)
                     yield Button("◐ THEME", id="btn-theme")
+                    yield Button("🔑 SOULSEEK", id="btn-soulseek")
             with Horizontal(id="workspace-split"):
                 with Vertical(id="tracks-pane"):
                     yield JobTable()
@@ -550,6 +553,7 @@ class HarvesterApp(App[None]):
             self.theme = "cyberpunk-neon"
         except Exception:
             pass
+        self._refresh_soulseek_button_label()
         if self.auto_startup:
             self._run_guarded(self._startup(), name="startup", exclusive=True)
 
@@ -615,6 +619,7 @@ class HarvesterApp(App[None]):
     async def _status_tick(self) -> None:
         if self.orchestrator is None:
             return
+        self._refresh_soulseek_button_label()
         status = await check_slskd(self.config)
         self.query_one(StatusBar).set_pill("slskd", status)
 
@@ -635,6 +640,8 @@ class HarvesterApp(App[None]):
             self._run_guarded(self._submit_current(), name="submit")
         elif event.button.id == "btn-theme":
             self.action_cycle_theme()
+        elif event.button.id == "btn-soulseek":
+            self.action_open_soulseek_login()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "source-input":
@@ -804,6 +811,34 @@ class HarvesterApp(App[None]):
         """Cycle to next dynamic color theme."""
         theme_name = cycle_theme(self)
         self.notify(f"Theme: {theme_name}", timeout=2.0)
+
+    def action_open_soulseek_login(self) -> None:
+        """Open the Soulseek credentials and configuration dialog."""
+        from harvester.ui.screens.soulseek_login import SoulseekLoginModal
+
+        self.push_screen(SoulseekLoginModal(), self._on_soulseek_modal_dismiss)
+
+    def _on_soulseek_modal_dismiss(self, connected: bool | None) -> None:
+        self._refresh_soulseek_button_label()
+        if connected:
+            self._run_guarded(self._refresh_soulseek_status(), name="slskd-refresh")
+
+    def _refresh_soulseek_button_label(self) -> None:
+        try:
+            creds = read_slskd_credentials()
+            btn = self.query_one("#btn-soulseek", Button)
+            if creds.get("username"):
+                btn.label = f"✦ @{creds['username']}"
+            else:
+                btn.label = "🔑 SOULSEEK"
+        except Exception:
+            pass
+
+    async def _refresh_soulseek_status(self) -> None:
+        status = await check_slskd(self.config)
+        self.query_one(StatusBar).set_pill("slskd", status)
+        if status.available:
+            self.notify("Soulseek daemon connected and verified", severity="information")
 
     def action_toggle_playback(self) -> None:
         """Play or pause the current track in the audio player."""

@@ -156,10 +156,10 @@
     "semantic_hash": "728dbc86a45753688333bd2ff1e4fcb6"
   },
   "src/harvester/ui/app.py": {
-    "mtime": 1789825460.2281888,
-    "seen": 1789825583.495046,
-    "ast_hash": "ea0a5a4558ad1ed2dbf232ce06bc77fb",
-    "semantic_hash": "ea0a5a4558ad1ed2dbf232ce06bc77fb"
+    "mtime": 1789827838.854018,
+    "seen": 1789827946.479098,
+    "ast_hash": "a380ffe31fda6e131070662a47403a7f",
+    "semantic_hash": "a380ffe31fda6e131070662a47403a7f"
   },
   "src/harvester/util/__init__.py": {
     "mtime": 1789722411.039472,
@@ -588,10 +588,10 @@
     "semantic_hash": ""
   },
   "OmniRip": {
-    "mtime": 1789815151.1737432,
-    "seen": 1789815172.138008,
-    "ast_hash": "d5b80b847d0cdc667bc8aa796052c118",
-    "semantic_hash": "d5b80b847d0cdc667bc8aa796052c118"
+    "mtime": 1789827851.1922708,
+    "seen": 1789827946.4781399,
+    "ast_hash": "1e80d2d4c5a00173e0136c5159f9fba9",
+    "semantic_hash": "1e80d2d4c5a00173e0136c5159f9fba9"
   },
   "src/harvester/analysis/restoration.py": {
     "mtime": 1789760541.9819956,
@@ -808,5 +808,23 @@
     "seen": 1789827028.154196,
     "ast_hash": "4703adead039446709139b76b2ad4d48",
     "semantic_hash": "4703adead039446709139b76b2ad4d48"
+  },
+  "src/harvester/services/slskd_config.py": {
+    "mtime": 1789827872.8193116,
+    "seen": 1789827946.479019,
+    "ast_hash": "1cd7170f2864847c0d44be330b4915bc",
+    "semantic_hash": "1cd7170f2864847c0d44be330b4915bc"
+  },
+  "src/harvester/ui/screens/soulseek_login.py": {
+    "mtime": 1789827878.6891997,
+    "seen": 1789827946.4791832,
+    "ast_hash": "7022f711011bd116938c22de52f8fd8f",
+    "semantic_hash": "7022f711011bd116938c22de52f8fd8f"
+  },
+  "tests/test_slskd_config.py": {
+    "mtime": 1789827886.6508183,
+    "seen": 1789827946.480005,
+    "ast_hash": "e79ae9f5b58905b92f305f47f8811aff",
+    "semantic_hash": "e79ae9f5b58905b92f305f47f8811aff"
   }
 }

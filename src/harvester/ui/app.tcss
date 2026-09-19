@@ -74,6 +74,13 @@ Header {
     margin-left: 1;
 }
 
+#btn-soulseek {
+    min-width: 14;
+    width: auto;
+    padding: 0 1;
+    margin-left: 1;
+}
+
 Button {
     padding: 0 1;
 }
