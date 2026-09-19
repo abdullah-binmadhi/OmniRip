@@ -12,9 +12,9 @@
     "semantic_hash": "a149d383546e37d405332a5620cb92f5"
   },
   "README.md": {
-    "mtime": 1789823957.7620687,
-    "seen": 1789824680.309681,
-    "ast_hash": "01863d90a2b9113fe43c0f876e3482b8",
+    "mtime": 1789826073.6275651,
+    "seen": 1789826102.5461938,
+    "ast_hash": "c9ac2d4e7abd96fe335d08a1513b0785",
     "semantic_hash": ""
   },
   "docs/01-requirements.md": {
@@ -768,10 +768,10 @@
     "semantic_hash": "9898faa59a180ddf4a9a5bee995d16e1"
   },
   "src/harvester/ui/workbench.py": {
-    "mtime": 1789825556.7962132,
-    "seen": 1789825583.4950862,
-    "ast_hash": "5c60f0492b25a8d7ace28dcebfd2e842",
-    "semantic_hash": "5c60f0492b25a8d7ace28dcebfd2e842"
+    "mtime": 1789826061.585806,
+    "seen": 1789826102.5461571,
+    "ast_hash": "97d671effc9f19974599e11913c4a8d1",
+    "semantic_hash": ""
   },
   "tests/test_ui_workbench.py": {
     "mtime": 1789825543.7785103,
@@ -795,6 +795,18 @@
     "mtime": 1789823912.8875058,
     "seen": 1789824680.30969,
     "ast_hash": "4fee115c99727f83ac5bf47d4025bbb9",
+    "semantic_hash": ""
+  },
+  "docs/assets/omnirip_workbench_live.png": {
+    "mtime": 1789826065.2737708,
+    "seen": 1789826102.546203,
+    "ast_hash": "76e31455c647be987346a3ad6a540d00",
+    "semantic_hash": ""
+  },
+  "docs/assets/omnirip_demo.mp4": {
+    "mtime": 1789826065.2705913,
+    "seen": 1789826102.546203,
+    "ast_hash": "4703adead039446709139b76b2ad4d48",
     "semantic_hash": ""
   }
 }

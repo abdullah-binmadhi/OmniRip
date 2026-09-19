@@ -47,7 +47,11 @@ async def test_probe_audio_info_cache(tmp_path: Path) -> None:
         run_calls.append(command)
         return 0, fake_json, b""
 
+    async def fake_resolve(setting: str) -> list[str]:
+        return [setting]
+
     svc._run = fake_run  # type: ignore[assignment]
+    svc._resolve = fake_resolve  # type: ignore[assignment]
 
     info = await svc.probe_audio_info(audio_file)
     assert info["duration"] == 184.5
