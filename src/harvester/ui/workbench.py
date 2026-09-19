@@ -558,7 +558,7 @@ class WorkbenchWidget(Widget):
 
                 # --- Stem Blend Weight Controls ---
                 yield Label(
-                    "STEM BLEND WEIGHTS (Neural ↔ Inversion)",
+                    "STEM BLEND  [0% = Cleanest Separation  ·  100% = Richest Texture]",
                     classes="wb-section-title",
                 )
                 with Horizontal(id="wb-blend-row"):
@@ -1425,11 +1425,12 @@ class WorkbenchWidget(Widget):
             self.query_one("#wb-blend-hdemucs-val", Label).update(
                 f"{int(self.stem_hdemucs_blend * 100)}%"
             )
+            bsr_desc = "Richest Texture" if self.stem_bsr_blend >= 0.8 else ("Balanced" if self.stem_bsr_blend >= 0.4 else "Cleanest")
+            hd_desc = "Richest Texture" if self.stem_hdemucs_blend >= 0.8 else ("Balanced" if self.stem_hdemucs_blend >= 0.4 else "Cleanest")
             self.query_one("#wb-status", Label).update(
-                f"Blend weights — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% neural / "
-                f"{int((1 - self.stem_bsr_blend) * 100)}% inversion  |  "
-                f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% neural / "
-                f"{int((1 - self.stem_hdemucs_blend) * 100)}% inversion"
+                f"Blend — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% texture ({bsr_desc})  |  "
+                f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% texture ({hd_desc})"
+                f"  · 0%=Clean separation · 100%=Rich instruments"
             )
         except Exception:
             pass
@@ -1517,24 +1518,50 @@ class WorkbenchWidget(Widget):
             self._trigger_enhancement_pregeneration()
 
     def trigger_models_download(self) -> None:
-        """Download or verify local caching of all AI neural model weights."""
+        """Check or download all AI model weights and show status for all 4 models."""
+        import importlib
+
         from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
 
         mm = ModelManager()
+
+        # --- Stem separation model availability (self-managed, no download needed) ---
+        bsr_ok = importlib.util.find_spec("demucs") is not None or importlib.util.find_spec("transformers") is not None
+        hdemucs_ok = importlib.util.find_spec("demucs") is not None
+        bsr_status = "✅ Available" if bsr_ok else "⚠ Needs: pip install transformers"
+        hdemucs_status = "✅ Available" if hdemucs_ok else "⚠ Needs: pip install demucs"
+
+        # --- Enhancement model cache status ---
         missing = [m for m in SUPPORTED_MODELS if not mm.is_cached(m)]
+        nvsr_status = "✅ Cached" if "nvsr" not in missing else "⬇ Not downloaded"
+        fsr_status = "✅ Cached" if "flashsr" not in missing else "⬇ Not downloaded"
+
+        status_summary = (
+            f"AI Model Registry — "
+            f"BS-RoFormer: {bsr_status}  |  "
+            f"HDEMUCS: {hdemucs_status}  |  "
+            f"NVSR: {nvsr_status}  |  "
+            f"FlashSR: {fsr_status}"
+        )
+        self.query_one("#wb-status", Label).update(status_summary)
+
         if not missing:
-            self.query_one("#wb-status", Label).update(
-                "All neural models (NVSR & FlashSR) are already downloaded and cached locally."
-            )
             self.app.notify(
-                "Neural weights verified! NVSR and FlashSR models are ready for use.",
+                f"All 4 AI models ready:\n"
+                f"• BS-RoFormer (Stem): {bsr_status}\n"
+                f"• HDEMUCS (Stem): {hdemucs_status}\n"
+                f"• NVSR (Enhance): ✅ Cached\n"
+                f"• FlashSR (Enhance): ✅ Cached",
                 title="OmniRip AI Models",
-                timeout=4.0,
+                timeout=6.0,
             )
             return
 
-        self.query_one("#wb-status", Label).update(
-            f"Downloading neural model weights ({', '.join(missing)})..."
+        self.app.notify(
+            f"Stem models: BS-RoFormer={bsr_status}, HDEMUCS={hdemucs_status}\n"
+            f"Downloading enhancement weights: {', '.join(missing)}...",
+            title="OmniRip AI Models",
+            timeout=5.0,
         )
         self.run_worker(self._async_download_models(missing), name="download-models")
 

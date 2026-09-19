@@ -261,11 +261,18 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             await pilot.pause()
             mock_dl.assert_called_once()
 
-        # Test trigger_models_download when models are already cached
-        with patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True):
+        # Test trigger_models_download when models are already cached — new format shows all 4 models
+        with (
+            patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True),
+            patch("importlib.util.find_spec", return_value=object()),
+        ):
             wb.trigger_models_download()
             status_label = app.query_one("#wb-status")
-            assert "already downloaded" in str(status_label.render())
+            status_text = str(status_label.render())
+            assert "AI Model Registry" in status_text
+            assert "BS-RoFormer" in status_text
+            assert "HDEMUCS" in status_text
+            assert "NVSR" in status_text
 
 
 async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) -> None:

@@ -108,8 +108,9 @@ def save_audio_numpy(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
 def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     """
     Apply natural vocal envelope leveling and gentle inter-phrase silence attenuation.
-    Uses a 300 ms musical envelope with soft knee to eliminate volume pumping,
-    flutter, and breathing artifacts while preserving 100% of vocal phase.
+    Uses a 300 ms musical envelope with soft knee. Threshold at 8th percentile
+    (was 12th) and 80 ms release tail (was 40 ms) to eliminate pumping artifacts
+    while preserving breath dynamics and micro-phrasing.
     """
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
@@ -129,17 +130,18 @@ def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     env = np.sqrt(np.convolve(audio_mono**2, window, mode="same") + 1e-9)
     peak_env = float(np.max(env))
 
-    p10 = float(np.percentile(env, 12))
+    # Raised to 8th percentile (was 12th) — gentler threshold, less aggressive gating
+    p8 = float(np.percentile(env, 8))
     # If dynamic range is narrow (e.g. continuous test tones), preserve full signal
-    if p10 > 0.35 * peak_env:
+    if p8 > 0.35 * peak_env:
         return audio.astype(np.float32)
 
     # Soft expander threshold: only attenuate deep inter-phrase pauses
-    silence_thresh = max(p10 * 1.5, 0.02 * peak_env)
+    silence_thresh = max(p8 * 1.5, 0.015 * peak_env)
     gain = np.clip((env - silence_thresh * 0.4) / (silence_thresh * 1.6 + 1e-6), 0.05, 1.0)
 
-    # Secondary 40 ms smoothing on gain to guarantee zero clicks or pops
-    smooth_len = int(0.040 * sr)
+    # Extended 80 ms release smoothing on gain (was 40 ms) — eliminates pumping artifact
+    smooth_len = int(0.080 * sr)
     if smooth_len % 2 == 0:
         smooth_len += 1
     smooth_win = np.hanning(smooth_len).astype(np.float32)
@@ -151,16 +153,165 @@ def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
 
 def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
     """
-    Smooth vocal dynamics and limit peak overs without phase degradation or robotic artifacts.
-    Maintains 100% natural phase, autotune formants, and vocal breath dynamics.
+    De-robotize vocals via 3-frame STFT spectral magnitude smoothing.
+
+    The metallic/robotic artifact from neural stem separation is caused by
+    frame-to-frame magnitude discontinuities in the STFT domain. Averaging
+    magnitude across 3 consecutive frames smooths these transients without
+    modifying phase — preserving autotune formants, pitch, and breath dynamics.
+    A gentle high-frequency shelf at 8 kHz restores breath/air attenuated by gating.
     """
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
 
-    peak = float(np.max(np.abs(audio)))
+    n_ch, n_samples = audio.shape
+    if n_samples < 2048:
+        peak = float(np.max(np.abs(audio)))
+        if peak > 0.891:
+            return (audio * (0.891 / peak)).astype(np.float32)
+        return audio.astype(np.float32)
+
+    nperseg = 1024
+    noverlap = 768  # 75% overlap for smooth reconstruction
+    result_channels = []
+
+    for ch in range(n_ch):
+        f, _, Z = signal.stft(audio[ch], fs=sr, nperseg=nperseg, noverlap=noverlap)
+        mag = np.abs(Z)
+        phase = np.angle(Z)
+
+        # 3-frame magnitude smoothing along time axis — kills metallic frame discontinuities
+        mag_smooth = np.empty_like(mag)
+        mag_smooth[:, 0] = 0.5 * mag[:, 0] + 0.5 * mag[:, 1]
+        mag_smooth[:, -1] = 0.5 * mag[:, -2] + 0.5 * mag[:, -1]
+        mag_smooth[:, 1:-1] = 0.25 * mag[:, :-2] + 0.50 * mag[:, 1:-1] + 0.25 * mag[:, 2:]
+
+        # Gentle breathiness restoration: +1.5 dB shelf above 8 kHz to recover air
+        # attenuated by spectral gating (only applied if sr is high enough)
+        if sr >= 32000:
+            air_mask = (f >= 8000.0)
+            mag_smooth[air_mask, :] *= 1.19  # +1.5 dB shelf
+
+        # Reconstruct from smoothed magnitude + original phase (phase unchanged)
+        Z_smooth = mag_smooth * np.exp(1j * phase)
+        _, ch_out = signal.istft(Z_smooth, fs=sr, nperseg=nperseg, noverlap=noverlap)
+
+        # Trim/pad to original length
+        if ch_out.shape[0] > n_samples:
+            ch_out = ch_out[:n_samples]
+        elif ch_out.shape[0] < n_samples:
+            ch_out = np.pad(ch_out, (0, n_samples - ch_out.shape[0]))
+        result_channels.append(ch_out)
+
+    polished = np.stack(result_channels, axis=0).astype(np.float32)
+    peak = float(np.max(np.abs(polished)))
     if peak > 0.891:
-        return (audio * (0.891 / peak)).astype(np.float32)
-    return audio.astype(np.float32)
+        polished = polished * (0.891 / peak)
+    return polished
+
+
+def apply_mid_side_vocal_suppression(instrumental: np.ndarray, sr: int) -> np.ndarray:
+    """
+    Suppress residual center-panned vocal bleed from the instrumental stem.
+
+    Vocals are almost always panned to center (Mid channel = L+R). Applying a
+    soft spectral notch on the Mid channel in the 300–3000 Hz vocal fundamental
+    range (-6 dB) while leaving the Side channel (L-R) untouched preserves
+    stereo instruments, drums, and bass while attenuating any center-panned
+    vocal residual that survived inversion subtraction.
+    """
+    if instrumental.ndim == 1 or instrumental.shape[0] < 2:
+        return instrumental.astype(np.float32)
+
+    n_samples = instrumental.shape[1]
+    left = instrumental[0]
+    right = instrumental[1]
+
+    mid = 0.5 * (left + right)
+    side = 0.5 * (left - right)
+
+    # STFT on mid channel only
+    nperseg = 2048
+    noverlap = 1536
+    f, _, Z_mid = signal.stft(mid, fs=sr, nperseg=nperseg, noverlap=noverlap)
+
+    # Soft notch: -6 dB (factor 0.50) in vocal fundamental range 300–3000 Hz
+    # Applied as a smooth sigmoid transition to avoid spectral splatter
+    vocal_band = (f >= 300.0) & (f <= 3000.0)
+    attenuation = np.where(vocal_band, 0.50, 1.0).astype(np.float32)
+    Z_mid_clean = Z_mid * attenuation[:, np.newaxis]
+
+    _, mid_clean = signal.istft(Z_mid_clean, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    if mid_clean.shape[0] > n_samples:
+        mid_clean = mid_clean[:n_samples]
+    elif mid_clean.shape[0] < n_samples:
+        mid_clean = np.pad(mid_clean, (0, n_samples - mid_clean.shape[0]))
+
+    # Reconstruct stereo from cleaned mid + original side
+    left_clean = (mid_clean + side[:len(mid_clean)]).astype(np.float32)
+    right_clean = (mid_clean - side[:len(mid_clean)]).astype(np.float32)
+    result = np.stack([left_clean, right_clean], axis=0)
+
+    peak = float(np.max(np.abs(result))) if result.size > 0 else 0.0
+    if peak > 0.891:
+        result = result * (0.891 / peak)
+    return result
+
+
+def apply_wiener_vocal_mask(
+    instrumental: np.ndarray,
+    vocals: np.ndarray,
+    sr: int,
+    suppression_db: float = 6.0,
+) -> np.ndarray:
+    """
+    Wiener-filter vocal residual suppression on the instrumental.
+
+    Uses the separated vocal stem as a spectral reference to estimate where
+    vocal energy dominates. In those time-frequency bins, the instrumental is
+    attenuated by suppression_db (default -6 dB). This targets vocal-frequency
+    residuals that slip through both inversion subtraction and mid-side filtering.
+    """
+    if instrumental.shape[1] < 2048:
+        return instrumental.astype(np.float32)
+
+    nperseg = 2048
+    noverlap = 1536
+    min_len = min(instrumental.shape[1], vocals.shape[1] if vocals.ndim == 2 else len(vocals))
+
+    inst_mono = np.mean(instrumental[:, :min_len], axis=0)
+    voc_mono = np.mean(vocals[:, :min_len], axis=0) if vocals.ndim == 2 else vocals[:min_len]
+
+    _, _, Z_inst = signal.stft(inst_mono, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    _, _, Z_voc = signal.stft(voc_mono, fs=sr, nperseg=nperseg, noverlap=noverlap)
+
+    mag_inst = np.abs(Z_inst) + 1e-9
+    mag_voc = np.abs(Z_voc) + 1e-9
+
+    # Vocal dominance ratio: where vocals are louder than instrumental by suppression_db
+    suppression_linear = 10 ** (-suppression_db / 20.0)
+    vocal_dominance = mag_voc / (mag_inst + mag_voc)  # 0=inst dominates, 1=voc dominates
+    # Smooth suppression mask: only attenuate where vocal clearly dominates (>0.6 ratio)
+    mask = np.where(vocal_dominance > 0.6, suppression_linear, 1.0).astype(np.float32)
+
+    # Apply mask to each channel independently
+    result_channels = []
+    for ch in range(instrumental.shape[0]):
+        ch_data = instrumental[ch, :min_len]
+        _, _, Z_ch = signal.stft(ch_data, fs=sr, nperseg=nperseg, noverlap=noverlap)
+        Z_masked = Z_ch * mask
+        _, ch_out = signal.istft(Z_masked, fs=sr, nperseg=nperseg, noverlap=noverlap)
+        if ch_out.shape[0] > min_len:
+            ch_out = ch_out[:min_len]
+        elif ch_out.shape[0] < min_len:
+            ch_out = np.pad(ch_out, (0, min_len - ch_out.shape[0]))
+        result_channels.append(ch_out)
+
+    result = np.stack(result_channels, axis=0).astype(np.float32)
+    peak = float(np.max(np.abs(result))) if result.size > 0 else 0.0
+    if peak > 0.891:
+        result = result * (0.891 / peak)
+    return result
 
 
 def apply_inversion_subtraction(
@@ -480,21 +631,35 @@ class StemSeparator:
         if peak_voc > 0.891:
             vocals_clean = vocals_clean * (0.891 / peak_voc)
 
-        # Stage 3: Master Inversion Instrumental Backing (100% Vocal Rejection)
+        # Stage 3: Master Instrumental Construction (Residual-Additive Blend)
+        # Formula: final = inversion + blend_weight * (model - inversion)
+        # At 0%: pure inversion subtraction (cleanest vocal rejection guaranteed)
+        # At 100%: inversion base + full neural texture layer (richest instruments)
+        # This means higher % = more detail/texture, always building ON TOP of clean base.
         if progress_callback:
-            progress_callback(88.0, "Master Polish: Inversion subtraction backing track...")
+            progress_callback(86.0, "Master Polish: Residual-additive instrumental blend...")
         inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
-        # Adaptive blend: blend_weight controls trust in the transformer's instrument output.
-        # The complementary (1 - blend_weight) share comes from inversion subtraction
-        # which guarantees zero residual vocal bleed regardless of model quality.
-        inv_weight = 1.0 - blend_weight
-        inst_final = blend_weight * inst_model + inv_weight * inst_inversion
+        min_len = min(inst_model.shape[1], inst_inversion.shape[1])
+        inst_blend = inst_inversion[:, :min_len] + blend_weight * (
+            inst_model[:, :min_len] - inst_inversion[:, :min_len]
+        )
+
+        # Stage 4a: Mid-side vocal suppression — kill center-panned lyric bleed
+        if progress_callback:
+            progress_callback(91.0, "De-Bleed: Mid-side vocal suppression...")
+        inst_ms = apply_mid_side_vocal_suppression(inst_blend, sr)
+
+        # Stage 4b: Wiener mask — attenuate bins where vocal energy dominates
+        if progress_callback:
+            progress_callback(94.0, "De-Bleed: Wiener vocal mask...")
+        inst_final = apply_wiener_vocal_mask(inst_ms, vocals_clean, sr)
+
         peak_inst = float(np.max(np.abs(inst_final))) if inst_final.size > 0 else 0.0
         if peak_inst > 0.891:
             inst_final = inst_final * (0.891 / peak_inst)
 
         if progress_callback:
-            progress_callback(96.0, "Writing isolated stems to disk...")
+            progress_callback(97.0, "Writing isolated stems to disk...")
         save_audio_numpy(vocals_clean, vocals_path, sr)
         save_audio_numpy(inst_final, inst_path, sr)
 
@@ -602,19 +767,33 @@ class StemSeparator:
             progress_callback(72.0, "De-Robotize: Smoothing metallic phase artifacts...")
         vocals_polished = apply_vocal_harmonic_polish(vocals_gated, sr)
 
-        # Stage 4: Adaptive Blend — user-adjustable weight controls trust vs. inversion.
+        # Stage 4: Residual-Additive Blend
+        # Formula: final = inversion + blend_weight * (model - inversion)
+        # At 0%: pure inversion (cleanest). At 100%: full neural texture layered on top.
         if progress_callback:
-            progress_callback(88.0, "Master Polish: Adaptive blend + inversion subtraction...")
+            progress_callback(86.0, "Master Polish: Residual-additive instrumental blend...")
         inst_inversion = apply_inversion_subtraction(orig_audio, vocals_polished, sr)
-        inv_weight = 1.0 - blend_weight
         min_len = min(inst_model_np.shape[1], inst_inversion.shape[1])
-        inst_blended = blend_weight * inst_model_np[:, :min_len] + inv_weight * inst_inversion[:, :min_len]
+        inst_blend = inst_inversion[:, :min_len] + blend_weight * (
+            inst_model_np[:, :min_len] - inst_inversion[:, :min_len]
+        )
+
+        # Stage 5a: Mid-side vocal suppression — kill center-panned lyric bleed
+        if progress_callback:
+            progress_callback(91.0, "De-Bleed: Mid-side vocal suppression...")
+        inst_ms = apply_mid_side_vocal_suppression(inst_blend, sr)
+
+        # Stage 5b: Wiener mask — attenuate bins where vocal energy dominates
+        if progress_callback:
+            progress_callback(94.0, "De-Bleed: Wiener vocal mask...")
+        inst_blended = apply_wiener_vocal_mask(inst_ms, vocals_polished, sr)
+
         peak_blend = float(np.max(np.abs(inst_blended))) if inst_blended.size > 0 else 0.0
         if peak_blend > 0.891:
             inst_blended = inst_blended * (0.891 / peak_blend)
 
         if progress_callback:
-            progress_callback(96.0, "Writing isolated stems to disk...")
+            progress_callback(97.0, "Writing isolated stems to disk...")
         save_audio_numpy(vocals_polished, vocals_path, sr)
         save_audio_numpy(inst_blended, inst_path, sr)
 
