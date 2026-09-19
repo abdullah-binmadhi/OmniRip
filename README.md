@@ -1,5 +1,7 @@
 <p align="center">
-  <video src="docs/assets/omnirip_demo.mp4" controls autoplay loop muted width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);"></video>
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4" title="Click to watch or download the full 1080p video demo with sound">
+    <img src="docs/assets/omnirip_demo.gif" alt="OmniRip Live Terminal Workstation Demo" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
+  </a>
 </p>
 <p align="center">
   <img src="docs/assets/omnirip_workbench_live.png" alt="OmniRip Live Studio Curation & Mastering Workbench" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
@@ -13,6 +15,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20Watch%20Full%20Demo-1080p%20MP4-e02424?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Quickstart-Ready-ff007f?style=for-the-badge&logo=terminal&logoColor=white" alt="Quickstart"></a>
   <a href="#the-curation-workbench--10-band-studio-equalizer"><img src="https://img.shields.io/badge/10--Band%20EQ-Realtime%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
   <a href="#spectral-anti-fraud-intelligence"><img src="https://img.shields.io/badge/Anti--Fraud-FFT%20Verified-ffaa00?style=for-the-badge&logo=shield&logoColor=white" alt="Spectral Anti-Fraud"></a>
