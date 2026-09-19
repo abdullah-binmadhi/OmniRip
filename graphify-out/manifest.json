@@ -12,9 +12,9 @@
     "semantic_hash": "a149d383546e37d405332a5620cb92f5"
   },
   "README.md": {
-    "mtime": 1789764222.6396754,
-    "seen": 1789764650.218573,
-    "ast_hash": "2bbf6c75682a3d2099aabdf94d7c4dee",
+    "mtime": 1789823957.7620687,
+    "seen": 1789824680.309681,
+    "ast_hash": "01863d90a2b9113fe43c0f876e3482b8",
     "semantic_hash": ""
   },
   "docs/01-requirements.md": {
@@ -790,5 +790,11 @@
     "seen": 1789812414.022069,
     "ast_hash": "cb0800a1dc2707bb908c7eae472790d9",
     "semantic_hash": "cb0800a1dc2707bb908c7eae472790d9"
+  },
+  "docs/assets/omnirip_hero.jpg": {
+    "mtime": 1789823912.8875058,
+    "seen": 1789824680.30969,
+    "ast_hash": "4fee115c99727f83ac5bf47d4025bbb9",
+    "semantic_hash": ""
   }
 }
