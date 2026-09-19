@@ -800,49 +800,71 @@ async def test_workbench_multi_song_stem_isolation(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: Path) -> None:
-    """Verify vocal and instrumental diagnostic dropdowns and profile memory."""
+    """Verify vocal and instrumental diagnostic multi-choice panels, buttons, and profile memory."""
     import json
+
+    from textual.widgets import Button, SelectionList
 
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one(WorkbenchWidget)
-        voc_row = app.query_one("#wb-diagnostic-voc-row")
-        inst_row = app.query_one("#wb-diagnostic-inst-row")
-        voc_sel = app.query_one("#wb-diagnostic-voc-select", Select)
-        inst_sel = app.query_one("#wb-diagnostic-inst-select", Select)
+        voc_panel = app.query_one("#wb-diagnostic-voc-panel")
+        inst_panel = app.query_one("#wb-diagnostic-inst-panel")
+        voc_list = app.query_one("#wb-voc-flags-list", SelectionList)
+        inst_list = app.query_one("#wb-inst-flags-list", SelectionList)
 
-        # 1. Initial state: stream is MP3, both diagnostic rows are hidden
-        assert voc_row.styles.display == "none"
-        assert inst_row.styles.display == "none"
+        # 1. Initial state: stream is MP3, both diagnostic panels are hidden
+        assert voc_panel.styles.display == "none"
+        assert inst_panel.styles.display == "none"
 
-        # 2. Switch to VOC: voc_row becomes visible, inst_row stays hidden
+        # 2. Switch to VOC: voc_panel becomes visible, inst_panel stays hidden
         wb.set_active_stream("VOC")
         await pilot.pause()
-        assert voc_row.styles.display == "block"
-        assert inst_row.styles.display == "none"
+        assert voc_panel.styles.display == "block"
+        assert inst_panel.styles.display == "none"
 
-        # 3. Switch to INST: inst_row becomes visible, voc_row is hidden
+        # 3. Switch to INST: inst_panel becomes visible, voc_panel is hidden
         wb.set_active_stream("INST")
         await pilot.pause()
-        assert voc_row.styles.display == "none"
-        assert inst_row.styles.display == "block"
+        assert voc_panel.styles.display == "none"
+        assert inst_panel.styles.display == "block"
 
         # 4. Switch back to MP3: both are hidden
         wb.set_active_stream("MP3")
         await pilot.pause()
-        assert voc_row.styles.display == "none"
-        assert inst_row.styles.display == "none"
+        assert voc_panel.styles.display == "none"
+        assert inst_panel.styles.display == "none"
 
-        # 5. Changing dropdowns updates instance profiles
-        voc_sel.value = "fix_pumping"
+        # 5. Multi-choice SelectionList allows selecting multiple options
+        voc_list.select("fix_pumping")
+        voc_list.select("de_robot")
         await pilot.pause()
-        assert wb.vocal_profile == "fix_pumping"
+        assert "fix_pumping" in wb.vocal_flags
+        assert "de_robot" in wb.vocal_flags
 
-        inst_sel.value = "kill_whispers"
+        # 6. Test ALL and CLEAR buttons for Vocal
+        btn_voc_all = app.query_one("#wb-btn-voc-all", Button)
+        btn_voc_all.press()
         await pilot.pause()
-        assert wb.inst_profile == "kill_whispers"
+        assert len(wb.vocal_flags) == 10
 
-        # 6. Test loading track with existing profile.json restores the saved dropdowns
+        btn_voc_clear = app.query_one("#wb-btn-voc-clear", Button)
+        btn_voc_clear.press()
+        await pilot.pause()
+        assert len(wb.vocal_flags) == 0
+
+        # 7. Test ALL and CLEAR buttons for Instrumental
+        btn_inst_all = app.query_one("#wb-btn-inst-all", Button)
+        btn_inst_all.press()
+        await pilot.pause()
+        assert len(wb.inst_flags) == 10
+
+        btn_inst_clear = app.query_one("#wb-btn-inst-clear", Button)
+        btn_inst_clear.press()
+        await pilot.pause()
+        assert len(wb.inst_flags) == 0
+
+        # 8. Test loading track with existing profile.json restores the saved multi-flags
         track_file = tmp_path / "test_track.mp3"
         track_file.write_bytes(b"TESTAUDIO")
         cache_dir = (
@@ -854,7 +876,12 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
         )
         cache_dir.mkdir(parents=True, exist_ok=True)
         (cache_dir / "profile.json").write_text(
-            json.dumps({"vocal_profile": "de_robot", "inst_profile": "preserve_drums"})
+            json.dumps(
+                {
+                    "vocal_flags": ["de_robot", "air_boost"],
+                    "inst_flags": ["preserve_drums", "kill_whispers"],
+                }
+            )
         )
 
         job = TrackJob(mode=Mode.SINGLE_URL, input_path=track_file)
@@ -863,7 +890,7 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
         wb.load_job(job)
         await pilot.pause()
 
-        assert wb.vocal_profile == "de_robot"
-        assert wb.inst_profile == "preserve_drums"
-        assert voc_sel.value == "de_robot"
-        assert inst_sel.value == "preserve_drums"
+        assert wb.vocal_flags == {"de_robot", "air_boost"}
+        assert wb.inst_flags == {"preserve_drums", "kill_whispers"}
+        assert set(voc_list.selected) == {"de_robot", "air_boost"}
+        assert set(inst_list.selected) == {"preserve_drums", "kill_whispers"}

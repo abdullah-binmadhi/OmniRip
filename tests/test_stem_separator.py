@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -211,6 +212,9 @@ def _mock_separate_bs_roformer(
     blend_weight: float = 0.70,
     vocal_profile: str = "natural",
     inst_profile: str = "natural",
+    vocal_flags: set[str] | list[str] | str | None = None,
+    inst_flags: set[str] | list[str] | str | None = None,
+    **kwargs: Any,
 ) -> StemResult:
     if progress_callback:
         progress_callback(5.0, "Loading BS-RoFormer Rotary Transformer...")
@@ -230,6 +234,8 @@ def _mock_separate_bs_roformer(
         blend_weight=blend_weight,
         vocal_profile=vocal_profile,
         inst_profile=inst_profile,
+        vocal_flags=vocal_flags,
+        inst_flags=inst_flags,
         progress_callback=progress_callback,
     )
     save_audio_numpy(voc_clean, vocals_path, sr)
@@ -340,3 +346,92 @@ def test_stem_separator_diagnostic_profiles_and_fast_cache(
     prof2 = load_stem_profile(res2.vocals_path.parent)
     assert prof2["vocal_profile"] == "fix_pumping"
     assert prof2["inst_profile"] == "kill_whispers"
+
+
+def test_all_ten_vocal_remediations(sample_stereo_wav: Path) -> None:
+    """Verify each of the 10 vocal defect remediations executes cleanly on audio."""
+    from harvester.analysis.enhancement.stem_separator import (
+        VOCAL_REMEDIATIONS,
+        apply_vocal_remediations,
+    )
+
+    audio, sr = load_audio_numpy(sample_stereo_wav)
+    assert len(VOCAL_REMEDIATIONS) == 10
+
+    # Test each individual flag
+    for flag in VOCAL_REMEDIATIONS:
+        out = apply_vocal_remediations(audio, sr, {flag})
+        assert out.shape == audio.shape
+        assert np.isfinite(out).all()
+
+    # Test all 10 flags together
+    all_flags = set(VOCAL_REMEDIATIONS.keys())
+    out_all = apply_vocal_remediations(audio, sr, all_flags)
+    assert out_all.shape == audio.shape
+    assert np.isfinite(out_all).all()
+    assert np.max(np.abs(out_all)) <= 1.05
+
+
+def test_all_ten_instrumental_remediations(sample_stereo_wav: Path) -> None:
+    """Verify each of the 10 instrumental defect remediations executes cleanly on audio."""
+    from harvester.analysis.enhancement.stem_separator import (
+        INST_REMEDIATIONS,
+        apply_inst_remediations,
+    )
+
+    audio, sr = load_audio_numpy(sample_stereo_wav)
+    voc_raw = audio * 0.5
+    inst_raw = audio * 0.5
+    assert len(INST_REMEDIATIONS) == 10
+
+    # Test each individual flag
+    for flag in INST_REMEDIATIONS:
+        out = apply_inst_remediations(audio, voc_raw, inst_raw, sr, {flag})
+        assert out.shape == audio.shape
+        assert np.isfinite(out).all()
+
+    # Test all 10 flags together
+    all_flags = set(INST_REMEDIATIONS.keys())
+    out_all = apply_inst_remediations(audio, voc_raw, inst_raw, sr, all_flags)
+    assert out_all.shape == audio.shape
+    assert np.isfinite(out_all).all()
+    assert np.max(np.abs(out_all)) <= 1.05
+
+
+def test_stem_separator_multi_flag_fast_cache(sample_stereo_wav: Path, tmp_path: Path) -> None:
+    """Verify multi-choice flag sets generate distinct cached derivatives from raw stems."""
+    from harvester.analysis.enhancement.stem_separator import (
+        get_stem_cache_suffix,
+        load_stem_profile,
+    )
+
+    separator = StemSeparator(cache_dir=tmp_path / "cache_multi")
+
+    # Initial run populates raw stems
+    with patch.object(separator, "_separate_bs_roformer", side_effect=_mock_separate_bs_roformer):
+        res1 = separator.separate_file(sample_stereo_wav, mode="bs_roformer")
+
+    assert res1.vocals_path.exists()
+    assert res1.instrumental_path.exists()
+
+    # Apply 3 vocal flags and 2 instrumental flags
+    v_flags = {"de_plosive", "de_robot", "air_boost"}
+    i_flags = {"preserve_drums", "kill_whispers"}
+    res2 = separator.separate_file(
+        sample_stereo_wav,
+        mode="bs_roformer",
+        vocal_flags=v_flags,
+        inst_flags=i_flags,
+    )
+
+    v_sfx = get_stem_cache_suffix(v_flags)
+    i_sfx = get_stem_cache_suffix(i_flags)
+
+    assert v_sfx in str(res2.vocals_path)
+    assert i_sfx in str(res2.instrumental_path)
+    assert res2.vocals_path.exists()
+    assert res2.instrumental_path.exists()
+
+    prof = load_stem_profile(res2.vocals_path.parent)
+    assert set(prof.get("vocal_flags", [])) == v_flags
+    assert set(prof.get("inst_flags", [])) == i_flags

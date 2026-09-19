@@ -18,7 +18,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Label, ProgressBar, Select
+from textual.widgets import Button, Label, ProgressBar, Select, SelectionList
+from textual.widgets.selection_list import Selection
 
 from harvester.analysis.enhancement.eq import (
     EQ_FREQUENCIES,
@@ -26,6 +27,10 @@ from harvester.analysis.enhancement.eq import (
     MasteringEQSettings,
 )
 from harvester.analysis.enhancement.presets import PRESETS
+from harvester.analysis.enhancement.stem_separator import (
+    INST_REMEDIATIONS,
+    VOCAL_REMEDIATIONS,
+)
 from harvester.models import TrackJob
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
@@ -369,22 +374,39 @@ class WorkbenchWidget(Widget):
         color: $warning;
         margin-top: 1;
     }
-    .wb-diagnostic-row {
+    .wb-diagnostic-panel {
         height: auto;
         width: 1fr;
         margin-top: 1;
         display: none;
+        background: $surface;
+        border: round $accent;
+        padding: 0 1;
+    }
+    .wb-diagnostic-toolbar {
+        height: 1;
+        width: 1fr;
         align: left middle;
+        margin-bottom: 0;
     }
     .wb-diagnostic-label {
-        width: 12;
+        width: 1fr;
         height: 1;
         color: $accent;
         text-style: bold;
     }
-    .wb-diagnostic-select {
+    .wb-diagnostic-btn {
+        min-width: 7;
+        height: 1;
+        margin-left: 1;
+        border: none;
+    }
+    .wb-diagnostic-list {
+        height: 6;
         width: 1fr;
-        height: auto;
+        background: transparent;
+        border: none;
+        overflow-y: auto;
     }
     """
 
@@ -416,9 +438,9 @@ class WorkbenchWidget(Widget):
         self.stem_bsr_blend: float = 0.70  # BS-RoFormer (specialized transformer)
         self.stem_hdemucs_blend: float = 0.50  # HDEMUCS (general-purpose model)
 
-        # Imperfection remediation diagnostic profiles:
-        # Vocal: "natural", "fix_pumping", "de_robot", "air_boost"
-        # Instrumental: "natural", "kill_whispers", "restore_center", "preserve_drums"
+        # Multi-choice stem defect remediations (10 vocal, 10 instrumental):
+        self.vocal_flags: set[str] = set()
+        self.inst_flags: set[str] = set()
         self.vocal_profile: str = "natural"
         self.inst_profile: str = "natural"
 
@@ -603,36 +625,31 @@ class WorkbenchWidget(Widget):
                     yield Button("-", id="wb-blend-hdemucs-dn", classes="wb-blend-btn")
 
                 # --- Stem Imperfection Remediation Diagnostic Controls ---
-                with Horizontal(id="wb-diagnostic-voc-row", classes="wb-diagnostic-row"):
-                    yield Label("Vocal Fix:", classes="wb-diagnostic-label")
-                    yield Select(
-                        [
-                            ("Standard Polish (Natural Envelope)", "natural"),
-                            ("Fix Volume Pumping (Bypass Gate)", "fix_pumping"),
-                            ("De-Robotize (Phase Smoothing)", "de_robot"),
-                            ("Restore Air & Highs (+2.5dB >8kHz)", "air_boost"),
+                with Vertical(id="wb-diagnostic-voc-panel", classes="wb-diagnostic-panel"):
+                    with Horizontal(classes="wb-diagnostic-toolbar"):
+                        yield Label("Vocal Defect Remediations:", classes="wb-diagnostic-label")
+                        yield Button("ALL", id="wb-btn-voc-all", classes="wb-diagnostic-btn")
+                        yield Button("CLEAR", id="wb-btn-voc-clear", classes="wb-diagnostic-btn")
+                    yield SelectionList[str](
+                        *[
+                            Selection(label, key, key in self.vocal_flags)
+                            for key, label in VOCAL_REMEDIATIONS.items()
                         ],
-                        value=self.vocal_profile,
-                        id="wb-diagnostic-voc-select",
-                        allow_blank=False,
-                        classes="wb-diagnostic-select",
+                        id="wb-voc-flags-list",
+                        classes="wb-diagnostic-list",
                     )
-                with Horizontal(id="wb-diagnostic-inst-row", classes="wb-diagnostic-row"):
-                    yield Label("Inst Fix:", classes="wb-diagnostic-label")
-                    yield Select(
-                        [
-                            ("Standard Blend (Natural De-Bleed)", "natural"),
-                            (
-                                "Kill Vocal Bleed & Whispers (Stereo Side Attenuation)",
-                                "kill_whispers",
-                            ),
-                            ("Restore Center Punch (Kick & Snare)", "restore_center"),
-                            ("Preserve Drums & Percussion", "preserve_drums"),
+                with Vertical(id="wb-diagnostic-inst-panel", classes="wb-diagnostic-panel"):
+                    with Horizontal(classes="wb-diagnostic-toolbar"):
+                        yield Label("Inst Defect Remediations:", classes="wb-diagnostic-label")
+                        yield Button("ALL", id="wb-btn-inst-all", classes="wb-diagnostic-btn")
+                        yield Button("CLEAR", id="wb-btn-inst-clear", classes="wb-diagnostic-btn")
+                    yield SelectionList[str](
+                        *[
+                            Selection(label, key, key in self.inst_flags)
+                            for key, label in INST_REMEDIATIONS.items()
                         ],
-                        value=self.inst_profile,
-                        id="wb-diagnostic-inst-select",
-                        allow_blank=False,
-                        classes="wb-diagnostic-select",
+                        id="wb-inst-flags-list",
+                        classes="wb-diagnostic-list",
                     )
 
             with Vertical(id="wb-page-eq"):
@@ -694,19 +711,44 @@ class WorkbenchWidget(Widget):
                 / f"{self.path_mp3.stem}_{self.path_mp3.stat().st_size}"
             )
             if stem_dir.exists():
-                from harvester.analysis.enhancement.stem_separator import load_stem_profile
+                from harvester.analysis.enhancement.stem_separator import (
+                    get_stem_cache_suffix,
+                    load_stem_profile,
+                )
 
                 prof = load_stem_profile(stem_dir)
                 self.vocal_profile = prof.get("vocal_profile", "natural")
                 self.inst_profile = prof.get("inst_profile", "natural")
+                self.vocal_flags = set(prof.get("vocal_flags", []))
+                self.inst_flags = set(prof.get("inst_flags", []))
+                if not self.vocal_flags and self.vocal_profile != "natural":
+                    self.vocal_flags = {self.vocal_profile}
+                if not self.inst_flags and self.inst_profile != "natural":
+                    self.inst_flags = {self.inst_profile}
+
                 try:
-                    self.query_one("#wb-diagnostic-voc-select", Select).value = self.vocal_profile
-                    self.query_one("#wb-diagnostic-inst-select", Select).value = self.inst_profile
+                    voc_list = self.query_one("#wb-voc-flags-list", SelectionList)
+                    voc_list.deselect_all()
+                    for f in self.vocal_flags:
+                        try:
+                            voc_list.select(f)
+                        except Exception:
+                            pass
+
+                    inst_list = self.query_one("#wb-inst-flags-list", SelectionList)
+                    inst_list.deselect_all()
+                    for f in self.inst_flags:
+                        try:
+                            inst_list.select(f)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
-            v_sfx = f"_{self.vocal_profile}" if self.vocal_profile != "natural" else ""
-            i_sfx = f"_{self.inst_profile}" if self.inst_profile != "natural" else ""
+            from harvester.analysis.enhancement.stem_separator import get_stem_cache_suffix
+
+            v_sfx = get_stem_cache_suffix(self.vocal_flags or self.vocal_profile)
+            i_sfx = get_stem_cache_suffix(self.inst_flags or self.inst_profile)
 
             # Check profile-specific stems first, then standard stems
             v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals{v_sfx}.wav"
@@ -964,20 +1006,20 @@ class WorkbenchWidget(Widget):
             btn_voc.variant = "primary" if normalized == "VOC" else "default"
             btn_inst.variant = "primary" if normalized == "INST" else "default"
 
-            voc_row = self.query_one("#wb-diagnostic-voc-row")
-            inst_row = self.query_one("#wb-diagnostic-inst-row")
+            voc_panel = self.query_one("#wb-diagnostic-voc-panel")
+            inst_panel = self.query_one("#wb-diagnostic-inst-panel")
             blend_row = self.query_one("#wb-blend-row")
             if normalized == "VOC":
-                voc_row.styles.display = "block"
-                inst_row.styles.display = "none"
+                voc_panel.styles.display = "block"
+                inst_panel.styles.display = "none"
                 blend_row.styles.display = "block"
             elif normalized == "INST":
-                voc_row.styles.display = "none"
-                inst_row.styles.display = "block"
+                voc_panel.styles.display = "none"
+                inst_panel.styles.display = "block"
                 blend_row.styles.display = "block"
             else:
-                voc_row.styles.display = "none"
-                inst_row.styles.display = "none"
+                voc_panel.styles.display = "none"
+                inst_panel.styles.display = "none"
                 blend_row.styles.display = "none"
         except Exception:
             pass
@@ -1093,7 +1135,10 @@ class WorkbenchWidget(Widget):
             self.app.call_from_thread(_ui)
 
         try:
-            from harvester.analysis.enhancement.stem_separator import StemSeparator
+            from harvester.analysis.enhancement.stem_separator import (
+                StemSeparator,
+                save_stem_profile,
+            )
 
             separator = StemSeparator()
             res = await asyncio.to_thread(
@@ -1105,7 +1150,18 @@ class WorkbenchWidget(Widget):
                 hdemucs_weight=self.stem_hdemucs_blend,
                 vocal_profile=self.vocal_profile,
                 inst_profile=self.inst_profile,
+                vocal_flags=self.vocal_flags or self.vocal_profile,
+                inst_flags=self.inst_flags or self.inst_profile,
             )
+
+            if res.vocals_path and res.vocals_path.parent:
+                save_stem_profile(
+                    res.vocals_path.parent,
+                    vocal_profile=self.vocal_profile,
+                    inst_profile=self.inst_profile,
+                    vocal_flags=self.vocal_flags,
+                    inst_flags=self.inst_flags,
+                )
 
             if self.path_mp3 == source_path:
                 self.path_voc = res.vocals_path
@@ -1473,6 +1529,34 @@ class WorkbenchWidget(Widget):
                 if self.path_mp3:
                     self._trigger_stem_separation("INST")
 
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged[str]) -> None:
+        """Handle multi-choice checkbox toggling for stem defect remediations."""
+        list_id = event.selection_list.id or ""
+        if list_id == "wb-voc-flags-list":
+            new_flags = set(event.selection_list.selected)
+            if new_flags != self.vocal_flags:
+                self.vocal_flags = new_flags
+                active_str = ", ".join(sorted(new_flags)) or "None"
+                self.app.notify(
+                    f"Vocal Remediations ({len(new_flags)}): {active_str}",
+                    title="OmniRip Stem Diagnostics",
+                    timeout=2.5,
+                )
+                if self.path_mp3:
+                    self._trigger_stem_separation("VOC")
+        elif list_id == "wb-inst-flags-list":
+            new_flags = set(event.selection_list.selected)
+            if new_flags != self.inst_flags:
+                self.inst_flags = new_flags
+                active_str = ", ".join(sorted(new_flags)) or "None"
+                self.app.notify(
+                    f"Inst Remediations ({len(new_flags)}): {active_str}",
+                    title="OmniRip Stem Diagnostics",
+                    timeout=2.5,
+                )
+                if self.path_mp3:
+                    self._trigger_stem_separation("INST")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id or ""
         if btn_id in ("btn-stream-mp3", "btn-stream-a", "btn-stream-b"):
@@ -1483,6 +1567,26 @@ class WorkbenchWidget(Widget):
             self.set_active_stream("VOC")
         elif btn_id == "btn-stream-inst":
             self.set_active_stream("INST")
+        elif btn_id == "wb-btn-voc-all":
+            try:
+                self.query_one("#wb-voc-flags-list", SelectionList).select_all()
+            except Exception:
+                pass
+        elif btn_id == "wb-btn-voc-clear":
+            try:
+                self.query_one("#wb-voc-flags-list", SelectionList).deselect_all()
+            except Exception:
+                pass
+        elif btn_id == "wb-btn-inst-all":
+            try:
+                self.query_one("#wb-inst-flags-list", SelectionList).select_all()
+            except Exception:
+                pass
+        elif btn_id == "wb-btn-inst-clear":
+            try:
+                self.query_one("#wb-inst-flags-list", SelectionList).deselect_all()
+            except Exception:
+                pass
         elif btn_id == "wb-btn-neural-toggle":
             self.toggle_neural_engine()
         elif btn_id == "wb-btn-models-download":
