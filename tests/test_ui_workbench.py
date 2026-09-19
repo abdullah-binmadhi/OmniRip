@@ -215,8 +215,12 @@ async def test_workbench_explicit_download_enhanced_button(tmp_path: Path) -> No
 
         with patch.object(wb.exporter, "export_enhanced_derivative", return_value=mock_exported):
             btn_dl.press()
-            await pilot.pause()
-            await pilot.pause()
+            for _ in range(25):
+                await pilot.pause(0.05)
+                if target_enhanced.exists() and "Downloaded" in str(
+                    app.query_one("#wb-status").render()
+                ):
+                    break
 
         assert target_enhanced.exists()
         status_label = app.query_one("#wb-status")
@@ -434,8 +438,12 @@ async def test_workbench_dead_space_elements_and_cached_download(tmp_path: Path)
         with patch.object(wb.exporter, "export_enhanced_derivative") as mock_render:
             btn_dl = app.query_one("#wb-btn-export", Button)
             btn_dl.press()
-            await pilot.pause()
-            await pilot.pause()
+            for _ in range(25):
+                await pilot.pause(0.05)
+                if target_file.exists() and "Downloaded" in str(
+                    app.query_one("#wb-status").render()
+                ):
+                    break
 
             mock_render.assert_not_called()
 
@@ -711,11 +719,14 @@ async def test_workbench_stem_separation_and_auditioning(tmp_path: Path) -> None
             assert wb.path_inst == inst_file
 
             # Export while on INST
+            exported_inst = tmp_path / "stem_song_instrumental.wav"
             btn_export = app.query_one("#wb-btn-export", Button)
             btn_export.press()
-            await pilot.pause()
+            for _ in range(25):
+                await pilot.pause(0.05)
+                if exported_inst.exists():
+                    break
 
-            exported_inst = tmp_path / "stem_song_instrumental.wav"
             assert exported_inst.exists()
 
             # Verify stem progress bar is present in workbench DOM
