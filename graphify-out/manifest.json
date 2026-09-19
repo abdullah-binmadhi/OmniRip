@@ -301,9 +301,9 @@
   },
   "tests/test_ffmpeg.py": {
     "mtime": 1789826280.2588122,
-    "seen": 1789826305.40098,
+    "seen": 1789827028.1536798,
     "ast_hash": "57626fbb803f4ceb01ed8578930c3e0f",
-    "semantic_hash": ""
+    "semantic_hash": "57626fbb803f4ceb01ed8578930c3e0f"
   },
   "tests/test_orchestrator.py": {
     "mtime": 1789739337.5324745,
@@ -769,9 +769,9 @@
   },
   "src/harvester/ui/workbench.py": {
     "mtime": 1789826061.585806,
-    "seen": 1789826102.5461571,
+    "seen": 1789827028.153277,
     "ast_hash": "97d671effc9f19974599e11913c4a8d1",
-    "semantic_hash": ""
+    "semantic_hash": "97d671effc9f19974599e11913c4a8d1"
   },
   "tests/test_ui_workbench.py": {
     "mtime": 1789825543.7785103,
@@ -805,8 +805,8 @@
   },
   "docs/assets/omnirip_demo.mp4": {
     "mtime": 1789826065.2705913,
-    "seen": 1789826102.546203,
+    "seen": 1789827028.154196,
     "ast_hash": "4703adead039446709139b76b2ad4d48",
-    "semantic_hash": ""
+    "semantic_hash": "4703adead039446709139b76b2ad4d48"
   }
 }

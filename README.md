@@ -26,15 +26,15 @@
 
 ## Say hello to OmniRip.
 
-Every once in a while, a tool comes along that completely redefines the way we interact with sound.
+Every once in a while, a tool comes along that completely changes how you listen to music.
 
-For decades, digital audio has been a tale of frustrating trade-offs. You either accept heavily compressed, lossy streams flattened by web algorithms, or you lose hours wrestling with clunky P2P interfaces, only to realize your downloaded "FLAC" was just a transcoded 128 kbps MP3 wrapped in an expensive file extension.
+For years, listening to digital music has meant making frustrating compromises. If you listen on streaming platforms, songs are often squashed and flattened by heavy compression algorithms so they stream faster over mobile data. And if you try searching peer-to-peer (P2P) file-sharing networks for original CD-quality audio, you often lose hours waiting in long download lines—only to find out that the "lossless FLAC" file you just downloaded was actually a muffled, low-quality 128 kbps MP3 that someone renamed to fool you.
 
 **OmniRip changes everything.**
 
-Built from the ground up for musicians, archivists, and unapologetic audiophiles, OmniRip combines the raw hunting power of **Soulseek P2P** and **adaptive stream fallbacks** with real-time **spectral forensic analysis**, a **10-band studio mastering equalizer**, and non-destructive **harmonic excitation**. All inside a breathtaking, keyboard-driven terminal console.
+OmniRip is a complete, all-in-one music workstation designed right inside your terminal. Think of it as a smart music detective and a professional mastering studio rolled into one fast, lightweight app. It searches the **Soulseek P2P** network for original lossless music, automatically falls back to clean web streams if files are unavailable, uses automated **Spectral Anti-Fraud Intelligence** to catch fake high-resolution files, lets you sculpt your sound with a **10-Band Studio Mastering Equalizer**, and restores missing high-end sparkle with an **Acoustic Restoration Engine**.
 
-It’s not just a downloader. It’s an audio preservation studio in your shell.
+You do not need to be an audio engineer or a command-line expert to use it. If you love music and want to hear songs the way the artist actually recorded them, OmniRip was built for you.
 
 ---
 
@@ -52,34 +52,37 @@ Soulseek Lossless  Spectral FFT                   10-Band Mastering    Sub-fc In
  + Stream Fallback Verification                    Dual-Stream DSP      Harmonic Exciter
 ```
 
-### 1. P2P-First Architecture: Lossless Without Compromise
-Why settle for lossy web compression when you can have the original studio master?
-- **Intelligent Peer Scoring:** Evaluates bitrate, transfer speed, peer queue depth, and file structure in milliseconds.
-- **Queue Guard & Bounded Timeouts:** Never get stuck behind a 200-person Soulseek queue. If high-speed lossless peers aren’t immediately available, OmniRip gracefully transitions to the highest-fidelity Opus stream fallback via `yt-dlp`.
-- **Atomic Library Upgrades:** Run it against a single track URL or audit an entire music folder. OmniRip spots low-bitrate rips, hunts superior masters, and atomically swaps them into your library with zero downtime.
+### 1. Soulseek Lossless Hunt & Opus Stream Fallback
+Why settle for compressed web audio when you can have the original studio master?
+- **Intelligent Peer Scoring:** When you paste a song link or track title, OmniRip connects to the Soulseek peer-to-peer network. In milliseconds, it inspects every user sharing the song and scores them based on their upload speed, how many people are waiting in line in front of you (queue depth), and file format (giving highest priority to lossless FLAC and WAV, followed by clean 320 kbps MP3s).
+- **Queue Guard & Bounded Timeouts:** On P2P networks, popular files often have 100+ people waiting in line. Instead of freezing your computer for hours, OmniRip gives the peer a short countdown. If they do not start uploading quickly, OmniRip immediately activates the **Opus Stream Fallback** via `yt-dlp`. This grabs the cleanest available 160 kbps Opus stream from the web, meaning you always get your music in seconds.
+- **Atomic Library Upgrade:** You can point OmniRip at a single song link or ask it to audit an entire folder on your hard drive. OmniRip finds low-bitrate, muffled rips in your collection, hunts down pristine lossless replacements across the network, and safely swaps them into your library without corrupting files or interrupting your music.
 
-### 2. Spectral Anti-Fraud Intelligence: Truth You Can See
-Anyone can rename an MP3 to `.flac`. Fake lossless files plague the internet. OmniRip doesn't take filenames on faith:
-- **Instantaneous FFT Spectrogramming:** Measures harmonic energy across the Nyquist frequency spectrum.
-- **Brick-Wall Cutoff Detection:** Identifies telltale compression walls at 15 kHz (128 kbps), 16 kHz (192 kbps), and 19 kHz (256 kbps).
-- **Zero Tolerance for Upsampled Impostors:** If a candidate claiming to be a FLAC is detected as an upsampled fake, OmniRip immediately purges the imposter and re-routes to a verified fallback.
+### 2. Spectral Anti-Fraud Intelligence: The Fake FLAC Hunter
+Anyone on the internet can take a muffled 128 kbps MP3 file, rename its extension to `.flac`, and claim it is "lossless studio quality." File extensions and file sizes can easily lie. OmniRip does not trust filenames:
+- **Instantaneous FFT Spectrogramming:** OmniRip takes a mathematical snapshot of the audio waveform across the entire audible spectrum, from deep 20 Hz sub-bass all the way up to 22.05 kHz treble (the highest frequency human ears can detect).
+- **Compression Brick-Wall Cutoff Detection ($f_c$):** When audio is compressed into an MP3 to save space, the compression algorithm literally chops off the high frequencies like a guillotine. A 128 kbps MP3 abruptly cuts off all sound above 15 kHz. A 192 kbps MP3 cuts off at 16 kHz. A 256 kbps MP3 cuts off at 19 kHz. A genuine lossless FLAC has continuous, natural musical energy reaching all the way to 22.05 kHz.
+- **Zero Tolerance for Impostors:** If a file claims to be a lossless FLAC but OmniRip's spectral analysis discovers a 15 kHz or 16 kHz brick wall, OmniRip catches the counterfeit immediately. It rejects the imposter, purges the fake file, and automatically switches to a clean, verified fallback. You will never have a fake high-res file in your music library again.
 
-### 3. The Curation Workbench & 10-Band Studio Equalizer
-A professional mastering desk inside your terminal. Tweak, audition, and sculpt in real time:
-- **Precision 13-Line Studio Fader Rails:** Spans $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in exact $2.0\text{ dB}$ increments, featuring yellow unity gain markers (`─┼─`), $\pm 6\text{ dB}$ calibration ticks, and dynamic illuminated thumbs (`─█─`).
-- **Zero-Latency Live DSP Playback:** Live FFmpeg audio filtering applies instantly across **both** `[1] ♫ MP3` and `[2] ✦ ENH` streams. When you boost the sub-bass at 31 Hz or lift the air at 16 kHz, you hear the difference in your headphones in under 50 milliseconds.
-- **Acoustic Presets at a Click:** Instant toggle between *Club Punch*, *Vocal Clarity*, *Hi-Fi Air*, *Warm Vinyl*, and *De-Mud*, plus dedicated 30 Hz High-Pass Filtering (HPF) and Output Trim.
+### 3. Curation & Enhancement Workbench with 10-Band Studio Equalizer
+A professional mixing desk right inside your terminal console. Tweak, audition, and sculpt your sound in real time:
+- **Precision 13-Line Vertical Studio Fader Rails:** Press <kbd>w</kbd> to open the workbench. You are greeted by 10 calibrated vertical sliders representing standard octave bands: **31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, and 16 kHz**. Each slider can boost or cut frequencies from $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in exact $2.0\text{ dB}$ increments, complete with glowing sliders (`─█─`), a bright yellow center zero mark (`─┼─`) for neutral gain, and $\pm 6\text{ dB}$ reference ticks.
+- **Zero-Latency Live DSP Playback:** Adjusting any slider changes what you hear in your headphones in under 50 milliseconds! There is zero waiting and no need to re-encode the file to disk. The equalizer works seamlessly on **both** the **`[1] ♫ MP3`** (Original MP3 Baseband) stream and the **`[2] ✦ ENH`** (Enhanced Derivative) stream. You can flip between the original and enhanced versions with a single keypress to compare how your EQ tweaks sound.
+- **Instant Acoustic Presets & Output Protection:** Don't want to adjust sliders manually? Choose from built-in acoustic presets like *Club Punch* (deep, powerful bass kick), *Vocal Clarity* (brings vocals forward), *Hi-Fi Air* (adds silky high-end shimmer), *Warm Vinyl* (smooth vintage tone), and *De-Mud* (cleans up boomy lower frequencies). It also includes a **30 Hz High-Pass Filter (HPF)** to eliminate speaker rumble and an **Output Trim** to prevent audio distortion.
 
-### 4. Acoustic Restoration: Pure Non-Destructive Magic
-For rare historical tracks, demos, and vinyl rips where no lossless master exists:
-- **Sub-$f_c$ Passband Invariance:** Audio below the detected compression cutoff $f_c$ is strictly bit-preserved. OmniRip never alters the original master baseband.
-- **Deterministic Harmonic Excitation:** Generates natural high-frequency overtones and air (>15 kHz) using linear-phase crossovers, progressive mono bass stabilization (<100 Hz), and ITU-R BS.1770 true-peak limiting.
-- **Dual Engine Choice:** Toggle between lightning-fast **Eco Mode** (zero-heat, pure NumPy DSP) and **Neural Mode** (AI-powered deep residual models).
+### 4. Acoustic Restoration Engine: Eco DSP vs. Neural AI
+What about rare live concert recordings, underground mixtapes, and vintage vinyl rips where no lossless master exists anywhere? OmniRip breathes new life into them without ruining the original performance:
+- **Sub-Cutoff Audio Invariance (100% Bit-Exact Preservation):** Many "AI audio upscalers" ruin songs because they alter the entire track, making singers sound robotic and metallic. OmniRip follows a strict golden rule: **it never alters audio below the cutoff frequency ($f_c$)**. The original vocals, bass, drums, and instruments are preserved 100% bit-for-bit.
+- **Synthesizing High-Frequency Air (>15.5 kHz):** OmniRip analyzes the musical harmonies of the original track and mathematically generates natural overtone shimmer above the cutoff. It uses a **384-tap linear-phase crossover filter** so no phase cancellation occurs, stabilizes the sub-bass below 100 Hz into solid mono, and protects against distortion with an **ITU-R BS.1770 True-Peak Limiter** set at $-0.1\text{ dBFS}$.
+- **Two Restoration Engines to Choose From:**
+  - **Eco DSP Mode:** Pure mathematical signal processing using vectorized NumPy algorithms. It runs instantaneously, consumes almost no battery, generates zero computer heat, and works on any laptop without needing a graphics card.
+  - **Neural AI Mode:** Uses deep learning residual neural networks (FlashSR and NVSR) to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors.
 
-### 5. Canonical Fingerprinting & Immaculate Tagging
-- **AcoustID Audio Fingerprinting:** Generates true acoustic fingerprints (`fpcalc`) to query MusicBrainz for canonical track titles, artist credits, release dates, and track numbers.
-- **Embedded Cover Art:** Ingests high-resolution cover artwork from the Cover Art Archive directly into ID3v2 tags.
-- **Clean Naming Conventions:** Say goodbye to `track_01_final_v2_1080p.mp3`. Hello to perfection.
+### 5. Canonical Fingerprinting & Atomic Library Upgrade
+Say goodbye to misspelled track titles, missing album art, and corrupt music files:
+- **AcoustID Audio Fingerprinting:** Instead of relying on random filenames, OmniRip uses Chromaprint (`fpcalc`) to listen to the song's acoustic fingerprint—just like Shazam. It queries the open MusicBrainz database to retrieve the official canonical song title, artist name, album, release year, genre, and track number.
+- **Embedded High-Resolution Album Art:** OmniRip automatically fetches official, high-resolution album covers from the Cover Art Archive and embeds them directly inside the file's ID3v2 tags, so artwork looks sharp on your phone, car display, or home stereo.
+- **Crash-Proof Atomic File Swapping:** When updating songs in your local library, OmniRip never writes directly over your existing files. It downloads and masters the replacement into a hidden temporary workspace first. Once the file is 100% verified, it performs an atomic swap on your hard drive. Even if your computer suddenly loses power or crashes, your original files are never left half-written or corrupted.
 
 ---
 
@@ -138,13 +141,13 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | Key | Action | Description |
 |:---:|:---|:---|
 | <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
-| <kbd>1</kbd> | **Audition MP3** | Switch playback to original stream with live EQ filtering |
-| <kbd>2</kbd> | **Audition ENH** | Switch playback to restored master with live EQ filtering |
-| <kbd>w</kbd> | **Workbench** | Open the Curation & Enhancement Mastering Workbench |
+| <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
+| <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
+| <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to tweak EQ and audition modes |
 | <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
-| <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry: `INFO` → `DEBUG` → `WARN+ERROR` |
-| <kbd>e</kbd> | **Export** | Download enhanced, mastered derivative directly to your library |
-| <kbd>q</kbd> | **Quit** | Gracefully disconnect daemon sessions and exit |
+| <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry levels: `INFO` → `DEBUG` → `WARN+ERROR` |
+| <kbd>e</kbd> | **Download Enhanced** | Export and download the enhanced, mastered 320 kbps MP3 to your library |
+| <kbd>q</kbd> | **Quit** | Gracefully disconnect Soulseek P2P sessions and exit the workstation |
 
 ---
 
