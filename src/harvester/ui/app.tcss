@@ -90,14 +90,14 @@ Button:disabled {
 }
 
 #tracks-pane {
-    width: 1fr;
+    width: 46%;
     height: 1fr;
     margin-right: 1;
 }
 
 #workbench-pane {
-    width: 62;
-    min-width: 56;
+    width: 54%;
+    min-width: 70;
     height: 1fr;
 }
 

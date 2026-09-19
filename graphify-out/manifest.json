@@ -768,10 +768,10 @@
     "semantic_hash": "f6cad50dd103037d72804c3f7ff9016e"
   },
   "src/harvester/ui/workbench.py": {
-    "mtime": 1789772122.5538316,
-    "seen": 1789772163.278636,
-    "ast_hash": "04fc83b211c4c0e86745a261e446d97c",
-    "semantic_hash": "04fc83b211c4c0e86745a261e446d97c"
+    "mtime": 1789772679.9625816,
+    "seen": 1789772712.184006,
+    "ast_hash": "1da0f055ecc52bd7768f00d0806dc42a",
+    "semantic_hash": "1da0f055ecc52bd7768f00d0806dc42a"
   },
   "tests/test_ui_workbench.py": {
     "mtime": 1789772067.5850933,

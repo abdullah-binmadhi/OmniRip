@@ -74,7 +74,7 @@ class WorkbenchWidget(Widget):
     }
     #wb-stream-row Button {
         width: 1fr;
-        min-width: 14;
+        min-width: 12;
         padding: 0 1;
         margin-right: 1;
     }
@@ -86,24 +86,23 @@ class WorkbenchWidget(Widget):
     }
     #wb-preset-select {
         width: 1fr;
-        min-width: 20;
+        min-width: 22;
         margin-right: 1;
     }
     #wb-btn-export {
         width: auto;
-        min-width: 16;
+        min-width: 22;
         padding: 0 1;
     }
     #wb-inspector-container {
         height: 1fr;
-        min-height: 14;
+        min-height: 12;
         border: round $secondary;
         background: $surface;
         padding: 0;
     }
     #wb-inspector-body {
-        height: 1fr;
-        min-height: 14;
+        height: auto;
         border-top: heavy $primary;
         background: $panel;
         padding: 0 1;
@@ -115,6 +114,20 @@ class WorkbenchWidget(Widget):
     }
     #wb-gauge-orig, #wb-gauge-enh {
         height: 1;
+    }
+    #wb-specs-grid {
+        height: auto;
+        width: 1fr;
+        margin-top: 0;
+    }
+    #wb-specs-col-left {
+        width: 1fr;
+        height: auto;
+        margin-right: 1;
+    }
+    #wb-specs-col-right {
+        width: 1fr;
+        height: auto;
     }
     .wb-spec-line {
         height: 1;
@@ -175,12 +188,12 @@ class WorkbenchWidget(Widget):
         with Horizontal(id="wb-stream-row"):
             yield Button("[1] ♫ MP3", id="btn-stream-mp3", variant="primary")
             yield Button("[2] ✦ ENH", id="btn-stream-enh", variant="default")
+            yield Button("🌱 ECO MODE", id="wb-btn-neural-toggle", variant="default")
+            yield Button("📥 AI MODELS", id="wb-btn-models-download", variant="default")
 
         with Horizontal(id="wb-controls-row"):
             options = [(preset.name, preset.id) for preset in PRESETS.values()]
             yield Select(options=options, value=self.selected_preset_id, id="wb-preset-select")
-            yield Button("🌱 ECO MODE", id="wb-btn-neural-toggle", variant="default")
-            yield Button("📥 AI MODELS", id="wb-btn-models-download", variant="default")
             yield Button("⤓ DOWNLOAD ENHANCED", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-inspector-container"):
@@ -189,16 +202,19 @@ class WorkbenchWidget(Widget):
                 yield Label("✦ RESTORATION MASTERING DECK", id="wb-inspector-title")
                 yield Label("", id="wb-gauge-orig")
                 yield Label("", id="wb-gauge-enh")
-                yield Label("", id="wb-spec-cutoff", classes="wb-spec-line")
-                yield Label("", id="wb-spec-bandwidth", classes="wb-spec-line")
-                yield Label("", id="wb-spec-gain", classes="wb-spec-line")
-                yield Label("", id="wb-spec-trim", classes="wb-spec-line")
-                yield Label("", id="wb-spec-slope", classes="wb-spec-line")
-                yield Label("", id="wb-spec-stereo", classes="wb-spec-line")
-                yield Label("", id="wb-spec-base", classes="wb-spec-line")
-                yield Label("", id="wb-spec-ceiling", classes="wb-spec-line")
-                yield Label("", id="wb-spec-engine", classes="wb-spec-line")
-                yield Label("", id="wb-spec-stream", classes="wb-spec-line")
+                with Horizontal(id="wb-specs-grid"):
+                    with Vertical(id="wb-specs-col-left"):
+                        yield Label("", id="wb-spec-cutoff", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-bandwidth", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-gain", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-trim", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-slope", classes="wb-spec-line")
+                    with Vertical(id="wb-specs-col-right"):
+                        yield Label("", id="wb-spec-stereo", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-base", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-ceiling", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-engine", classes="wb-spec-line")
+                        yield Label("", id="wb-spec-stream", classes="wb-spec-line")
                 yield Label("", id="wb-spec-profile-header", classes="wb-spec-line")
                 yield Label("", id="wb-spec-profile-desc", classes="wb-spec-line")
 
@@ -348,7 +364,7 @@ class WorkbenchWidget(Widget):
             w2: list[str] = []
             cur_l = 0
             for w in words:
-                if cur_l + len(w) + 1 <= 36 and not w2:
+                if cur_l + len(w) + 1 <= 68 and not w2:
                     w1.append(w)
                     cur_l += len(w) + 1
                 else:
