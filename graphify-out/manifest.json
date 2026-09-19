@@ -96,10 +96,10 @@
     "semantic_hash": "a7a68462e6184a8c7fa4285414701f8a"
   },
   "pyproject.toml": {
-    "mtime": 1789834491.8641462,
-    "seen": 1789834914.85088,
-    "ast_hash": "7a830e338cc6066bc9983356ef813117",
-    "semantic_hash": "7a830e338cc6066bc9983356ef813117"
+    "mtime": 1789842062.0120742,
+    "seen": 1789842236.648594,
+    "ast_hash": "0fc403a8eb760168377e81762457e370",
+    "semantic_hash": "0fc403a8eb760168377e81762457e370"
   },
   "src/harvester/__init__.py": {
     "mtime": 1789722411.0172296,
@@ -768,16 +768,16 @@
     "semantic_hash": "515fa42b9059dab8b8344e36bee4c08f"
   },
   "src/harvester/ui/workbench.py": {
-    "mtime": 1789838073.2440743,
-    "seen": 1789838193.002914,
-    "ast_hash": "c99ed55fdbb035d00ca6c7c2155d4e7b",
-    "semantic_hash": ""
+    "mtime": 1789844566.9601076,
+    "seen": 1789844643.366996,
+    "ast_hash": "3b456b5b56a254d99f6ece75f9ca688f",
+    "semantic_hash": "3b456b5b56a254d99f6ece75f9ca688f"
   },
   "tests/test_ui_workbench.py": {
-    "mtime": 1789837641.6604009,
-    "seen": 1789838193.002948,
-    "ast_hash": "cc2c4f6f7e297c562b331074dd3d4097",
-    "semantic_hash": ""
+    "mtime": 1789844623.3289185,
+    "seen": 1789844643.3680902,
+    "ast_hash": "3244ef711f8867d09f55310e4f69e685",
+    "semantic_hash": "3244ef711f8867d09f55310e4f69e685"
   },
   "src/harvester/analysis/enhancement/eq.py": {
     "mtime": 1789825470.6429582,
@@ -834,21 +834,21 @@
     "semantic_hash": ""
   },
   "src/harvester/analysis/enhancement/stem_separator.py": {
-    "mtime": 1789837994.4287908,
-    "seen": 1789838193.002885,
-    "ast_hash": "f03e2d2391d7d371963f890fe44b940d",
-    "semantic_hash": ""
+    "mtime": 1789844566.9599974,
+    "seen": 1789844643.365856,
+    "ast_hash": "455903844f9fe2851543c147f14eb2ce",
+    "semantic_hash": "455903844f9fe2851543c147f14eb2ce"
   },
   "tests/test_stem_separator.py": {
-    "mtime": 1789838124.024232,
-    "seen": 1789838193.002943,
-    "ast_hash": "e31e778cde88f03da9664891e0a09ffe",
-    "semantic_hash": ""
+    "mtime": 1789844566.9565632,
+    "seen": 1789844643.36791,
+    "ast_hash": "44f8e9490e53df03853ae13aa99b8fc6",
+    "semantic_hash": "44f8e9490e53df03853ae13aa99b8fc6"
   },
   ".vscode/settings.json": {
     "mtime": 1789836920.7284524,
-    "seen": 1789836956.2106361,
+    "seen": 1789842236.6485288,
     "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
-    "semantic_hash": ""
+    "semantic_hash": "99914b932bd37a50b983c5e7c90ae93b"
   }
 }

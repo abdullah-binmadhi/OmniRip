@@ -261,7 +261,7 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             await pilot.pause()
             mock_dl.assert_called_once()
 
-        # Test trigger_models_download when models are already cached — new format shows all 4 models
+        # Test trigger_models_download when models are already cached — shows all 4 models
         with (
             patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True),
             patch("importlib.util.find_spec", return_value=object()),
@@ -273,6 +273,16 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             assert "BS-RoFormer" in status_text
             assert "HDEMUCS" in status_text
             assert "NVSR" in status_text
+            assert "FlashSR" in status_text
+
+        # Test trigger_models_download when demucs is missing triggers background install worker
+        with (
+            patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True),
+            patch("importlib.util.find_spec", return_value=None),
+            patch.object(wb, "run_worker") as mock_worker,
+        ):
+            wb.trigger_models_download()
+            mock_worker.assert_called_once()
 
 
 async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) -> None:
@@ -775,3 +785,74 @@ async def test_workbench_multi_song_stem_isolation(tmp_path: Path) -> None:
         await pilot.pause()
         assert wb.path_voc == voc_1
         assert wb.path_inst == inst_1
+
+
+@pytest.mark.asyncio
+async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: Path) -> None:
+    """Verify vocal and instrumental diagnostic dropdowns and profile memory."""
+    import json
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one(WorkbenchWidget)
+        voc_row = app.query_one("#wb-diagnostic-voc-row")
+        inst_row = app.query_one("#wb-diagnostic-inst-row")
+        voc_sel = app.query_one("#wb-diagnostic-voc-select", Select)
+        inst_sel = app.query_one("#wb-diagnostic-inst-select", Select)
+
+        # 1. Initial state: stream is MP3, both diagnostic rows are hidden
+        assert voc_row.styles.display == "none"
+        assert inst_row.styles.display == "none"
+
+        # 2. Switch to VOC: voc_row becomes visible, inst_row stays hidden
+        wb.set_active_stream("VOC")
+        await pilot.pause()
+        assert voc_row.styles.display == "block"
+        assert inst_row.styles.display == "none"
+
+        # 3. Switch to INST: inst_row becomes visible, voc_row is hidden
+        wb.set_active_stream("INST")
+        await pilot.pause()
+        assert voc_row.styles.display == "none"
+        assert inst_row.styles.display == "block"
+
+        # 4. Switch back to MP3: both are hidden
+        wb.set_active_stream("MP3")
+        await pilot.pause()
+        assert voc_row.styles.display == "none"
+        assert inst_row.styles.display == "none"
+
+        # 5. Changing dropdowns updates instance profiles
+        voc_sel.value = "fix_pumping"
+        await pilot.pause()
+        assert wb.vocal_profile == "fix_pumping"
+
+        inst_sel.value = "kill_whispers"
+        await pilot.pause()
+        assert wb.inst_profile == "kill_whispers"
+
+        # 6. Test loading track with existing profile.json restores the saved dropdowns
+        track_file = tmp_path / "test_track.mp3"
+        track_file.write_bytes(b"TESTAUDIO")
+        cache_dir = (
+            Path.home()
+            / ".cache"
+            / "omnirip"
+            / "stems"
+            / f"{track_file.stem}_{track_file.stat().st_size}"
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "profile.json").write_text(
+            json.dumps({"vocal_profile": "de_robot", "inst_profile": "preserve_drums"})
+        )
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=track_file)
+        job.output_path = track_file
+
+        wb.load_job(job)
+        await pilot.pause()
+
+        assert wb.vocal_profile == "de_robot"
+        assert wb.inst_profile == "preserve_drums"
+        assert voc_sel.value == "de_robot"
+        assert inst_sel.value == "preserve_drums"

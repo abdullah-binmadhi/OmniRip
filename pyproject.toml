@@ -30,9 +30,11 @@ dev = [
   "soundfile>=0.12",
 ]
 restore = [
+  "demucs>=4.0.0",
   "huggingface_hub>=0.20",
   "torch>=2.2",
   "torchaudio>=2.2",
+  "torchvision>=0.17",
 ]
 
 [project.scripts]

@@ -12,10 +12,12 @@ Multi-Stage Studio Pipeline:
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from scipy import signal
@@ -105,13 +107,19 @@ def save_audio_numpy(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
         raise RuntimeError(f"Unable to write audio file {path}: {ta_err}") from ta_err
 
 
-def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
+def apply_adaptive_spectral_gate(
+    audio: np.ndarray, sr: int, profile: str = "natural"
+) -> np.ndarray:
     """
     Apply natural vocal envelope leveling and gentle inter-phrase silence attenuation.
-    Uses a 300 ms musical envelope with soft knee. Threshold at 8th percentile
-    (was 12th) and 80 ms release tail (was 40 ms) to eliminate pumping artifacts
-    while preserving breath dynamics and micro-phrasing.
+
+    - "fix_pumping": Completely bypasses envelope ducking to guarantee 100% transparent linear gain.
+    - "natural": Standard gating with 80 ms release smoothing.
+    - "kill_reverb": Tighter gating targeting inter-phrase silence.
     """
+    if profile == "fix_pumping":
+        return audio.astype(np.float32)
+
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
 
@@ -119,7 +127,7 @@ def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     if n_samples < sr // 4:
         return audio.astype(np.float32)
 
-    # 300 ms musical smoothing window (eliminates fast tremolo/pumping)
+    # 300 ms musical smoothing window
     win_len = int(0.300 * sr)
     if win_len % 2 == 0:
         win_len += 1
@@ -130,17 +138,19 @@ def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     env = np.sqrt(np.convolve(audio_mono**2, window, mode="same") + 1e-9)
     peak_env = float(np.max(env))
 
-    # Raised to 8th percentile (was 12th) — gentler threshold, less aggressive gating
     p8 = float(np.percentile(env, 8))
-    # If dynamic range is narrow (e.g. continuous test tones), preserve full signal
     if p8 > 0.35 * peak_env:
         return audio.astype(np.float32)
 
-    # Soft expander threshold: only attenuate deep inter-phrase pauses
-    silence_thresh = max(p8 * 1.5, 0.015 * peak_env)
-    gain = np.clip((env - silence_thresh * 0.4) / (silence_thresh * 1.6 + 1e-6), 0.05, 1.0)
+    if profile == "kill_reverb":
+        silence_thresh = max(p8 * 1.8, 0.02 * peak_env)
+        floor = 0.02
+        gain = np.clip((env - silence_thresh * 0.4) / (silence_thresh * 1.6 + 1e-6), floor, 1.0)
+    else:  # natural / air_boost / de_robot
+        silence_thresh = max(p8 * 1.5, 0.015 * peak_env)
+        gain = np.clip((env - silence_thresh * 0.4) / (silence_thresh * 1.6 + 1e-6), 0.05, 1.0)
 
-    # Extended 80 ms release smoothing on gain (was 40 ms) — eliminates pumping artifact
+    # 80 ms release smoothing on gain - eliminates pumping artifact
     smooth_len = int(0.080 * sr)
     if smooth_len % 2 == 0:
         smooth_len += 1
@@ -151,15 +161,14 @@ def apply_adaptive_spectral_gate(audio: np.ndarray, sr: int) -> np.ndarray:
     return (audio * gain_smooth[np.newaxis, :]).astype(np.float32)
 
 
-def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
+def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int, profile: str = "natural") -> np.ndarray:
     """
-    De-robotize vocals via 3-frame STFT spectral magnitude smoothing.
+    De-robotize vocals via multi-frame STFT spectral magnitude smoothing.
 
-    The metallic/robotic artifact from neural stem separation is caused by
-    frame-to-frame magnitude discontinuities in the STFT domain. Averaging
-    magnitude across 3 consecutive frames smooths these transients without
-    modifying phase — preserving autotune formants, pitch, and breath dynamics.
-    A gentle high-frequency shelf at 8 kHz restores breath/air attenuated by gating.
+    - "de_robot": 5-frame weighted STFT magnitude smoothing to completely eliminate
+      phase flutter and robotic metallic frame transitions.
+    - "air_boost": +2.5 dB high-frequency air shelf above 8 kHz to restore breath sparkle.
+    - "natural": Balanced 3-frame STFT magnitude smoothing with +1.5 dB air shelf.
     """
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
@@ -180,23 +189,32 @@ def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
         mag = np.abs(Z)
         phase = np.angle(Z)
 
-        # 3-frame magnitude smoothing along time axis — kills metallic frame discontinuities
-        mag_smooth = np.empty_like(mag)
-        mag_smooth[:, 0] = 0.5 * mag[:, 0] + 0.5 * mag[:, 1]
-        mag_smooth[:, -1] = 0.5 * mag[:, -2] + 0.5 * mag[:, -1]
-        mag_smooth[:, 1:-1] = 0.25 * mag[:, :-2] + 0.50 * mag[:, 1:-1] + 0.25 * mag[:, 2:]
+        if profile == "de_robot" and mag.shape[1] >= 5:
+            # 5-frame weighted smoothing: deep de-robotization
+            mag_smooth = np.copy(mag)
+            mag_smooth[:, 2:-2] = (
+                0.10 * mag[:, :-4]
+                + 0.20 * mag[:, 1:-3]
+                + 0.40 * mag[:, 2:-2]
+                + 0.20 * mag[:, 3:-1]
+                + 0.10 * mag[:, 4:]
+            )
+        else:
+            # Standard 3-frame magnitude smoothing
+            mag_smooth = np.empty_like(mag)
+            mag_smooth[:, 0] = 0.5 * mag[:, 0] + 0.5 * mag[:, 1]
+            mag_smooth[:, -1] = 0.5 * mag[:, -2] + 0.5 * mag[:, -1]
+            mag_smooth[:, 1:-1] = 0.25 * mag[:, :-2] + 0.50 * mag[:, 1:-1] + 0.25 * mag[:, 2:]
 
-        # Gentle breathiness restoration: +1.5 dB shelf above 8 kHz to recover air
-        # attenuated by spectral gating (only applied if sr is high enough)
+        # High-frequency breath/air recovery shelf
         if sr >= 32000:
-            air_mask = (f >= 8000.0)
-            mag_smooth[air_mask, :] *= 1.19  # +1.5 dB shelf
+            air_boost = 1.33 if profile == "air_boost" else 1.19
+            air_mask = f >= 8000.0
+            mag_smooth[air_mask, :] *= air_boost
 
-        # Reconstruct from smoothed magnitude + original phase (phase unchanged)
         Z_smooth = mag_smooth * np.exp(1j * phase)
         _, ch_out = signal.istft(Z_smooth, fs=sr, nperseg=nperseg, noverlap=noverlap)
 
-        # Trim/pad to original length
         if ch_out.shape[0] > n_samples:
             ch_out = ch_out[:n_samples]
         elif ch_out.shape[0] < n_samples:
@@ -210,15 +228,17 @@ def apply_vocal_harmonic_polish(audio: np.ndarray, sr: int) -> np.ndarray:
     return polished
 
 
-def apply_mid_side_vocal_suppression(instrumental: np.ndarray, sr: int) -> np.ndarray:
+def apply_mid_side_vocal_suppression(
+    instrumental: np.ndarray, sr: int, profile: str = "natural"
+) -> np.ndarray:
     """
-    Suppress residual center-panned vocal bleed from the instrumental stem.
+    Suppress residual vocal bleed from the instrumental stem.
 
-    Vocals are almost always panned to center (Mid channel = L+R). Applying a
-    soft spectral notch on the Mid channel in the 300–3000 Hz vocal fundamental
-    range (-6 dB) while leaving the Side channel (L-R) untouched preserves
-    stereo instruments, drums, and bass while attenuating any center-panned
-    vocal residual that survived inversion subtraction.
+    - "kill_whispers": Notches center-panned vocal fundamentals (-6 dB) AND applies a
+      surgical -4.5 dB de-bleed on the Side channel (400–3500 Hz) to kill wide stereo
+      reverb tails and backing vocal whispers.
+    - "restore_center": Relaxes Mid notch to -2.5 dB to preserve kick and snare punch.
+    - "natural": Standard -6 dB Mid channel notch.
     """
     if instrumental.ndim == 1 or instrumental.shape[0] < 2:
         return instrumental.astype(np.float32)
@@ -230,16 +250,15 @@ def apply_mid_side_vocal_suppression(instrumental: np.ndarray, sr: int) -> np.nd
     mid = 0.5 * (left + right)
     side = 0.5 * (left - right)
 
-    # STFT on mid channel only
     nperseg = 2048
     noverlap = 1536
     f, _, Z_mid = signal.stft(mid, fs=sr, nperseg=nperseg, noverlap=noverlap)
 
-    # Soft notch: -6 dB (factor 0.50) in vocal fundamental range 300–3000 Hz
-    # Applied as a smooth sigmoid transition to avoid spectral splatter
+    # Mid notch depth
+    mid_factor = 0.75 if profile == "restore_center" else 0.50
     vocal_band = (f >= 300.0) & (f <= 3000.0)
-    attenuation = np.where(vocal_band, 0.50, 1.0).astype(np.float32)
-    Z_mid_clean = Z_mid * attenuation[:, np.newaxis]
+    attenuation_mid = np.where(vocal_band, mid_factor, 1.0).astype(np.float32)
+    Z_mid_clean = Z_mid * attenuation_mid[:, np.newaxis]
 
     _, mid_clean = signal.istft(Z_mid_clean, fs=sr, nperseg=nperseg, noverlap=noverlap)
     if mid_clean.shape[0] > n_samples:
@@ -247,9 +266,24 @@ def apply_mid_side_vocal_suppression(instrumental: np.ndarray, sr: int) -> np.nd
     elif mid_clean.shape[0] < n_samples:
         mid_clean = np.pad(mid_clean, (0, n_samples - mid_clean.shape[0]))
 
-    # Reconstruct stereo from cleaned mid + original side
-    left_clean = (mid_clean + side[:len(mid_clean)]).astype(np.float32)
-    right_clean = (mid_clean - side[:len(mid_clean)]).astype(np.float32)
+    # If kill_whispers is active, clean stereo reverb from Side channel as well
+    if profile == "kill_whispers":
+        _, _, Z_side = signal.stft(side, fs=sr, nperseg=nperseg, noverlap=noverlap)
+        side_vocal_band = (f >= 400.0) & (f <= 3500.0)
+        attenuation_side = np.where(side_vocal_band, 0.60, 1.0).astype(np.float32)
+        Z_side_clean = Z_side * attenuation_side[:, np.newaxis]
+        _, side_clean = signal.istft(Z_side_clean, fs=sr, nperseg=nperseg, noverlap=noverlap)
+        if side_clean.shape[0] > n_samples:
+            side_clean = side_clean[:n_samples]
+        elif side_clean.shape[0] < n_samples:
+            side_clean = np.pad(side_clean, (0, n_samples - side_clean.shape[0]))
+        side_to_use = side_clean
+    else:
+        side_to_use = side[: len(mid_clean)]
+
+    # Reconstruct stereo from cleaned mid + side
+    left_clean = (mid_clean + side_to_use).astype(np.float32)
+    right_clean = (mid_clean - side_to_use).astype(np.float32)
     result = np.stack([left_clean, right_clean], axis=0)
 
     peak = float(np.max(np.abs(result))) if result.size > 0 else 0.0
@@ -262,15 +296,15 @@ def apply_wiener_vocal_mask(
     instrumental: np.ndarray,
     vocals: np.ndarray,
     sr: int,
+    profile: str = "natural",
     suppression_db: float = 6.0,
 ) -> np.ndarray:
     """
     Wiener-filter vocal residual suppression on the instrumental.
 
-    Uses the separated vocal stem as a spectral reference to estimate where
-    vocal energy dominates. In those time-frequency bins, the instrumental is
-    attenuated by suppression_db (default -6 dB). This targets vocal-frequency
-    residuals that slip through both inversion subtraction and mid-side filtering.
+    - "kill_whispers": Lowers dominance threshold to 0.40 and increases suppression to -9 dB.
+    - "preserve_drums": Restricts mask to < 5000 Hz so drum attacks & cymbals are preserved.
+    - "natural": Standard 0.60 dominance threshold with -6 dB suppression.
     """
     if instrumental.shape[1] < 2048:
         return instrumental.astype(np.float32)
@@ -282,19 +316,23 @@ def apply_wiener_vocal_mask(
     inst_mono = np.mean(instrumental[:, :min_len], axis=0)
     voc_mono = np.mean(vocals[:, :min_len], axis=0) if vocals.ndim == 2 else vocals[:min_len]
 
-    _, _, Z_inst = signal.stft(inst_mono, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    f, _, Z_inst = signal.stft(inst_mono, fs=sr, nperseg=nperseg, noverlap=noverlap)
     _, _, Z_voc = signal.stft(voc_mono, fs=sr, nperseg=nperseg, noverlap=noverlap)
 
     mag_inst = np.abs(Z_inst) + 1e-9
     mag_voc = np.abs(Z_voc) + 1e-9
 
-    # Vocal dominance ratio: where vocals are louder than instrumental by suppression_db
-    suppression_linear = 10 ** (-suppression_db / 20.0)
-    vocal_dominance = mag_voc / (mag_inst + mag_voc)  # 0=inst dominates, 1=voc dominates
-    # Smooth suppression mask: only attenuate where vocal clearly dominates (>0.6 ratio)
-    mask = np.where(vocal_dominance > 0.6, suppression_linear, 1.0).astype(np.float32)
+    actual_db = 9.0 if profile == "kill_whispers" else suppression_db
+    suppression_linear = 10 ** (-actual_db / 20.0)
+    vocal_dominance = mag_voc / (mag_inst + mag_voc)
 
-    # Apply mask to each channel independently
+    threshold = 0.40 if profile == "kill_whispers" else 0.60
+    mask = np.where(vocal_dominance > threshold, suppression_linear, 1.0).astype(np.float32)
+
+    if profile == "preserve_drums":
+        drum_preserve_mask = f >= 5000.0
+        mask[drum_preserve_mask, :] = 1.0
+
     result_channels = []
     for ch in range(instrumental.shape[0]):
         ch_data = instrumental[ch, :min_len]
@@ -362,6 +400,92 @@ def apply_inversion_subtraction(
     return inst_out.astype(np.float32)
 
 
+def postprocess_stems(
+    orig_audio: np.ndarray,
+    vocals_raw: np.ndarray,
+    inst_model: np.ndarray,
+    sr: int,
+    blend_weight: float = 0.50,
+    vocal_profile: str = "natural",
+    inst_profile: str = "natural",
+    progress_callback: Callable[[float, str], None] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Unified multi-stage DSP post-processing for vocal and instrumental stems.
+    Applies de-pumping, harmonic polish, M/S de-bleeding, and Wiener masking
+    according to specified vocal and instrumental imperfection profiles.
+    """
+    if progress_callback:
+        progress_callback(80.0, f"De-Pumping: Applying {vocal_profile} vocal leveling...")
+
+    vocals_clean = apply_adaptive_spectral_gate(vocals_raw, sr, profile=vocal_profile)
+    vocals_clean = apply_vocal_harmonic_polish(vocals_clean, sr, profile=vocal_profile)
+    peak_voc = float(np.max(np.abs(vocals_clean))) if vocals_clean.size > 0 else 0.0
+    if peak_voc > 0.891:
+        vocals_clean = vocals_clean * (0.891 / peak_voc)
+
+    if progress_callback:
+        progress_callback(88.0, "Master Polish: Residual-additive instrumental blend...")
+
+    if inst_profile == "pure_inversion":
+        inst_final = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
+    else:
+        inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
+        min_len = min(inst_model.shape[1], inst_inversion.shape[1])
+        inst_blend = inst_inversion[:, :min_len] + blend_weight * (
+            inst_model[:, :min_len] - inst_inversion[:, :min_len]
+        )
+
+        if progress_callback:
+            progress_callback(92.0, f"De-Bleed: Mid-side suppression ({inst_profile})...")
+        inst_ms = apply_mid_side_vocal_suppression(inst_blend, sr, profile=inst_profile)
+
+        if progress_callback:
+            progress_callback(95.0, f"De-Bleed: Wiener vocal mask ({inst_profile})...")
+        inst_final = apply_wiener_vocal_mask(inst_ms, vocals_clean, sr, profile=inst_profile)
+
+    peak_inst = float(np.max(np.abs(inst_final))) if inst_final.size > 0 else 0.0
+    if peak_inst > 0.891:
+        inst_final = inst_final * (0.891 / peak_inst)
+
+    return vocals_clean, inst_final
+
+
+def load_stem_profile(stem_dir: Path) -> dict[str, Any]:
+    """
+    Load user-selected imperfection profiles and settings for a stem directory.
+    Returns a dict with 'vocal_profile', 'inst_profile', 'bs_roformer_weight', etc.
+    """
+    prof_path = stem_dir / "profile.json"
+    if prof_path.exists():
+        try:
+            data = json.loads(prof_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.debug(f"Could not read stem profile {prof_path}: {e}")
+    return {
+        "vocal_profile": "natural",
+        "inst_profile": "natural",
+        "bs_roformer_weight": 0.70,
+        "hdemucs_weight": 0.50,
+    }
+
+
+def save_stem_profile(stem_dir: Path, profile_data: dict[str, Any]) -> None:
+    """
+    Save user-selected defect remediation profile to disk so OmniRip remembers
+    the chosen fixes whenever this track is auditioned or re-processed.
+    """
+    prof_path = stem_dir / "profile.json"
+    try:
+        current = load_stem_profile(stem_dir)
+        current.update(profile_data)
+        prof_path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to write stem profile {prof_path}: {e}")
+
+
 class StemSeparator:
     """Multi-stage audio stem separation and de-bleeding service."""
 
@@ -379,6 +503,8 @@ class StemSeparator:
         progress_callback: Callable[[float, str], None] | None = None,
         bs_roformer_weight: float = 0.70,
         hdemucs_weight: float = 0.50,
+        vocal_profile: str = "natural",
+        inst_profile: str = "natural",
     ) -> StemResult:
         """
         Separate audio track into isolated vocals and instrumental backing using
@@ -390,8 +516,11 @@ class StemSeparator:
             mode: 'neural' (BS-RoFormer → HDEMUCS) or 'eco' (DSP phase matrixing).
             progress_callback: Callback receiving (percentage, step_description).
             bs_roformer_weight: Neural-vs-inversion blend for BS-RoFormer (0.0–1.0).
-                Higher = trust the transformer more; lower = rely more on inversion.
             hdemucs_weight: Neural-vs-inversion blend for HDEMUCS (0.0–1.0).
+            vocal_profile: Imperfection remediation for vocals ('natural', 'fix_pumping',
+                'de_robot', 'kill_reverb', 'air_boost').
+            inst_profile: Imperfection remediation for instrumental ('natural', 'kill_whispers',
+                'preserve_drums', 'restore_center', 'pure_inversion').
         """
         if not input_path.exists():
             raise FileNotFoundError(f"Input file does not exist: {input_path}")
@@ -399,10 +528,15 @@ class StemSeparator:
         stem_dir = output_dir or (self.cache_dir / f"{input_path.stem}_{input_path.stat().st_size}")
         stem_dir.mkdir(parents=True, exist_ok=True)
 
-        vocals_path = stem_dir / f"{input_path.stem}_{mode}_vocals.wav"
-        inst_path = stem_dir / f"{input_path.stem}_{mode}_instrumental.wav"
+        v_sfx = f"_{vocal_profile}" if vocal_profile != "natural" else ""
+        i_sfx = f"_{inst_profile}" if inst_profile != "natural" else ""
+        vocals_path = stem_dir / f"{input_path.stem}_{mode}_vocals{v_sfx}.wav"
+        inst_path = stem_dir / f"{input_path.stem}_{mode}_instrumental{i_sfx}.wav"
 
-        # Check existing cache
+        raw_vocals_path = stem_dir / f"{input_path.stem}_{mode}_raw_vocals.wav"
+        raw_inst_path = stem_dir / f"{input_path.stem}_{mode}_raw_inst.wav"
+
+        # Check existing final cache
         if (
             vocals_path.exists()
             and inst_path.exists()
@@ -419,18 +553,79 @@ class StemSeparator:
                 mode=mode,
                 sample_rate=sr,
                 duration_s=duration,
+                engine="bs_roformer" if mode in ("neural", "bs_roformer") else mode,
+            )
+
+        # Fast path: If raw model stems exist, re-postprocess immediately without neural inference!
+        if (
+            raw_vocals_path.exists()
+            and raw_inst_path.exists()
+            and raw_vocals_path.stat().st_size > 44
+            and raw_inst_path.stat().st_size > 44
+        ):
+            if progress_callback:
+                progress_callback(
+                    30.0, "Re-processing cached neural stems with selected profile..."
+                )
+            orig_audio, sr = load_audio_numpy(input_path)
+            raw_voc, _ = load_audio_numpy(raw_vocals_path, target_sr=sr)
+            raw_inst, _ = load_audio_numpy(raw_inst_path, target_sr=sr)
+            weight = bs_roformer_weight if mode in ("neural", "bs_roformer") else hdemucs_weight
+            voc_clean, inst_clean = postprocess_stems(
+                orig_audio,
+                raw_voc,
+                raw_inst,
+                sr,
+                blend_weight=weight,
+                vocal_profile=vocal_profile,
+                inst_profile=inst_profile,
+                progress_callback=progress_callback,
+            )
+            save_audio_numpy(voc_clean, vocals_path, sr)
+            save_audio_numpy(inst_clean, inst_path, sr)
+            save_stem_profile(
+                stem_dir,
+                {
+                    "vocal_profile": vocal_profile,
+                    "inst_profile": inst_profile,
+                    "bs_roformer_weight": bs_roformer_weight,
+                    "hdemucs_weight": hdemucs_weight,
+                },
+            )
+            duration = orig_audio.shape[1] / max(1, sr)
+            return StemResult(
+                vocals_path=vocals_path,
+                instrumental_path=inst_path,
+                mode=mode,
+                sample_rate=sr,
+                duration_s=duration,
+                engine="bs_roformer" if mode in ("neural", "bs_roformer") else mode,
             )
 
         if mode in ("neural", "bs_roformer"):
             # Try state-of-the-art BS-RoFormer first (specialized in complex & hyperpop mixes)
             try:
-                return self._separate_bs_roformer(
+                res = self._separate_bs_roformer(
                     input_path,
                     vocals_path,
                     inst_path,
+                    raw_vocals_path=raw_vocals_path,
+                    raw_inst_path=raw_inst_path,
                     progress_callback=progress_callback,
                     blend_weight=bs_roformer_weight,
+                    vocal_profile=vocal_profile,
+                    inst_profile=inst_profile,
                 )
+                save_stem_profile(
+                    stem_dir,
+                    {
+                        "vocal_profile": vocal_profile,
+                        "inst_profile": inst_profile,
+                        "bs_roformer_weight": bs_roformer_weight,
+                        "hdemucs_weight": hdemucs_weight,
+                    },
+                )
+                return res
             except Exception as e_roformer:
                 logger.warning(
                     "BS-RoFormer separation unavailable (%s); trying HDEMUCS.",
@@ -439,13 +634,27 @@ class StemSeparator:
 
             # Fallback to HDEMUCS
             try:
-                return self._separate_neural(
+                res = self._separate_neural(
                     input_path,
                     vocals_path,
                     inst_path,
+                    raw_vocals_path=raw_vocals_path,
+                    raw_inst_path=raw_inst_path,
                     progress_callback=progress_callback,
                     blend_weight=hdemucs_weight,
+                    vocal_profile=vocal_profile,
+                    inst_profile=inst_profile,
                 )
+                save_stem_profile(
+                    stem_dir,
+                    {
+                        "vocal_profile": vocal_profile,
+                        "inst_profile": inst_profile,
+                        "bs_roformer_weight": bs_roformer_weight,
+                        "hdemucs_weight": hdemucs_weight,
+                    },
+                )
+                return res
             except Exception as e_hdemucs:
                 logger.error(
                     "HDEMUCS stem separation also failed (%s). Neural AI unavailable.",
@@ -457,9 +666,22 @@ class StemSeparator:
                     "separation."
                 ) from e_hdemucs
 
-        return self._separate_eco(
-            input_path, vocals_path, inst_path, progress_callback=progress_callback
+        eco_res = self._separate_eco(
+            input_path,
+            vocals_path,
+            inst_path,
+            progress_callback=progress_callback,
         )
+        save_stem_profile(
+            stem_dir,
+            {
+                "vocal_profile": vocal_profile,
+                "inst_profile": inst_profile,
+                "bs_roformer_weight": bs_roformer_weight,
+                "hdemucs_weight": hdemucs_weight,
+            },
+        )
+        return eco_res
 
     def _separate_eco(
         self,
@@ -526,8 +748,12 @@ class StemSeparator:
         input_path: Path,
         vocals_path: Path,
         inst_path: Path,
+        raw_vocals_path: Path | None = None,
+        raw_inst_path: Path | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         blend_weight: float = 0.70,
+        vocal_profile: str = "natural",
+        inst_profile: str = "natural",
     ) -> StemResult:
         """
         State-of-the-Art Band-Split Rotary Position Transformer (BS-RoFormer).
@@ -552,10 +778,14 @@ class StemSeparator:
         except Exception:
             pass
 
-        model = AutoModel.from_pretrained(
-            "HiDolen/Mini-BS-RoFormer-V2-46.8M",
-            trust_remote_code=True,
-        ).float().to(device)
+        model = (
+            AutoModel.from_pretrained(
+                "HiDolen/Mini-BS-RoFormer-V2-46.8M",
+                trust_remote_code=True,
+            )
+            .float()
+            .to(device)
+        )
         model.eval()
 
         # Re-initialize corrupted STFT buffer windows with clean float32 Hann windows
@@ -584,8 +814,8 @@ class StemSeparator:
             pad_len = chunk_len - total_samples
             padded_wave = torch.nn.functional.pad(waveform, (0, pad_len))
         else:
-            remainder = (total_samples - chunk_len) % hop_len
-            pad_len = (hop_len - remainder) if remainder != 0 else 0
+            rem = (total_samples - chunk_len) % hop_len
+            pad_len = (hop_len - rem) if rem != 0 else 0
             padded_wave = torch.nn.functional.pad(waveform, (0, pad_len + chunk_len))
 
         padded_len = padded_wave.shape[1]
@@ -622,41 +852,22 @@ class StemSeparator:
         vocals_raw = output[3]
         inst_model = drums + bass + other
 
-        # Stage 2: Natural Vocal Leveler (Zero pumping, preserves autotune & breath)
-        if progress_callback:
-            progress_callback(78.0, "De-Pumping: Applying natural vocal envelope leveler...")
-        vocals_clean = apply_adaptive_spectral_gate(vocals_raw, sr)
-        vocals_clean = apply_vocal_harmonic_polish(vocals_clean, sr)
-        peak_voc = float(np.max(np.abs(vocals_clean))) if vocals_clean.size > 0 else 0.0
-        if peak_voc > 0.891:
-            vocals_clean = vocals_clean * (0.891 / peak_voc)
+        # Cache raw neural outputs for instant re-processing if user picks another profile later
+        if raw_vocals_path:
+            save_audio_numpy(vocals_raw, raw_vocals_path, sr)
+        if raw_inst_path:
+            save_audio_numpy(inst_model, raw_inst_path, sr)
 
-        # Stage 3: Master Instrumental Construction (Residual-Additive Blend)
-        # Formula: final = inversion + blend_weight * (model - inversion)
-        # At 0%: pure inversion subtraction (cleanest vocal rejection guaranteed)
-        # At 100%: inversion base + full neural texture layer (richest instruments)
-        # This means higher % = more detail/texture, always building ON TOP of clean base.
-        if progress_callback:
-            progress_callback(86.0, "Master Polish: Residual-additive instrumental blend...")
-        inst_inversion = apply_inversion_subtraction(orig_audio, vocals_clean, sr)
-        min_len = min(inst_model.shape[1], inst_inversion.shape[1])
-        inst_blend = inst_inversion[:, :min_len] + blend_weight * (
-            inst_model[:, :min_len] - inst_inversion[:, :min_len]
+        vocals_clean, inst_final = postprocess_stems(
+            orig_audio,
+            vocals_raw,
+            inst_model,
+            sr,
+            blend_weight=blend_weight,
+            vocal_profile=vocal_profile,
+            inst_profile=inst_profile,
+            progress_callback=progress_callback,
         )
-
-        # Stage 4a: Mid-side vocal suppression — kill center-panned lyric bleed
-        if progress_callback:
-            progress_callback(91.0, "De-Bleed: Mid-side vocal suppression...")
-        inst_ms = apply_mid_side_vocal_suppression(inst_blend, sr)
-
-        # Stage 4b: Wiener mask — attenuate bins where vocal energy dominates
-        if progress_callback:
-            progress_callback(94.0, "De-Bleed: Wiener vocal mask...")
-        inst_final = apply_wiener_vocal_mask(inst_ms, vocals_clean, sr)
-
-        peak_inst = float(np.max(np.abs(inst_final))) if inst_final.size > 0 else 0.0
-        if peak_inst > 0.891:
-            inst_final = inst_final * (0.891 / peak_inst)
 
         if progress_callback:
             progress_callback(97.0, "Writing isolated stems to disk...")
@@ -681,8 +892,12 @@ class StemSeparator:
         input_path: Path,
         vocals_path: Path,
         inst_path: Path,
+        raw_vocals_path: Path | None = None,
+        raw_inst_path: Path | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         blend_weight: float = 0.50,
+        vocal_profile: str = "natural",
+        inst_profile: str = "natural",
     ) -> StemResult:
         """
         Multi-Stage Neural AI Pipeline:
@@ -755,42 +970,26 @@ class StemSeparator:
 
         vocals_raw = output[3].numpy()
         # Reconstruct HDEMUCS instrumental from the three non-vocal stems
-        inst_model_np = output[0].numpy() + output[1].numpy() + output[2].numpy()  # bass+drums+other
+        inst_model_np = (
+            output[0].numpy() + output[1].numpy() + output[2].numpy()
+        )  # bass+drums+other
 
-        # Stage 2: Adaptive Spectral Noise Gate & Sibilance De-Bleeder
-        if progress_callback:
-            progress_callback(55.0, "De-Bleed: Gating inter-phrase noise & cymbal hiss...")
-        vocals_gated = apply_adaptive_spectral_gate(vocals_raw, sr)
+        # Cache raw neural outputs for instant re-processing if user picks another profile later
+        if raw_vocals_path:
+            save_audio_numpy(vocals_raw, raw_vocals_path, sr)
+        if raw_inst_path:
+            save_audio_numpy(inst_model_np, raw_inst_path, sr)
 
-        # Stage 3: Vocal Harmonic Polish
-        if progress_callback:
-            progress_callback(72.0, "De-Robotize: Smoothing metallic phase artifacts...")
-        vocals_polished = apply_vocal_harmonic_polish(vocals_gated, sr)
-
-        # Stage 4: Residual-Additive Blend
-        # Formula: final = inversion + blend_weight * (model - inversion)
-        # At 0%: pure inversion (cleanest). At 100%: full neural texture layered on top.
-        if progress_callback:
-            progress_callback(86.0, "Master Polish: Residual-additive instrumental blend...")
-        inst_inversion = apply_inversion_subtraction(orig_audio, vocals_polished, sr)
-        min_len = min(inst_model_np.shape[1], inst_inversion.shape[1])
-        inst_blend = inst_inversion[:, :min_len] + blend_weight * (
-            inst_model_np[:, :min_len] - inst_inversion[:, :min_len]
+        vocals_polished, inst_blended = postprocess_stems(
+            orig_audio,
+            vocals_raw,
+            inst_model_np,
+            sr,
+            blend_weight=blend_weight,
+            vocal_profile=vocal_profile,
+            inst_profile=inst_profile,
+            progress_callback=progress_callback,
         )
-
-        # Stage 5a: Mid-side vocal suppression — kill center-panned lyric bleed
-        if progress_callback:
-            progress_callback(91.0, "De-Bleed: Mid-side vocal suppression...")
-        inst_ms = apply_mid_side_vocal_suppression(inst_blend, sr)
-
-        # Stage 5b: Wiener mask — attenuate bins where vocal energy dominates
-        if progress_callback:
-            progress_callback(94.0, "De-Bleed: Wiener vocal mask...")
-        inst_blended = apply_wiener_vocal_mask(inst_ms, vocals_polished, sr)
-
-        peak_blend = float(np.max(np.abs(inst_blended))) if inst_blended.size > 0 else 0.0
-        if peak_blend > 0.891:
-            inst_blended = inst_blended * (0.891 / peak_blend)
 
         if progress_callback:
             progress_callback(97.0, "Writing isolated stems to disk...")

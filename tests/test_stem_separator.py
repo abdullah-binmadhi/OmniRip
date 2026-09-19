@@ -214,3 +214,81 @@ def test_stem_separator_bs_roformer_execution(sample_stereo_wav: Path, tmp_path:
     assert res.vocals_path.stat().st_size > 1000
     assert res.instrumental_path.stat().st_size > 1000
     assert any("BS-RoFormer" in r for r in reports)
+
+
+def test_stem_profile_persistence(tmp_path: Path) -> None:
+    """Verify stem defect profiles save and load correctly."""
+    from harvester.analysis.enhancement.stem_separator import (
+        load_stem_profile,
+        save_stem_profile,
+    )
+
+    test_dir = tmp_path / "stem_profile_test"
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initial default load
+    initial = load_stem_profile(test_dir)
+    assert initial["vocal_profile"] == "natural"
+    assert initial["inst_profile"] == "natural"
+
+    # Save custom profile
+    save_stem_profile(
+        test_dir,
+        {
+            "vocal_profile": "fix_pumping",
+            "inst_profile": "kill_whispers",
+            "bs_roformer_weight": 0.85,
+        },
+    )
+
+    loaded = load_stem_profile(test_dir)
+    assert loaded["vocal_profile"] == "fix_pumping"
+    assert loaded["inst_profile"] == "kill_whispers"
+    assert loaded["bs_roformer_weight"] == 0.85
+
+
+def test_stem_separator_diagnostic_profiles_and_fast_cache(
+    sample_stereo_wav: Path, tmp_path: Path
+) -> None:
+    """Verify diagnostic profiles produce tailored stems and leverage cached raw stems."""
+    from harvester.analysis.enhancement.stem_separator import load_stem_profile
+
+    cache_dir = tmp_path / "cache_diag"
+    separator = StemSeparator(cache_dir=cache_dir)
+
+    # First run: default natural profile
+    res1 = separator.separate_file(
+        sample_stereo_wav,
+        mode="bs_roformer",
+        vocal_profile="natural",
+        inst_profile="natural",
+    )
+    assert res1.vocals_path.exists()
+    assert res1.instrumental_path.exists()
+
+    prof1 = load_stem_profile(res1.vocals_path.parent)
+    assert prof1["vocal_profile"] == "natural"
+    assert prof1["inst_profile"] == "natural"
+
+    # Second run: targeted defect fix (fix_pumping + kill_whispers)
+    # This should use the fast path without re-running neural inference
+    reports: list[str] = []
+
+    def cb(_pct: float, step: str) -> None:
+        reports.append(step)
+
+    res2 = separator.separate_file(
+        sample_stereo_wav,
+        mode="bs_roformer",
+        vocal_profile="fix_pumping",
+        inst_profile="kill_whispers",
+        progress_callback=cb,
+    )
+    assert res2.vocals_path.exists()
+    assert "fix_pumping" in str(res2.vocals_path)
+    assert "kill_whispers" in str(res2.instrumental_path)
+    assert any("Re-processing cached neural stems" in r for r in reports)
+
+    prof2 = load_stem_profile(res2.vocals_path.parent)
+    assert prof2["vocal_profile"] == "fix_pumping"
+    assert prof2["inst_profile"] == "kill_whispers"

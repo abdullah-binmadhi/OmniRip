@@ -369,6 +369,23 @@ class WorkbenchWidget(Widget):
         color: $warning;
         margin-top: 1;
     }
+    .wb-diagnostic-row {
+        height: auto;
+        width: 1fr;
+        margin-top: 1;
+        display: none;
+        align: left middle;
+    }
+    .wb-diagnostic-label {
+        width: 12;
+        height: 1;
+        color: $accent;
+        text-style: bold;
+    }
+    .wb-diagnostic-select {
+        width: 1fr;
+        height: auto;
+    }
     """
 
     active_stream: reactive[StreamId] = reactive("MP3")
@@ -396,8 +413,14 @@ class WorkbenchWidget(Widget):
         self._eq_debounce_timer: asyncio.TimerHandle | None = None
 
         # Stem blend weights: how much to trust neural model output vs. inversion subtraction
-        self.stem_bsr_blend: float = 0.70    # BS-RoFormer (specialized transformer)
+        self.stem_bsr_blend: float = 0.70  # BS-RoFormer (specialized transformer)
         self.stem_hdemucs_blend: float = 0.50  # HDEMUCS (general-purpose model)
+
+        # Imperfection remediation diagnostic profiles:
+        # Vocal: "natural", "fix_pumping", "de_robot", "air_boost"
+        # Instrumental: "natural", "kill_whispers", "restore_center", "preserve_drums"
+        self.vocal_profile: str = "natural"
+        self.inst_profile: str = "natural"
 
         # Stream paths: MP3 (Original), ENH (Restored), VOC (Vocals), INST (Instrumental)
         self.path_mp3: Path | None = None
@@ -579,6 +602,39 @@ class WorkbenchWidget(Widget):
                     yield Button("+", id="wb-blend-hdemucs-up", classes="wb-blend-btn")
                     yield Button("-", id="wb-blend-hdemucs-dn", classes="wb-blend-btn")
 
+                # --- Stem Imperfection Remediation Diagnostic Controls ---
+                with Horizontal(id="wb-diagnostic-voc-row", classes="wb-diagnostic-row"):
+                    yield Label("Vocal Fix:", classes="wb-diagnostic-label")
+                    yield Select(
+                        [
+                            ("Standard Polish (Natural Envelope)", "natural"),
+                            ("Fix Volume Pumping (Bypass Gate)", "fix_pumping"),
+                            ("De-Robotize (Phase Smoothing)", "de_robot"),
+                            ("Restore Air & Highs (+2.5dB >8kHz)", "air_boost"),
+                        ],
+                        value=self.vocal_profile,
+                        id="wb-diagnostic-voc-select",
+                        allow_blank=False,
+                        classes="wb-diagnostic-select",
+                    )
+                with Horizontal(id="wb-diagnostic-inst-row", classes="wb-diagnostic-row"):
+                    yield Label("Inst Fix:", classes="wb-diagnostic-label")
+                    yield Select(
+                        [
+                            ("Standard Blend (Natural De-Bleed)", "natural"),
+                            (
+                                "Kill Vocal Bleed & Whispers (Stereo Side Attenuation)",
+                                "kill_whispers",
+                            ),
+                            ("Restore Center Punch (Kick & Snare)", "restore_center"),
+                            ("Preserve Drums & Percussion", "preserve_drums"),
+                        ],
+                        value=self.inst_profile,
+                        id="wb-diagnostic-inst-select",
+                        allow_blank=False,
+                        classes="wb-diagnostic-select",
+                    )
+
             with Vertical(id="wb-page-eq"):
                 with Horizontal(id="wb-eq-toolbar"):
                     yield Label("10-BAND STUDIO MASTERING EQUALIZER", id="wb-eq-title")
@@ -637,9 +693,30 @@ class WorkbenchWidget(Widget):
                 / "stems"
                 / f"{self.path_mp3.stem}_{self.path_mp3.stat().st_size}"
             )
-            # Prefer high-fidelity neural stems if cached
-            v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals.wav"
-            i_cand = stem_dir / f"{self.path_mp3.stem}_neural_instrumental.wav"
+            if stem_dir.exists():
+                from harvester.analysis.enhancement.stem_separator import load_stem_profile
+
+                prof = load_stem_profile(stem_dir)
+                self.vocal_profile = prof.get("vocal_profile", "natural")
+                self.inst_profile = prof.get("inst_profile", "natural")
+                try:
+                    self.query_one("#wb-diagnostic-voc-select", Select).value = self.vocal_profile
+                    self.query_one("#wb-diagnostic-inst-select", Select).value = self.inst_profile
+                except Exception:
+                    pass
+
+            v_sfx = f"_{self.vocal_profile}" if self.vocal_profile != "natural" else ""
+            i_sfx = f"_{self.inst_profile}" if self.inst_profile != "natural" else ""
+
+            # Check profile-specific stems first, then standard stems
+            v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals{v_sfx}.wav"
+            i_cand = stem_dir / f"{self.path_mp3.stem}_neural_instrumental{i_sfx}.wav"
+            if not (v_cand.exists() and i_cand.exists()):
+                v_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_vocals{v_sfx}.wav"
+                i_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_instrumental{i_sfx}.wav"
+            if not (v_cand.exists() and i_cand.exists()):
+                v_cand = stem_dir / f"{self.path_mp3.stem}_neural_vocals.wav"
+                i_cand = stem_dir / f"{self.path_mp3.stem}_neural_instrumental.wav"
             if not (v_cand.exists() and i_cand.exists()):
                 v_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_vocals.wav"
                 i_cand = stem_dir / f"{self.path_mp3.stem}_bs_roformer_instrumental.wav"
@@ -886,6 +963,22 @@ class WorkbenchWidget(Widget):
             btn_enh.variant = "primary" if normalized == "ENH" else "default"
             btn_voc.variant = "primary" if normalized == "VOC" else "default"
             btn_inst.variant = "primary" if normalized == "INST" else "default"
+
+            voc_row = self.query_one("#wb-diagnostic-voc-row")
+            inst_row = self.query_one("#wb-diagnostic-inst-row")
+            blend_row = self.query_one("#wb-blend-row")
+            if normalized == "VOC":
+                voc_row.styles.display = "block"
+                inst_row.styles.display = "none"
+                blend_row.styles.display = "block"
+            elif normalized == "INST":
+                voc_row.styles.display = "none"
+                inst_row.styles.display = "block"
+                blend_row.styles.display = "block"
+            else:
+                voc_row.styles.display = "none"
+                inst_row.styles.display = "none"
+                blend_row.styles.display = "none"
         except Exception:
             pass
 
@@ -1010,6 +1103,8 @@ class WorkbenchWidget(Widget):
                 progress_callback=on_progress,
                 bs_roformer_weight=self.stem_bsr_blend,
                 hdemucs_weight=self.stem_hdemucs_blend,
+                vocal_profile=self.vocal_profile,
+                inst_profile=self.inst_profile,
             )
 
             if self.path_mp3 == source_path:
@@ -1067,7 +1162,9 @@ class WorkbenchWidget(Widget):
                 pass
             self.app.notify(
                 display_msg,
-                title="Separation Error — AI Models Unavailable" if is_ai_unavailable else "Separation Error",
+                title="Separation Error — AI Models Unavailable"
+                if is_ai_unavailable
+                else "Separation Error",
                 severity="error",
                 timeout=6.0 if is_ai_unavailable else 4.0,
             )
@@ -1243,7 +1340,10 @@ class WorkbenchWidget(Widget):
             self._is_generating_enh = False
         except Exception as exc:
             self._is_generating_enh = False
-            self.query_one("#wb-status", Label).update(f"Enhance failed: {exc}")
+            try:
+                self.query_one("#wb-status", Label).update(f"Enhance failed: {exc}")
+            except Exception:
+                pass
 
     async def _async_warm_remaining_presets(self, src: Path) -> None:
         """Pre-render remaining presets of the active mode so subsequent clicks
@@ -1346,6 +1446,28 @@ class WorkbenchWidget(Widget):
                 self.eq_settings.apply_preset(preset_name)
                 self._update_eq_ui()
                 self._schedule_eq_render()
+        elif event.select.id == "wb-diagnostic-voc-select" and event.value is not None:
+            new_prof = str(event.value)
+            if new_prof != self.vocal_profile:
+                self.vocal_profile = new_prof
+                self.app.notify(
+                    f"Vocal diagnostic profile: {new_prof.replace('_', ' ').title()}",
+                    title="OmniRip Stem Diagnostics",
+                    timeout=3.0,
+                )
+                if self.path_mp3:
+                    self._trigger_stem_separation("VOC")
+        elif event.select.id == "wb-diagnostic-inst-select" and event.value is not None:
+            new_prof = str(event.value)
+            if new_prof != self.inst_profile:
+                self.inst_profile = new_prof
+                self.app.notify(
+                    f"Instrumental diagnostic profile: {new_prof.replace('_', ' ').title()}",
+                    title="OmniRip Stem Diagnostics",
+                    timeout=3.0,
+                )
+                if self.path_mp3:
+                    self._trigger_stem_separation("INST")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id or ""
@@ -1419,14 +1541,20 @@ class WorkbenchWidget(Widget):
     def _update_blend_ui(self) -> None:
         """Refresh blend weight value labels after a change."""
         try:
-            self.query_one("#wb-blend-bsr-val", Label).update(
-                f"{int(self.stem_bsr_blend * 100)}%"
-            )
+            self.query_one("#wb-blend-bsr-val", Label).update(f"{int(self.stem_bsr_blend * 100)}%")
             self.query_one("#wb-blend-hdemucs-val", Label).update(
                 f"{int(self.stem_hdemucs_blend * 100)}%"
             )
-            bsr_desc = "Richest Texture" if self.stem_bsr_blend >= 0.8 else ("Balanced" if self.stem_bsr_blend >= 0.4 else "Cleanest")
-            hd_desc = "Richest Texture" if self.stem_hdemucs_blend >= 0.8 else ("Balanced" if self.stem_hdemucs_blend >= 0.4 else "Cleanest")
+            bsr_desc = (
+                "Richest Texture"
+                if self.stem_bsr_blend >= 0.8
+                else ("Balanced" if self.stem_bsr_blend >= 0.4 else "Cleanest")
+            )
+            hd_desc = (
+                "Richest Texture"
+                if self.stem_hdemucs_blend >= 0.8
+                else ("Balanced" if self.stem_hdemucs_blend >= 0.4 else "Cleanest")
+            )
             self.query_one("#wb-status", Label).update(
                 f"Blend — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% texture ({bsr_desc})  |  "
                 f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% texture ({hd_desc})"
@@ -1520,13 +1648,17 @@ class WorkbenchWidget(Widget):
     def trigger_models_download(self) -> None:
         """Check or download all AI model weights and show status for all 4 models."""
         import importlib
+        import importlib.util
 
         from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
 
         mm = ModelManager()
 
-        # --- Stem separation model availability (self-managed, no download needed) ---
-        bsr_ok = importlib.util.find_spec("demucs") is not None or importlib.util.find_spec("transformers") is not None
+        # --- Stem separation model availability (self-managed) ---
+        bsr_ok = (
+            importlib.util.find_spec("demucs") is not None
+            or importlib.util.find_spec("transformers") is not None
+        )
         hdemucs_ok = importlib.util.find_spec("demucs") is not None
         bsr_status = "✅ Available" if bsr_ok else "⚠ Needs: pip install transformers"
         hdemucs_status = "✅ Available" if hdemucs_ok else "⚠ Needs: pip install demucs"
@@ -1545,7 +1677,8 @@ class WorkbenchWidget(Widget):
         )
         self.query_one("#wb-status", Label).update(status_summary)
 
-        if not missing:
+        all_ready = bsr_ok and hdemucs_ok and not missing
+        if all_ready:
             self.app.notify(
                 f"All 4 AI models ready:\n"
                 f"• BS-RoFormer (Stem): {bsr_status}\n"
@@ -1557,29 +1690,66 @@ class WorkbenchWidget(Widget):
             )
             return
 
+        install_demucs = not hdemucs_ok
+        if not missing and not install_demucs:
+            self.app.notify(
+                f"OmniRip AI Model Status:\n"
+                f"• BS-RoFormer (Stem): {bsr_status}\n"
+                f"• HDEMUCS (Stem): {hdemucs_status}\n"
+                f"• NVSR (Enhance): {nvsr_status}\n"
+                f"• FlashSR (Enhance): {fsr_status}",
+                title="OmniRip AI Models",
+                timeout=6.0,
+            )
+            return
+
+        tasks_desc: list[str] = []
+        if install_demucs:
+            tasks_desc.append("Demucs stem engine")
+        if missing:
+            tasks_desc.append(f"Enhancement weights ({', '.join(missing)})")
+
         self.app.notify(
-            f"Stem models: BS-RoFormer={bsr_status}, HDEMUCS={hdemucs_status}\n"
-            f"Downloading enhancement weights: {', '.join(missing)}...",
+            f"Setting up AI models: {', '.join(tasks_desc)}...",
             title="OmniRip AI Models",
             timeout=5.0,
         )
-        self.run_worker(self._async_download_models(missing), name="download-models")
+        self.run_worker(
+            self._async_download_models(missing, install_demucs=install_demucs),
+            name="download-models",
+        )
 
-    async def _async_download_models(self, models: list[str]) -> None:
+    async def _async_download_models(self, models: list[str], install_demucs: bool = False) -> None:
+        import importlib
+        import subprocess
+        import sys
+
         from harvester.services.model_manager import ModelManager
 
         mm = ModelManager()
         try:
+            if install_demucs:
+                self.query_one("#wb-status", Label).update(
+                    "Installing Demucs neural stem engine..."
+                )
+                await asyncio.to_thread(
+                    subprocess.run,
+                    [sys.executable, "-m", "pip", "install", "demucs>=4.0.0"],
+                    check=True,
+                    capture_output=True,
+                )
+                importlib.invalidate_caches()
+
             for model_name in models:
                 self.query_one("#wb-status", Label).update(
                     f"Downloading {model_name.upper()} weights from Hugging Face..."
                 )
                 await asyncio.to_thread(mm.download_model, model_name)
             self.query_one("#wb-status", Label).update(
-                "All neural model weights downloaded successfully!"
+                "All neural models and weights configured successfully!"
             )
             self.app.notify(
-                "Model download complete! Neural super-resolution weights are now cached.",
+                "Model download complete! Neural weights are now cached.",
                 title="OmniRip Models Downloaded",
                 timeout=5.0,
             )

@@ -18,6 +18,7 @@
   <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20Watch%20Full%20Demo-1080p%20MP4-e02424?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Quickstart-Ready-ff007f?style=for-the-badge&logo=terminal&logoColor=white" alt="Quickstart"></a>
   <a href="#the-curation-workbench--10-band-studio-equalizer"><img src="https://img.shields.io/badge/10--Band%20EQ-Realtime%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
+  <a href="#5-neural-stem-separation-bs-roformer--hdemucs-isolation"><img src="https://img.shields.io/badge/Neural%20Stems-BS--RoFormer%20%2B%20HDEMUCS-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
   <a href="#spectral-anti-fraud-intelligence"><img src="https://img.shields.io/badge/Anti--Fraud-FFT%20Verified-ffaa00?style=for-the-badge&logo=shield&logoColor=white" alt="Spectral Anti-Fraud"></a>
   <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/Powered%20By-Python%203.11%2B%20%7C%20Textual-23193d?style=for-the-badge" alt="Python / Textual"></a>
 </p>
@@ -32,24 +33,24 @@ For years, listening to digital music has meant making frustrating compromises. 
 
 **OmniRip changes everything.**
 
-OmniRip is a complete, all-in-one music workstation designed right inside your terminal. Think of it as a smart music detective and a professional mastering studio rolled into one fast, lightweight app. It searches the **Soulseek P2P** network for original lossless music, automatically falls back to clean web streams if files are unavailable, uses automated **Spectral Anti-Fraud Intelligence** to catch fake high-resolution files, lets you sculpt your sound with a **10-Band Studio Mastering Equalizer**, and restores missing high-end sparkle with an **Acoustic Restoration Engine**.
+OmniRip is a complete, all-in-one music workstation designed right inside your terminal. Think of it as a smart music detective and a professional mastering studio rolled into one fast, lightweight app. It searches the **Soulseek P2P** network for original lossless music, automatically falls back to clean web streams if files are unavailable, uses automated **Spectral Anti-Fraud Intelligence** to catch fake high-resolution files, lets you sculpt your sound with a **10-Band Studio Mastering Equalizer**, restores missing high-end sparkle with an **Acoustic Restoration Engine**, and isolates studio-grade acapella and instrumental stems with **Neural Stem Separation**.
 
 You do not need to be an audio engineer or a command-line expert to use it. If you love music and want to hear songs the way the artist actually recorded them, OmniRip was built for you.
 
 ---
 
-## Five Pillars of Audio Perfection
+## Six Pillars of Audio Perfection
 
 ```
-           ┌───────────────────────────────────────────────────────────┐
-           │                     THE OMNIRIP ENGINE                    │
-           └─────────────────────────────┬─────────────────────────────┘
-                                         │
-     ┌───────────────────┬───────────────┴───────────────┬───────────────────┐
-     ▼                   ▼                               ▼                   ▼
-[ 1. P2P HUNT ]   [ 2. ANTI-FRAUD ]              [ 3. REALTIME EQ ]   [ 4. RESTORATION ]
-Soulseek Lossless  Spectral FFT                   10-Band Mastering    Sub-fc Invariant
- + Stream Fallback Verification                    Dual-Stream DSP      Harmonic Exciter
+           ┌───────────────────────────────────────────────────────────────────┐
+           │                        THE OMNIRIP ENGINE                         │
+           └─────────────────────────────────┬─────────────────────────────────┘
+                                             │
+      ┌──────────────────────┬───────────────┼───────────────┬──────────────────────┐
+      ▼                      ▼               ▼               ▼                      ▼
+[ 1. P2P HUNT ]      [ 2. ANTI-FRAUD ] [ 3. REALTIME EQ ] [ 4. RESTORATION ] [ 5. STEM SEPARATION ]
+Soulseek Lossless     Spectral FFT      10-Band Mastering  Sub-fc Invariant   BS-RoFormer + HDEMUCS
+ + Stream Fallback    Verification      Quad-Stream DSP    Harmonic Exciter   Zero-Bleed De-Bleeding
 ```
 
 ### 1. Soulseek Lossless Hunt & Opus Stream Fallback
@@ -67,7 +68,7 @@ Anyone on the internet can take a muffled 128 kbps MP3 file, rename its extensio
 ### 3. Curation & Enhancement Workbench with 10-Band Studio Equalizer
 A professional mixing desk right inside your terminal console. Tweak, audition, and sculpt your sound in real time:
 - **Precision 13-Line Vertical Studio Fader Rails:** Press <kbd>w</kbd> to open the workbench. You are greeted by 10 calibrated vertical sliders representing standard octave bands: **31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, and 16 kHz**. Each slider can boost or cut frequencies from $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in exact $2.0\text{ dB}$ increments, complete with glowing sliders (`─█─`), a bright yellow center zero mark (`─┼─`) for neutral gain, and $\pm 6\text{ dB}$ reference ticks.
-- **Zero-Latency Live DSP Playback:** Adjusting any slider changes what you hear in your headphones in under 50 milliseconds! There is zero waiting and no need to re-encode the file to disk. The equalizer works seamlessly on **both** the **`[1] ♫ MP3`** (Original MP3 Baseband) stream and the **`[2] ✦ ENH`** (Enhanced Derivative) stream. You can flip between the original and enhanced versions with a single keypress to compare how your EQ tweaks sound.
+- **Zero-Latency Live DSP Playback:** Adjusting any slider changes what you hear in your headphones in under 50 milliseconds! There is zero waiting and no need to re-encode the file to disk. The equalizer works seamlessly across **all four** audition streams: **`[1] ♫ MP3`** (Original Baseband), **`[2] ✦ ENH`** (Restored Derivative), **`[3] ✦ VOC`** (Isolated Vocal Stem), and **`[4] ✦ INST`** (Bleed-Free Instrumental). You can toggle between streams with a single keypress (<kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, <kbd>4</kbd>) to sculpt each element individually in real time.
 - **Instant Acoustic Presets & Output Protection:** Don't want to adjust sliders manually? Choose from built-in acoustic presets like *Club Punch* (deep, powerful bass kick), *Vocal Clarity* (brings vocals forward), *Hi-Fi Air* (adds silky high-end shimmer), *Warm Vinyl* (smooth vintage tone), and *De-Mud* (cleans up boomy lower frequencies). It also includes a **30 Hz High-Pass Filter (HPF)** to eliminate speaker rumble and an **Output Trim** to prevent audio distortion.
 
 ### 4. Acoustic Restoration Engine: Eco DSP vs. Neural AI
@@ -78,7 +79,18 @@ What about rare live concert recordings, underground mixtapes, and vintage vinyl
   - **Eco DSP Mode:** Pure mathematical signal processing using vectorized NumPy algorithms. It runs instantaneously, consumes almost no battery, generates zero computer heat, and works on any laptop without needing a graphics card.
   - **Neural AI Mode:** Uses deep learning residual neural networks (FlashSR and NVSR) to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors.
 
-### 5. Canonical Fingerprinting & Atomic Library Upgrade
+### 5. Neural Stem Separation: BS-RoFormer & HDEMUCS Isolation
+Want to extract clean acapellas for sampling or generate a pristine backing track for DJ sets and karaoke? OmniRip features a deep neural stem separation studio built right into the workstation:
+- **Dual Neural Architecture (BS-RoFormer + HDEMUCS v4):** OmniRip's primary separation transformer is **BS-RoFormer** (Band-Split Rotary Position Attention). It runs multi-band spectrogram attention with 50% overlap-add chunking, float32 precision, and -1.0 dBFS true-peak normalization. If running in lightweight environments without transformer weights, OmniRip automatically cascades to **HDEMUCS v4** (Hybrid Demucs 4-Source) to ensure neural stem isolation never leaves you stranded.
+- **Forensic DSP De-Bleeding & De-Robotizing Pipeline:** Off-the-shelf AI stem extractors frequently suffer from phase flutter, metallic frame chirps, and lyric bleed leaking into the instrumental. OmniRip eliminates these artifacts through a four-stage forensic DSP pipeline:
+  - **Adaptive Spectral Gate:** Uses a softened 8th percentile noise floor with an extended 80ms release tail to eliminate unnatural gating flutter and pumping while preserving delicate vocal decay tails.
+  - **Vocal Harmonic Polish:** Applies a 3-frame STFT magnitude smoothing filter to eliminate metallic frame boundaries, paired with a calibrated +1.5 dB breathiness shelf at 8 kHz to restore natural vocal air attenuated by gating.
+  - **Mid/Side Vocal Suppression:** Encodes the instrumental into Mid/Side components and applies a soft -6 dB notch on the Mid channel across the 300 Hz – 3 kHz vocal fundamental band, leaving Side channels (wide stereo instruments, synth pads, and room ambience) completely untouched.
+  - **Wiener Vocal Masking:** Employs the vocal STFT as a dynamic Wiener reference to attenuate instrumental frequency bins where vocal energy dominates (>0.6 ratio) by -6 dB.
+- **Residual-Additive Blend Semantics ($0\% = \text{Cleanest} \leftrightarrow 100\% = \text{Richest}$):** Rather than a destructive linear fade, OmniRip implements residual-additive blending: $\text{final} = \text{inversion} + w \cdot (\text{model} - \text{inversion})$. Setting the blend to $0\%$ guarantees pure phase-inverted separation (cleanest mathematical isolation with zero vocal bleed). Increasing to $100\%$ layers the full neural instrumental texture over the inversion base. You can fine-tune this weight in real time directly in the DECK panel using the `+` and `-` buttons in 5% increments.
+- **One-Click 4-Model AI Registry:** Press the **`MODELS`** button in the workbench to inspect and verify all four on-device neural engines (**BS-RoFormer**, **HDEMUCS**, **NVSR**, and **FlashSR**). OmniRip checks local caches, verifies installed packages, and automatically downloads and configures missing weights on demand.
+
+### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
 - **AcoustID Audio Fingerprinting:** Instead of relying on random filenames, OmniRip uses Chromaprint (`fpcalc`) to listen to the song's acoustic fingerprint—just like Shazam. It queries the open MusicBrainz database to retrieve the official canonical song title, artist name, album, release year, genre, and track number.
 - **Embedded High-Resolution Album Art:** OmniRip automatically fetches official, high-resolution album covers from the Cover Art Archive and embeds them directly inside the file's ID3v2 tags, so artwork looks sharp on your phone, car display, or home stereo.
@@ -100,8 +112,10 @@ graph TD
     P4 -->|"Valid Lossless Master"| P5["Phase 5: Tag & Polish"]
     P4 -->|"Counterfeit Detected"| S2
     P5 --> WB["Curation Workbench"]
-    WB -->|"Real-Time 10-Band EQ"| PL["Studio Audio Player"]
-    WB -->|"Export Derivative"| OUT["320kbps Mastered Library"]
+    WB -->|"Quad-Stream [1] MP3 / [2] ENH / [3] VOC / [4] INST"| PL["Studio Audio Player & 10-Band EQ"]
+    WB -->|"BS-RoFormer / HDEMUCS"| STM["Neural Stem Separation & De-Bleed"]
+    STM --> PL
+    WB -->|"Export Master"| OUT["320kbps Mastered Library"]
 ```
 
 ---
@@ -120,8 +134,11 @@ Clone the repository and install using `uv` (recommended) or `pip`:
 ```sh
 git clone https://github.com/abdullahbinmadhi/OmniRip.git
 cd OmniRip
-uv sync --extra dev
+uv sync --extra dev --extra restore
 ```
+
+> [!TIP]
+> The `--extra restore` flag installs PyTorch, Demucs, and TorchAudio for on-device Neural Stem Separation (BS-RoFormer & HDEMUCS) and AI Super-Resolution (FlashSR & NVSR). If you prefer a lightweight installation, omit `--extra restore` to run in Eco DSP mode.
 
 ### 3. Connect Your Soulseek Account (Recommended)
 To hunt lossless FLAC and WAV audio across the Soulseek P2P network:
@@ -163,7 +180,10 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
 | <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
 | <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
-| <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to tweak EQ and audition modes |
+| <kbd>3</kbd> | **Audition [3] ✦ VOC** | Switch playback to Isolated Studio Acapella / Vocal stem with live 10-band EQ |
+| <kbd>4</kbd> | **Audition [4] ✦ INST** | Switch playback to Bleed-Free Instrumental stem with live 10-band EQ |
+| <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to sculpt EQ, stems, and audition modes |
+| <kbd>+</kbd> / <kbd>-</kbd> | **Stem Texture Blend** | Fine-tune neural stem blend weight ($0\% = \text{Cleanest} \leftrightarrow 100\% = \text{Richest}$) |
 | <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
 | <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry levels: `INFO` → `DEBUG` → `WARN+ERROR` |
 | <kbd>e</kbd> | **Download Enhanced** | Export and download the enhanced, mastered 320 kbps MP3 to your library |
@@ -181,6 +201,8 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | **Stream Engine** | `yt-dlp` | Adaptive format prioritization (`bestaudio[ext=webm]`) |
 | **Forensic DSP** | NumPy + SciPy | 2048-point STFT, Hanning window, -60 dBFS noise floor |
 | **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`) |
+| **Neural Stems** | BS-RoFormer + HDEMUCS | Rotary attention transformer + M/S suppression & Wiener mask |
+| **Restoration** | FlashSR + NVSR + Eco | Sub-cutoff bit-exact invariance, 384-tap linear-phase crossover |
 | **Fingerprinting**| Chromaprint (`fpcalc`) | AcoustID audio fingerprinting + MusicBrainz API |
 | **Tagging** | Mutagen | Complete ID3v2.4 unicode provenance tagging + album art |
 
