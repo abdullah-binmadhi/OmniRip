@@ -12,9 +12,9 @@
     "semantic_hash": "a149d383546e37d405332a5620cb92f5"
   },
   "README.md": {
-    "mtime": 1789826073.6275651,
-    "seen": 1789826102.5461938,
-    "ast_hash": "c9ac2d4e7abd96fe335d08a1513b0785",
+    "mtime": 1789827255.9099545,
+    "seen": 1789827977.400933,
+    "ast_hash": "54b28bff55a1d672e839b9faddfc5638",
     "semantic_hash": ""
   },
   "docs/01-requirements.md": {
@@ -156,10 +156,10 @@
     "semantic_hash": "728dbc86a45753688333bd2ff1e4fcb6"
   },
   "src/harvester/ui/app.py": {
-    "mtime": 1789827838.854018,
-    "seen": 1789827946.479098,
-    "ast_hash": "a380ffe31fda6e131070662a47403a7f",
-    "semantic_hash": "a380ffe31fda6e131070662a47403a7f"
+    "mtime": 1789828594.990832,
+    "seen": 1789828925.338049,
+    "ast_hash": "74337617faa35ba75ce1a8caf8b89e23",
+    "semantic_hash": "74337617faa35ba75ce1a8caf8b89e23"
   },
   "src/harvester/util/__init__.py": {
     "mtime": 1789722411.039472,
@@ -696,10 +696,10 @@
     "semantic_hash": "b4191db7d2d4787233d7b36238f55b67"
   },
   "src/harvester/ui/screens/curation_workbench.py": {
-    "mtime": 1789766061.7158117,
-    "seen": 1789769922.679616,
-    "ast_hash": "0653a3017fb5b1e724ce98cb024c0fc5",
-    "semantic_hash": "0653a3017fb5b1e724ce98cb024c0fc5"
+    "mtime": 1789828702.6439183,
+    "seen": 1789828925.3380852,
+    "ast_hash": "ac752e1992f47a64b64111e74e9b6834",
+    "semantic_hash": "ac752e1992f47a64b64111e74e9b6834"
   },
   "tests/test_enhancement_dsp.py": {
     "mtime": 1789764951.8969586,
@@ -732,10 +732,10 @@
     "semantic_hash": "b02c778afa9fa274560e1ee17df4fe87"
   },
   "src/harvester/ui/player.py": {
-    "mtime": 1789825490.0953677,
-    "seen": 1789825583.495048,
-    "ast_hash": "3e877215f7c526ef92ae2672b41efce2",
-    "semantic_hash": "3e877215f7c526ef92ae2672b41efce2"
+    "mtime": 1789828792.8950062,
+    "seen": 1789828925.338084,
+    "ast_hash": "b61da9a1ae81613535477eb5bf8977a7",
+    "semantic_hash": "b61da9a1ae81613535477eb5bf8977a7"
   },
   "src/harvester/ui/themes.py": {
     "mtime": 1789810220.2252023,
@@ -744,10 +744,10 @@
     "semantic_hash": "a9d9de2c60c615b78e395ddb20b56328"
   },
   "src/harvester/ui/visualizer.py": {
-    "mtime": 1789825495.312015,
-    "seen": 1789825583.495085,
-    "ast_hash": "5d276c8b5878b4334b35d4a66cb559f1",
-    "semantic_hash": "5d276c8b5878b4334b35d4a66cb559f1"
+    "mtime": 1789828724.454077,
+    "seen": 1789828925.338104,
+    "ast_hash": "90ae89248abef04b184f1d2c995e5928",
+    "semantic_hash": "90ae89248abef04b184f1d2c995e5928"
   },
   "tests/test_ui_player.py": {
     "mtime": 1789766081.1591427,
@@ -768,16 +768,16 @@
     "semantic_hash": "9898faa59a180ddf4a9a5bee995d16e1"
   },
   "src/harvester/ui/workbench.py": {
-    "mtime": 1789826061.585806,
-    "seen": 1789827028.153277,
-    "ast_hash": "97d671effc9f19974599e11913c4a8d1",
-    "semantic_hash": "97d671effc9f19974599e11913c4a8d1"
+    "mtime": 1789828675.4272704,
+    "seen": 1789828925.338104,
+    "ast_hash": "807dd7b51f8963f8779d0a251d0821d0",
+    "semantic_hash": "807dd7b51f8963f8779d0a251d0821d0"
   },
   "tests/test_ui_workbench.py": {
-    "mtime": 1789825543.7785103,
-    "seen": 1789825583.495562,
-    "ast_hash": "57d9533bbe3a9a075ff71966064fb426",
-    "semantic_hash": "57d9533bbe3a9a075ff71966064fb426"
+    "mtime": 1789828892.0875995,
+    "seen": 1789828925.338974,
+    "ast_hash": "dcac7923a878fcc74beef2b7972195db",
+    "semantic_hash": "dcac7923a878fcc74beef2b7972195db"
   },
   "src/harvester/analysis/enhancement/eq.py": {
     "mtime": 1789825470.6429582,
@@ -816,15 +816,21 @@
     "semantic_hash": "1cd7170f2864847c0d44be330b4915bc"
   },
   "src/harvester/ui/screens/soulseek_login.py": {
-    "mtime": 1789827878.6891997,
-    "seen": 1789827946.4791832,
-    "ast_hash": "7022f711011bd116938c22de52f8fd8f",
-    "semantic_hash": "7022f711011bd116938c22de52f8fd8f"
+    "mtime": 1789828691.3819675,
+    "seen": 1789828925.3380852,
+    "ast_hash": "3dcea66488dbb1c3794cbf1c230ddadb",
+    "semantic_hash": "3dcea66488dbb1c3794cbf1c230ddadb"
   },
   "tests/test_slskd_config.py": {
     "mtime": 1789827886.6508183,
     "seen": 1789827946.480005,
     "ast_hash": "e79ae9f5b58905b92f305f47f8811aff",
     "semantic_hash": "e79ae9f5b58905b92f305f47f8811aff"
+  },
+  "docs/assets/omnirip_demo.gif": {
+    "mtime": 1789826539.1882641,
+    "seen": 1789827977.400942,
+    "ast_hash": "457dcd62e5242d112f359701b64905b5",
+    "semantic_hash": ""
   }
 }

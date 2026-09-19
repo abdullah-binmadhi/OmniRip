@@ -148,7 +148,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
 
         # Verify Download Enhanced button
         btn_download = app.query_one("#wb-btn-export", Button)
-        assert "DOWNLOAD ENHANCED" in str(btn_download.label)
+        assert "SAVE ENHANCED" in str(btn_download.label)
 
 
 async def test_player_interactive_scrubber_and_seeking(tmp_path: Path) -> None:
@@ -234,7 +234,7 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
 
         # Initially in Eco Mode (keeps device cool)
         assert wb.neural_enabled is False
-        assert "ECO MODE" in str(btn_toggle.label)
+        assert "ECO DSP" in str(btn_toggle.label)
         assert "Eco DSP" in str(engine_label.render())
 
         # Click to switch to Neural AI mode
@@ -250,11 +250,11 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
         await pilot.pause()
 
         assert wb.neural_enabled is False
-        assert "ECO MODE" in str(btn_toggle.label)
+        assert "ECO DSP" in str(btn_toggle.label)
         assert "Eco DSP" in str(engine_label.render())
 
         # Models download button exists
-        assert "AI MODELS" in str(btn_download.label)
+        assert "MODELS" in str(btn_download.label)
         with patch.object(wb, "trigger_models_download") as mock_dl:
             btn_download.press()
             await pilot.pause()
@@ -452,8 +452,9 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
 
         btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
         btn_page_eq = app.query_one("#wb-btn-page-eq", Button)
-        assert "● DECK" in str(btn_page_deck.label)
-        assert "○ EQ" in str(btn_page_eq.label)
+        assert "DECK" in str(btn_page_deck.label)
+        assert "EQ" in str(btn_page_eq.label)
+        assert "wb-page-btn-active" in btn_page_deck.classes
 
         # 2. Switch to 10-Band EQ page
         btn_page_eq.press()
@@ -462,8 +463,9 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
         assert wb.active_page == "eq"
         assert page_deck.styles.display == "none"
         assert page_eq.styles.display != "none"
-        assert "○ DECK" in str(btn_page_deck.label)
-        assert "● EQ" in str(btn_page_eq.label)
+        assert "DECK" in str(btn_page_deck.label)
+        assert "EQ" in str(btn_page_eq.label)
+        assert "wb-page-btn-active" in btn_page_eq.classes
 
         # 3. Test EQ Band adjustments (+/-)
         val_16k = app.query_one("#wb-eq-val-16000", Label)
@@ -515,17 +517,17 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
 
         # 7. Test Bypass toggle
         btn_toggle = app.query_one("#wb-btn-eq-toggle", Button)
-        assert "⚡ EQ: ENGAGED" in str(btn_toggle.label)
+        assert "EQ: ENGAGED" in str(btn_toggle.label)
         with patch.object(wb, "_schedule_eq_render"):
             btn_toggle.press()
             await pilot.pause()
             assert wb.eq_settings.enabled is False
-            assert "○ EQ: BYPASS" in str(btn_toggle.label)
+            assert "EQ: BYPASS" in str(btn_toggle.label)
 
             btn_toggle.press()
             await pilot.pause()
             assert wb.eq_settings.enabled is True
-            assert "⚡ EQ: ENGAGED" in str(btn_toggle.label)
+            assert "EQ: ENGAGED" in str(btn_toggle.label)
 
         # 8. Test Reset Flat
         btn_reset = app.query_one("#wb-btn-eq-reset", Button)

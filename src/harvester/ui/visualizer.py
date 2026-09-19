@@ -67,11 +67,11 @@ MODES_LIST: list[VisualizerMode] = [
 ]
 
 MODE_LABELS: dict[VisualizerMode, tuple[str, str]] = {
-    "spectrum": ("ılı. SPEC", "Spectrum Analyzer"),
-    "oscilloscope": ("∿ WAVE", "Phosphor Oscilloscope"),
-    "mirrored": ("⫘ MIRR", "Mirrored Spectrum"),
-    "braille": ("⠿ DOTS", "Braille Wave Matrix"),
-    "vu_meter": ("█▌ VU", "Stereo VU Deck"),
+    "spectrum": ("SPEC", "Spectrum Analyzer"),
+    "oscilloscope": ("WAVE", "Phosphor Oscilloscope"),
+    "mirrored": ("MIRROR", "Mirrored Spectrum"),
+    "braille": ("MATRIX", "Braille Wave Matrix"),
+    "vu_meter": ("VU DECK", "Stereo VU Deck"),
 }
 
 # Unicode block elements for 8 fractional vertical steps

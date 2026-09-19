@@ -16,7 +16,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
     Header,
     Input,
     Label,
@@ -530,9 +529,9 @@ class HarvesterApp(App[None]):
                         id="source-input",
                     )
                     yield Checkbox("Playlists", value=False, id="expand-playlists")
-                    yield Button("▶ CONVERT", id="submit", variant="primary", disabled=True)
-                    yield Button("◐ THEME", id="btn-theme")
-                    yield Button("🔑 SOULSEEK", id="btn-soulseek")
+                    yield Button("CONVERT", id="submit", variant="primary", disabled=True)
+                    yield Button("THEME", id="btn-theme")
+                    yield Button("SOULSEEK", id="btn-soulseek")
             with Horizontal(id="workspace-split"):
                 with Vertical(id="tracks-pane"):
                     yield JobTable()
@@ -545,7 +544,6 @@ class HarvesterApp(App[None]):
                         id="workbench-widget",
                     )
             yield AudioPlayerWidget(id="audio-player")
-        yield Footer()
 
     def on_mount(self) -> None:
         register_custom_themes(self)
@@ -828,9 +826,9 @@ class HarvesterApp(App[None]):
             creds = read_slskd_credentials()
             btn = self.query_one("#btn-soulseek", Button)
             if creds.get("username"):
-                btn.label = f"✦ @{creds['username']}"
+                btn.label = f"@{creds['username']}"
             else:
-                btn.label = "🔑 SOULSEEK"
+                btn.label = "SOULSEEK"
         except Exception:
             pass
 

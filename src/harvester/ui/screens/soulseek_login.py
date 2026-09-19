@@ -68,7 +68,7 @@ class SoulseekLoginModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="slsk-dialog"):
-            yield Label("🔑 Soulseek Account & Network Setup", id="slsk-title")
+            yield Label("Soulseek Account & Network Setup", id="slsk-title")
             yield Label(
                 "Connect OmniRip to the decentralized Soulseek P2P network. "
                 "Enter your username and password below. Your local API key "
@@ -98,7 +98,7 @@ class SoulseekLoginModal(ModalScreen[bool]):
         status_lbl = self.query_one("#slsk-status", Static)
         if creds.get("configured"):
             status_lbl.update(
-                f"[green]● Configured for @{creds['username']}. "
+                f"[green]Configured for @{creds['username']}. "
                 "Click 'Save & Connect' to verify.[/green]"
             )
         else:
@@ -149,26 +149,26 @@ class SoulseekLoginModal(ModalScreen[bool]):
 
                 if status["logged_in"]:
                     status_lbl.update(
-                        f"[bold green]✓ Connected to Soulseek as @{user_input}![/bold green]"
+                        f"[bold green]Connected to Soulseek as @{user_input}![/bold green]"
                     )
                     await asyncio.sleep(0.8)
                     self.dismiss(True)
                 elif status["connected"]:
                     daemon_state = status["state"]
                     status_lbl.update(
-                        f"[bold green]✓ Connected! Soulseek: {daemon_state}[/bold green]"
+                        f"[bold green]Connected! Soulseek: {daemon_state}[/bold green]"
                     )
                     await asyncio.sleep(0.8)
                     self.dismiss(True)
                 elif status["daemon_running"]:
                     status_lbl.update(
-                        f"[yellow]✓ Credentials saved! Daemon running: {status['detail']}[/yellow]"
+                        f"[yellow]Credentials saved! Daemon running: {status['detail']}[/yellow]"
                     )
                     await asyncio.sleep(1.0)
                     self.dismiss(True)
                 else:
                     status_lbl.update(
-                        "[yellow]✓ Credentials saved to slskd.local.yml. "
+                        "[yellow]Credentials saved to slskd.local.yml. "
                         "Daemon will connect when started.[/yellow]"
                     )
                     await asyncio.sleep(1.2)

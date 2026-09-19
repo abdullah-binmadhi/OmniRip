@@ -438,29 +438,29 @@ class WorkbenchWidget(Widget):
         yield Label("Cutoff fc: -- kHz | State: IDLE", id="wb-cutoff-info")
 
         with Horizontal(id="wb-stream-row"):
-            yield Button("[1] ♫ MP3", id="btn-stream-mp3", variant="primary")
-            yield Button("[2] ✦ ENH", id="btn-stream-enh", variant="default")
-            yield Button("🌱 ECO MODE", id="wb-btn-neural-toggle", variant="default")
-            yield Button("📥 AI MODELS", id="wb-btn-models-download", variant="default")
+            yield Button("[1] MP3", id="btn-stream-mp3", variant="primary")
+            yield Button("[2] ENH", id="btn-stream-enh", variant="default")
+            yield Button("ECO DSP", id="wb-btn-neural-toggle", variant="default")
+            yield Button("MODELS", id="wb-btn-models-download", variant="default")
 
         with Horizontal(id="wb-controls-row"):
             preset_options = AI_PRESET_OPTIONS if self.neural_enabled else ECO_PRESET_OPTIONS
             yield Select(
                 options=preset_options, value=self.selected_preset_id, id="wb-preset-select"
             )
-            yield Button("⤓ DOWNLOAD ENHANCED", id="wb-btn-export", variant="success")
+            yield Button("SAVE ENHANCED", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-inspector-container"):
             with Horizontal(id="wb-deck-header-row"):
                 yield Label(f"fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", id="wb-cutoff-badge")
                 with Horizontal(id="wb-page-switch"):
                     yield Button(
-                        "● DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active"
+                        "DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active"
                     )
-                    yield Button("○ EQ", id="wb-btn-page-eq", classes="wb-page-btn")
+                    yield Button("EQ", id="wb-btn-page-eq", classes="wb-page-btn")
             yield AudioVisualizer(num_bands=10, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
             with Vertical(id="wb-page-deck"):
-                yield Label("✦ RESTORATION MASTERING DECK", id="wb-inspector-title")
+                yield Label("RESTORATION MASTERING DECK", id="wb-inspector-title")
                 yield Label("", id="wb-gauge-orig")
                 yield Label("", id="wb-gauge-enh")
                 with Horizontal(id="wb-specs-grid"):
@@ -479,7 +479,7 @@ class WorkbenchWidget(Widget):
                 yield Label("", id="wb-spec-profile-header", classes="wb-spec-line")
                 yield Label("", id="wb-spec-profile-desc", classes="wb-spec-line")
                 yield Label(
-                    "✦ ACOUSTIC RESTORATION SIGNAL CHAIN PIPELINE",
+                    "ACOUSTIC RESTORATION SIGNAL CHAIN PIPELINE",
                     id="wb-chain-title",
                     classes="wb-section-title",
                 )
@@ -487,7 +487,7 @@ class WorkbenchWidget(Widget):
                     yield Label("", id="wb-chain-flow")
                     yield Label("", id="wb-chain-detail")
                 yield Label(
-                    "✦ PROVENANCE & HARMONIC MASTERING TELEMETRY",
+                    "PROVENANCE & HARMONIC MASTERING TELEMETRY",
                     id="wb-telemetry-title",
                     classes="wb-section-title",
                 )
@@ -503,7 +503,7 @@ class WorkbenchWidget(Widget):
 
             with Vertical(id="wb-page-eq"):
                 with Horizontal(id="wb-eq-toolbar"):
-                    yield Label("✦ 10-BAND STUDIO MASTERING EQUALIZER", id="wb-eq-title")
+                    yield Label("10-BAND STUDIO MASTERING EQUALIZER", id="wb-eq-title")
                     yield Select(
                         options=[(k, k) for k in EQ_PRESETS.keys()],
                         value="Flat",
@@ -523,10 +523,10 @@ class WorkbenchWidget(Widget):
                             yield Label("0.0dB", id=f"wb-eq-val-{freq}", classes="wb-eq-val")
                             yield Label(lbl_text, classes="wb-eq-label")
                 with Horizontal(id="wb-eq-controls-row"):
-                    yield Button("⟲ RESET FLAT", id="wb-btn-eq-reset", variant="default")
-                    yield Button("⚡ EQ: ENGAGED", id="wb-btn-eq-toggle", variant="primary")
+                    yield Button("RESET FLAT", id="wb-btn-eq-reset", variant="default")
+                    yield Button("EQ: ENGAGED", id="wb-btn-eq-toggle", variant="primary")
                     yield Button("HPF 30Hz: OFF", id="wb-btn-eq-hpf", variant="default")
-                    yield Button("✨ +3dB AIR", id="wb-btn-eq-air", variant="default")
+                    yield Button("+3dB AIR", id="wb-btn-eq-air", variant="default")
                     yield Button("TRIM: 0.0dB", id="wb-btn-eq-trim", variant="default")
 
         yield ProgressBar(id="wb-download-progress", total=100, show_eta=True)
@@ -597,7 +597,7 @@ class WorkbenchWidget(Widget):
 
         try:
             self.query_one("#wb-inspector-title", Label).update(
-                f"✦ MASTERING DECK // {preset_name.upper()}"
+                f"MASTERING DECK // {preset_name.upper()}"
             )
 
             # Clean frequency expansion diagram without bracket leaks or overflow
@@ -607,7 +607,7 @@ class WorkbenchWidget(Widget):
             )
             self.query_one("#wb-gauge-enh", Label).update(
                 f"[bold green]Restored:[/bold green] [cyan]0k ═════ "
-                f"{cutoff_khz:.1f}k[/cyan] [bold green]✦✦✦✦✦✦ 22.05k[/bold green]"
+                f"{cutoff_khz:.1f}k[/cyan] [bold green]══════ 22.05k[/bold green]"
             )
 
             self.query_one("#wb-spec-cutoff", Label).update(
@@ -666,9 +666,9 @@ class WorkbenchWidget(Widget):
 
             is_enh = self.active_stream == "ENH"
             stream_style = (
-                "[bold green]✦ NEURAL RESTORED ACTIVE (A/B)[/bold green]"
+                "[bold green]NEURAL RESTORED ACTIVE (A/B)[/bold green]"
                 if is_enh
-                else "[bold cyan]♫ MP3 ORIGINAL BASEBAND (A/B)[/bold cyan]"
+                else "[bold cyan]MP3 ORIGINAL BASEBAND (A/B)[/bold cyan]"
             )
             self.query_one("#wb-spec-stream", Label).update(f"• Active Stream : {stream_style}")
 
@@ -766,26 +766,26 @@ class WorkbenchWidget(Widget):
             if self.path_mp3 and self.path_mp3.exists():
                 self._route_to_player(
                     self.path_mp3,
-                    title=f"[♫ MP3] {self.path_mp3.name}",
+                    title=f"[MP3] {self.path_mp3.name}",
                     is_enhanced=False,
                 )
-                self.query_one("#wb-status", Label).update("Auditioning [♫ MP3]: Original Audio")
+                self.query_one("#wb-status", Label).update("Auditioning [MP3]: Original Audio")
             else:
                 self.query_one("#wb-status", Label).update("MP3 stream not found on disk.")
         elif normalized == "ENH":
             if self.path_enh and self.path_enh.exists():
                 self._route_to_player(
                     self.path_enh,
-                    title=f"[✦ ENH] Neural Restored ({p_name})",
+                    title=f"[ENH] Restored ({p_name})",
                     is_enhanced=True,
                     preset_name=p_name,
                 )
                 self.query_one("#wb-status", Label).update(
-                    f"Auditioning [✦ ENH]: Neural Restored ({p_name})"
+                    f"Auditioning [ENH]: Restored ({p_name})"
                 )
             elif self.path_mp3 and self.path_mp3.exists():
                 self.query_one("#wb-status", Label).update(
-                    f"✦ Synthesizing neural restoration with '{p_name}'..."
+                    f"Synthesizing restoration with '{p_name}'..."
                 )
                 self._trigger_enhancement_pregeneration()
 
@@ -819,16 +819,16 @@ class WorkbenchWidget(Widget):
             page_eq = self.query_one("#wb-page-eq", Vertical)
 
             if page_id == "deck":
-                btn_deck.label = "● DECK"
+                btn_deck.label = "DECK"
                 btn_deck.add_class("wb-page-btn-active")
-                btn_eq.label = "○ EQ"
+                btn_eq.label = "EQ"
                 btn_eq.remove_class("wb-page-btn-active")
                 page_deck.styles.display = "block"
                 page_eq.styles.display = "none"
             else:
-                btn_deck.label = "○ DECK"
+                btn_deck.label = "DECK"
                 btn_deck.remove_class("wb-page-btn-active")
-                btn_eq.label = "● EQ"
+                btn_eq.label = "EQ"
                 btn_eq.add_class("wb-page-btn-active")
                 page_deck.styles.display = "none"
                 page_eq.styles.display = "block"
@@ -850,10 +850,10 @@ class WorkbenchWidget(Widget):
         try:
             btn_toggle = self.query_one("#wb-btn-eq-toggle", Button)
             if self.eq_settings.enabled:
-                btn_toggle.label = "⚡ EQ: ENGAGED"
+                btn_toggle.label = "EQ: ENGAGED"
                 btn_toggle.variant = "primary"
             else:
-                btn_toggle.label = "○ EQ: BYPASS"
+                btn_toggle.label = "EQ: BYPASS"
                 btn_toggle.variant = "default"
 
             btn_hpf = self.query_one("#wb-btn-eq-hpf", Button)
@@ -939,12 +939,12 @@ class WorkbenchWidget(Widget):
             if self.active_stream == "ENH" and self.selected_preset_id == preset.id:
                 self._route_to_player(
                     out_path,
-                    title=f"[✦ ENH] Neural Restored ({preset.name})",
+                    title=f"[ENH] Restored ({preset.name})",
                     is_enhanced=True,
                     preset_name=preset.name,
                 )
                 self.query_one("#wb-status", Label).update(
-                    f"Auditioning [✦ ENH]: Neural Restored ({preset.name})"
+                    f"Auditioning [ENH]: Restored ({preset.name})"
                 )
             self._update_inspector()
 
@@ -1035,12 +1035,12 @@ class WorkbenchWidget(Widget):
                         p_name = preset.name if preset else "Enhanced"
                         self._route_to_player(
                             self.path_enh,
-                            title=f"[✦ ENH] Neural Restored ({p_name})",
+                            title=f"[ENH] Restored ({p_name})",
                             is_enhanced=True,
                             preset_name=p_name,
                         )
                         self.query_one("#wb-status", Label).update(
-                            f"Auditioning [✦ ENH]: Neural Restored ({p_name})"
+                            f"Auditioning [ENH]: Restored ({p_name})"
                         )
                     return
 
@@ -1048,7 +1048,7 @@ class WorkbenchWidget(Widget):
             preset = PRESETS.get(self.selected_preset_id)
             p_name = preset.name if preset else "Enhanced"
             self.query_one("#wb-status", Label).update(
-                f"✦ Synthesizing '{p_name}'... (current audio continues)"
+                f"Synthesizing '{p_name}'... (current audio continues)"
             )
             self._trigger_enhancement_pregeneration()
         elif event.select.id == "wb-eq-preset-select" and event.value is not None:
@@ -1123,7 +1123,7 @@ class WorkbenchWidget(Widget):
         sel = self.query_one("#wb-preset-select", Select)
 
         if self.neural_enabled:
-            btn.label = "⚡ NEURAL AI"
+            btn.label = "NEURAL AI"
             btn.variant = "warning"
             sel.set_options(AI_PRESET_OPTIONS)
             valid_ai_ids = {pid for _, pid in AI_PRESET_OPTIONS}
@@ -1132,15 +1132,15 @@ class WorkbenchWidget(Widget):
             sel.value = self.selected_preset_id
 
             self.query_one("#wb-status", Label).update(
-                "⚡ Neural AI mode active: Deep neural models enabled."
+                "Neural AI mode active: Deep neural models enabled."
             )
             self.app.notify(
-                "⚡ Neural AI Enabled: Deep models will be used when available.",
+                "Neural AI Enabled: Deep models will be used when available.",
                 title="OmniRip Neural Mode",
                 timeout=3.0,
             )
         else:
-            btn.label = "🌱 ECO MODE"
+            btn.label = "ECO DSP"
             btn.variant = "default"
             sel.set_options(ECO_PRESET_OPTIONS)
             valid_eco_ids = {pid for _, pid in ECO_PRESET_OPTIONS}
@@ -1149,10 +1149,10 @@ class WorkbenchWidget(Widget):
             sel.value = self.selected_preset_id
 
             self.query_one("#wb-status", Label).update(
-                "🌱 Eco DSP mode active: Lightweight, cool & quiet harmonic synthesis (Zero Heat)."
+                "Eco DSP mode active: Lightweight, cool & quiet harmonic synthesis (Zero Heat)."
             )
             self.app.notify(
-                "🌱 Eco DSP Enabled: Zero GPU/MPS load, keeps device cool & fans silent.",
+                "Eco DSP Enabled: Zero GPU/MPS load, keeps device cool & fans silent.",
                 title="OmniRip Eco Mode",
                 timeout=3.0,
             )
@@ -1172,12 +1172,12 @@ class WorkbenchWidget(Widget):
                     p_name = preset.name if preset else "Enhanced"
                     self._route_to_player(
                         self.path_enh,
-                        title=f"[✦ ENH] Neural Restored ({p_name})",
+                        title=f"[ENH] Restored ({p_name})",
                         is_enhanced=True,
                         preset_name=p_name,
                     )
                     self.query_one("#wb-status", Label).update(
-                        f"Auditioning [✦ ENH]: Neural Restored ({p_name})"
+                        f"Auditioning [ENH]: Restored ({p_name})"
                     )
                 return
 
@@ -1197,17 +1197,17 @@ class WorkbenchWidget(Widget):
         missing = [m for m in SUPPORTED_MODELS if not mm.is_cached(m)]
         if not missing:
             self.query_one("#wb-status", Label).update(
-                "✅ All neural models (NVSR & FlashSR) are already downloaded and cached locally."
+                "All neural models (NVSR & FlashSR) are already downloaded and cached locally."
             )
             self.app.notify(
-                "✅ Neural weights verified! NVSR and FlashSR models are ready for use.",
+                "Neural weights verified! NVSR and FlashSR models are ready for use.",
                 title="OmniRip AI Models",
                 timeout=4.0,
             )
             return
 
         self.query_one("#wb-status", Label).update(
-            f"📥 Downloading neural model weights ({', '.join(missing)})..."
+            f"Downloading neural model weights ({', '.join(missing)})..."
         )
         self.run_worker(self._async_download_models(missing), name="download-models")
 
@@ -1218,14 +1218,14 @@ class WorkbenchWidget(Widget):
         try:
             for model_name in models:
                 self.query_one("#wb-status", Label).update(
-                    f"📥 Downloading {model_name.upper()} weights from Hugging Face..."
+                    f"Downloading {model_name.upper()} weights from Hugging Face..."
                 )
                 await asyncio.to_thread(mm.download_model, model_name)
             self.query_one("#wb-status", Label).update(
-                "✅ All neural model weights downloaded successfully!"
+                "All neural model weights downloaded successfully!"
             )
             self.app.notify(
-                "✅ Model download complete! Neural super-resolution weights are now cached.",
+                "Model download complete! Neural super-resolution weights are now cached.",
                 title="OmniRip Models Downloaded",
                 timeout=5.0,
             )
@@ -1341,9 +1341,9 @@ class WorkbenchWidget(Widget):
             self.path_enh = out_path
             if pb:
                 pb.progress = 100.0
-            self.query_one("#wb-status", Label).update(f"✓ Downloaded: {out_path.name}")
+            self.query_one("#wb-status", Label).update(f"Downloaded: {out_path.name}")
             self.app.notify(
-                f"✓ Downloaded Enhanced MP3: {out_path.name}\n"
+                f"Downloaded Enhanced MP3: {out_path.name}\n"
                 f"Preset: {preset.name}\nFolder: {out_dir}",
                 title="OmniRip Enhanced Download",
                 timeout=5.0,

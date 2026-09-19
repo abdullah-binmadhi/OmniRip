@@ -128,13 +128,13 @@ class StreamMonitorWidget(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(id="mon-columns"):
             with Vertical(id="mon-col-left"):
-                yield Label("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]", id="mon-badge")
+                yield Label("[bold cyan][ ORIGINAL MP3 (BASEBAND) ][/bold cyan]", id="mon-badge")
                 yield Label("L  ──────────────  -inf dB", id="mon-vu-l")
                 yield Label("R  ──────────────  -inf dB", id="mon-vu-r")
                 yield Label("320 kbps MP3 • 44.1 kHz Stereo • 16-bit PCM", id="mon-specs")
                 yield Label("Hotkeys: [1] MP3  [2] ENH  [←/→] ±5s  [Space] Play", id="mon-hotkeys")
             with Vertical(id="mon-col-right"):
-                yield Label("✦ LIVE ACOUSTIC RADAR & SPECTRAL MATRIX", id="mon-radar-title")
+                yield Label("LIVE ACOUSTIC RADAR & SPECTRAL MATRIX", id="mon-radar-title")
                 yield Label("SUB [ 20-250Hz] : ❚❚❚❚❚❚░░░░░░  -8.2 dB", id="mon-band-sub")
                 yield Label("MID [250-4kHz ] : ❚❚❚❚❚❚❚❚░░░░  -4.1 dB", id="mon-band-mid")
                 yield Label(
@@ -156,13 +156,13 @@ class StreamMonitorWidget(Widget):
         air = self.query_one("#mon-band-air", Label)
         if is_enhanced:
             p_text = f" ({preset_name})" if preset_name else ""
-            lbl.update(f"[bold green][ ✦ NEURAL RESTORED{p_text.upper()} ][/bold green]")
+            lbl.update(f"[bold green][ NEURAL RESTORED{p_text.upper()} ][/bold green]")
             specs.update("320 kbps MP3 • 44.1 kHz Stereo • [green]+6.55 kHz Restored Air[/green]")
             air.update(
-                "[bold green]AIR [>15.5kHz ] : ❚❚❚❚❚❚░░░░░░  -11.4 dB [✦ RESTORED AIR][/bold green]"
+                "[bold green]AIR [>15.5kHz ] : ❚❚❚❚❚❚░░░░░░  -11.4 dB [RESTORED AIR][/bold green]"
             )
         else:
-            lbl.update("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
+            lbl.update("[bold cyan][ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
             specs.update("320 kbps MP3 • 44.1 kHz Stereo • [yellow]Original Baseband[/yellow]")
             air.update(
                 "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB "
@@ -198,7 +198,7 @@ class StreamMonitorWidget(Widget):
             air_db = max(-60.0, 20 * np.log10(max(1e-4, avg * 0.7)))
             txt_air = (
                 f"[bold green]AIR [>15.5kHz ] : {'❚' * air_b}{'░' * (12 - air_b)}  "
-                f"{air_db:5.1f} dB [✦ RESTORED][/bold green]"
+                f"{air_db:5.1f} dB [RESTORED][/bold green]"
             )
         else:
             txt_air = (
@@ -237,27 +237,11 @@ class AudioPlayerWidget(Widget):
         background: $panel;
         padding: 0 1;
     }
-    #player-layout {
+    #player-wrapper {
         height: 1fr;
         width: 1fr;
     }
-    #player-left {
-        width: 48;
-        height: 1fr;
-        padding-right: 1;
-    }
-    #player-middle {
-        width: 50;
-        height: 1fr;
-        padding-right: 1;
-    }
-    #player-right {
-        width: 1fr;
-        height: 1fr;
-        border-left: solid $primary 40%;
-        padding-left: 1;
-    }
-    #player-title-row {
+    #player-header-row {
         height: 1;
         width: 1fr;
         align: left middle;
@@ -267,28 +251,72 @@ class AudioPlayerWidget(Widget):
         color: $text;
         width: 1fr;
     }
-    #player-controls {
-        height: 3;
+    #player-stream-badge {
+        width: auto;
+        color: $accent;
+        text-style: bold;
+    }
+    #player-timeline-row {
+        height: 1;
         width: 1fr;
         align: left middle;
-        margin-top: 1;
+        margin-top: 0;
+        margin-bottom: 0;
     }
-    #player-controls Button {
-        min-width: 10;
+    #player-time-cur {
+        width: 7;
+        color: $accent;
+        text-style: bold;
+        content-align: left middle;
+    }
+    #player-scrubber {
+        height: 1;
+        width: 1fr;
+        margin: 0 1;
+    }
+    #player-time-total {
+        width: 18;
+        color: $text-muted;
+        content-align: right middle;
+    }
+    #player-main-row {
+        height: 1fr;
+        width: 1fr;
+        margin-top: 0;
+    }
+    #player-transport {
+        height: 1fr;
+        width: auto;
+        align: left middle;
+    }
+    #player-transport Button {
+        min-width: 6;
         width: auto;
         padding: 0 1;
         height: 3;
         margin-right: 1;
     }
-    #player-time {
-        color: $text-muted;
-        margin-left: 1;
-        height: 3;
-        content-align: left middle;
+    .btn-seek {
+        min-width: 5;
     }
-    #player-scrubber {
-        height: 1;
-        margin-top: 1;
+    #player-middle {
+        width: 38;
+        height: 1fr;
+        padding: 0 1;
+    }
+    #player-visualizer {
+        height: 1fr;
+        width: 1fr;
+    }
+    #player-right {
+        width: 1fr;
+        height: 1fr;
+        border-left: solid $primary 40%;
+        padding-left: 1;
+    }
+    #player-monitor {
+        height: 1fr;
+        width: 1fr;
     }
     """
 
@@ -312,20 +340,27 @@ class AudioPlayerWidget(Widget):
         self._filter_debounce_timer: asyncio.TimerHandle | None = None
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="player-layout"):
-            with Vertical(id="player-left"):
-                with Horizontal(id="player-title-row"):
-                    yield Label(self.track_title, id="player-track-name")
-                with Horizontal(id="player-controls"):
-                    yield Button("▶ PLAY", id="btn-play", variant="primary")
-                    yield Button("■ STOP", id="btn-stop")
-                    yield Button("ılı. SPEC", id="btn-vis-mode")
-                    yield Label("00:00 / 00:00", id="player-time")
+        with Vertical(id="player-wrapper"):
+            with Horizontal(id="player-header-row"):
+                yield Label(self.track_title, id="player-track-name")
+                yield Label("[ ORIGINAL MP3 ]", id="player-stream-badge")
+            with Horizontal(id="player-timeline-row"):
+                yield Label("00:00", id="player-time-cur")
                 yield InteractiveScrubber(id="player-scrubber")
-            with Vertical(id="player-middle"):
-                yield AudioVisualizer(num_bands=24, id="player-visualizer")
-            with Vertical(id="player-right"):
-                yield StreamMonitorWidget(id="player-monitor")
+                yield Label("00:00 (-00:00)", id="player-time-total")
+            with Horizontal(id="player-main-row"):
+                with Horizontal(id="player-transport"):
+                    yield Button("PLAY", id="btn-play", variant="primary")
+                    yield Button("STOP", id="btn-stop")
+                    yield Button("-15s", id="btn-seek-b15", classes="btn-seek")
+                    yield Button("-5s", id="btn-seek-b5", classes="btn-seek")
+                    yield Button("+5s", id="btn-seek-f5", classes="btn-seek")
+                    yield Button("+15s", id="btn-seek-f15", classes="btn-seek")
+                    yield Button("SPEC", id="btn-vis-mode")
+                with Vertical(id="player-middle"):
+                    yield AudioVisualizer(num_bands=20, id="player-visualizer")
+                with Vertical(id="player-right"):
+                    yield StreamMonitorWidget(id="player-monitor")
 
     def on_mount(self) -> None:
         self._progress_timer = self.set_interval(0.25, self._on_progress_tick)
@@ -345,9 +380,10 @@ class AudioPlayerWidget(Widget):
     def watch_is_playing(self, playing: bool) -> None:
         try:
             btn = self.query_one("#btn-play", Button)
-            btn.label = "❚❚ PAUSE" if playing else "▶ PLAY"
+            btn.label = "PAUSE" if playing else "PLAY"
             btn.variant = "warning" if playing else "primary"
         except Exception:
+            pass
             pass
 
     def load_track(
@@ -362,6 +398,7 @@ class AudioPlayerWidget(Widget):
         self.track_title = title or self.current_track.name
         self.elapsed_s = 0.0
         self.duration_s = self._probe_duration(self.current_track)
+        self._update_time_label()
 
         vis = self.query_one("#player-visualizer", AudioVisualizer)
         vis.set_cutoff(cutoff_hz)
@@ -392,6 +429,16 @@ class AudioPlayerWidget(Widget):
         try:
             mon = self.query_one("#player-monitor", StreamMonitorWidget)
             mon.set_stream(is_enhanced=is_enhanced, preset_name=preset_name)
+        except Exception:
+            pass
+
+        try:
+            badge = self.query_one("#player-stream-badge", Label)
+            if is_enhanced:
+                p_text = f" ({preset_name})" if preset_name else ""
+                badge.update(f"[bold green][ NEURAL RESTORED{p_text.upper()} ][/bold green]")
+            else:
+                badge.update("[bold cyan][ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
         except Exception:
             pass
 
@@ -590,7 +637,7 @@ class AudioPlayerWidget(Widget):
         mode = vis.toggle_mode()
         from harvester.ui.visualizer import MODE_LABELS
 
-        btn_label, mode_desc = MODE_LABELS.get(mode, ("ılı. SPEC", "Spectrum"))
+        btn_label, mode_desc = MODE_LABELS.get(mode, ("SPEC", "Spectrum"))
         try:
             btn = self.query_one("#btn-vis-mode", Button)
             btn.label = btn_label
@@ -605,6 +652,14 @@ class AudioPlayerWidget(Widget):
             self.stop()
         elif event.button.id == "btn-vis-mode":
             self.toggle_vis_mode()
+        elif event.button.id == "btn-seek-b15":
+            self.seek_relative(-15.0)
+        elif event.button.id == "btn-seek-b5":
+            self.seek_relative(-5.0)
+        elif event.button.id == "btn-seek-f5":
+            self.seek_relative(5.0)
+        elif event.button.id == "btn-seek-f15":
+            self.seek_relative(15.0)
 
     def _on_progress_tick(self) -> None:
         if not self.is_playing:
@@ -648,9 +703,14 @@ class AudioPlayerWidget(Widget):
     def _update_time_label(self) -> None:
         cur_m, cur_s = divmod(int(self.elapsed_s), 60)
         tot_m, tot_s = divmod(int(self.duration_s), 60)
-        label_text = f"{cur_m:02d}:{cur_s:02d} / {tot_m:02d}:{tot_s:02d}"
+        rem_s_total = max(0, int(self.duration_s - self.elapsed_s))
+        rem_m, rem_s = divmod(rem_s_total, 60)
+
+        cur_text = f"{cur_m:02d}:{cur_s:02d}"
+        tot_text = f"{tot_m:02d}:{tot_s:02d} (-{rem_m:02d}:{rem_s:02d})"
         try:
-            self.query_one("#player-time", Label).update(label_text)
+            self.query_one("#player-time-cur", Label).update(cur_text)
+            self.query_one("#player-time-total", Label).update(tot_text)
         except Exception:
             pass
 

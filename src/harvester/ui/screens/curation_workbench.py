@@ -89,7 +89,7 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="workbench-dialog"):
             yield Label(
-                f"🎵 Audio Enhancement Workbench: {self.audio_file.name}",
+                f"Audio Enhancement Workbench: {self.audio_file.name}",
                 id="workbench-title",
             )
             yield Label(
@@ -108,8 +108,8 @@ class CurationWorkbenchModal(ModalScreen[Path | None]):
             yield Static("Ready to preview or export.", id="status-msg")
 
             with Horizontal(id="actions"):
-                yield Button("🎧 Play A/B Previews", id="btn-preview", variant="primary")
-                yield Button("💾 Export Derivative (.mp3)", id="btn-export", variant="success")
+                yield Button("Audition A/B", id="btn-preview", variant="primary")
+                yield Button("Export MP3", id="btn-export", variant="success")
                 yield Button("Cancel", id="btn-cancel")
 
     def on_select_changed(self, event: Select.Changed) -> None:
