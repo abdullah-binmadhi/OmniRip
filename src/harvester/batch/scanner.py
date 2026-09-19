@@ -69,8 +69,7 @@ def scan_directory(root: Path, config: AppConfig) -> BatchScan:
         dirnames[:] = [
             name
             for name in dirnames
-            if name.upper().lstrip(".") not in _EXCLUDED_DIRS_UPPER
-            and not name.startswith(".")
+            if name.upper().lstrip(".") not in _EXCLUDED_DIRS_UPPER and not name.startswith(".")
         ]
         for name in filenames:
             if name.startswith(".") or _HARVESTER_TMP_PATTERN.search(name):
@@ -95,8 +94,7 @@ def purge_stale_temps(root: Path) -> None:
         dirnames[:] = [
             name
             for name in dirnames
-            if name.upper().lstrip(".") not in _EXCLUDED_DIRS_UPPER
-            and not name.startswith(".")
+            if name.upper().lstrip(".") not in _EXCLUDED_DIRS_UPPER and not name.startswith(".")
         ]
         for name in filenames:
             if _HARVESTER_TMP_PATTERN.search(name):

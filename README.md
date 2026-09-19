@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/omnirip_hero.jpg" alt="OmniRip Product Showcase" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
+  <video src="docs/assets/omnirip_demo.mp4" controls autoplay loop muted width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);"></video>
+</p>
+<p align="center">
+  <img src="docs/assets/omnirip_workbench_live.png" alt="OmniRip Live Studio Curation & Mastering Workbench" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
 </p>
 
 <h1 align="center">OmniRip</h1>

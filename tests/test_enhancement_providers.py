@@ -120,7 +120,6 @@ def test_all_providers_bandlimited_excitation():
         max_high = np.max(res_fft[high_mask])
         max_low = np.max(res_fft[low_mask])
         assert max_high > 1.0, f"{provider.name} failed to populate frequencies > {cutoff} Hz"
-        assert (
-            max_low < 0.15 * max_high
-        ), f"{provider.name} leaked excessive energy into sub-cutoff band"
-
+        assert max_low < 0.15 * max_high, (
+            f"{provider.name} leaked excessive energy into sub-cutoff band"
+        )

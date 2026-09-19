@@ -54,7 +54,7 @@ class ConservativeDSPProvider:
         # x_harm = 0.4 * x^2 + 0.1 * x^3 (creates 2nd and 3rd harmonics above cutoff)
         norm_factor = np.max(np.abs(top_octave)) + 1e-6
         normalized = top_octave / norm_factor
-        harmonics = (0.35 * (normalized ** 2) + 0.15 * (normalized ** 3)) * norm_factor
+        harmonics = (0.35 * (normalized**2) + 0.15 * (normalized**3)) * norm_factor
 
         # 3. High-pass filter strictly above cutoff_hz to ensure sub-cutoff is empty
         _, high_residual = split_bands(harmonics, cutoff_hz=cutoff_hz, sample_rate=sample_rate)

@@ -25,7 +25,7 @@ def _config(tmp_path, **overrides):
 
 
 def test_safe_component_sanitizes_and_reserves() -> None:
-    assert _safe_component('a/b:c*d') == "a_b_c_d"
+    assert _safe_component("a/b:c*d") == "a_b_c_d"
     assert _safe_component("CON") == "_CON"
     assert _safe_component("...") == "untitled"
     assert len(_safe_component("x" * 300)) <= 180

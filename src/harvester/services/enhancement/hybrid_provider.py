@@ -68,7 +68,9 @@ class HybridCoOpProvider:
         mid_boundary = max(cutoff_hz, 16000.0)
 
         if progress_callback:
-            progress_callback(43.0, "⚡ [Hybrid Co-Op]: Invoking NVSR mid-high frequency generator...")
+            progress_callback(
+                43.0, "⚡ [Hybrid Co-Op]: Invoking NVSR mid-high frequency generator..."
+            )
 
         import inspect
 
@@ -85,7 +87,9 @@ class HybridCoOpProvider:
         nvsr_mid_high, _ = split_bands(nvsr_res, cutoff_hz=mid_boundary, sample_rate=sample_rate)
 
         if progress_callback:
-            progress_callback(49.0, "⚡ [Hybrid Co-Op]: Invoking FlashSR ultrasonic air band generator...")
+            progress_callback(
+                49.0, "⚡ [Hybrid Co-Op]: Invoking FlashSR ultrasonic air band generator..."
+            )
 
         # 2. Generate FlashSR air-band residual (> 16 kHz)
         sig_flash = inspect.signature(self.flashsr.generate_residual)
@@ -99,7 +103,9 @@ class HybridCoOpProvider:
         _, flash_air = split_bands(flash_res, cutoff_hz=mid_boundary, sample_rate=sample_rate)
 
         if progress_callback:
-            progress_callback(54.0, "⚡ [Hybrid Co-Op]: Summing complementary phase-aligned sub-bands...")
+            progress_callback(
+                54.0, "⚡ [Hybrid Co-Op]: Summing complementary phase-aligned sub-bands..."
+            )
 
         # 3. Sum complementary residuals
         combined_residual = nvsr_mid_high + flash_air

@@ -200,12 +200,11 @@ def test_export_progress_callback_granularity(tmp_path: Path):
 
     # Crucial: verify intermediate AI telemetry between 35% and 70%
     intermediate_pcts = [pct for pct in percentages if 35.0 < pct < 70.0]
-    assert len(intermediate_pcts) >= 3, f"Expected intermediate AI progress updates, got: {percentages}"
+    assert len(intermediate_pcts) >= 3, (
+        f"Expected intermediate AI progress updates, got: {percentages}"
+    )
 
     # Verify AI messages contain telemetry descriptors
     all_msgs_str = " ".join(messages)
     assert "AI Core" in all_msgs_str or "AI Engine" in all_msgs_str
     assert "Spectral Balancer" in all_msgs_str or "Mastering Limiter" in all_msgs_str
-
-
-

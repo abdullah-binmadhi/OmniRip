@@ -358,7 +358,8 @@ class WorkbenchWidget(Widget):
         self._is_generating_enh: bool = False
 
     def _render_fader_track(self, gain_db: float) -> str:
-        """Render a 13-line vertical studio fader rail with center 0dB line, calibration ticks, and movable thumb.
+        """Render a 13-line vertical studio fader rail with center 0dB line,
+        calibration ticks, and movable thumb.
 
         Gain range: -12.0dB to +12.0dB in 2.0dB slot increments.
         """
@@ -392,7 +393,11 @@ class WorkbenchWidget(Widget):
         thumb = (
             "[bold cyan]─█─[/bold cyan]"
             if gain_db > 0.1
-            else ("[bold magenta]─█─[/bold magenta]" if gain_db < -0.1 else "[bold white]─█─[/bold white]")
+            else (
+                "[bold magenta]─█─[/bold magenta]"
+                if gain_db < -0.1
+                else "[bold white]─█─[/bold white]"
+            )
         )
 
         lines = []
@@ -440,14 +445,18 @@ class WorkbenchWidget(Widget):
 
         with Horizontal(id="wb-controls-row"):
             preset_options = AI_PRESET_OPTIONS if self.neural_enabled else ECO_PRESET_OPTIONS
-            yield Select(options=preset_options, value=self.selected_preset_id, id="wb-preset-select")
+            yield Select(
+                options=preset_options, value=self.selected_preset_id, id="wb-preset-select"
+            )
             yield Button("⤓ DOWNLOAD ENHANCED", id="wb-btn-export", variant="success")
 
         with Vertical(id="wb-inspector-container"):
             with Horizontal(id="wb-deck-header-row"):
                 yield Label(f"fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", id="wb-cutoff-badge")
                 with Horizontal(id="wb-page-switch"):
-                    yield Button("● DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active")
+                    yield Button(
+                        "● DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active"
+                    )
                     yield Button("○ EQ", id="wb-btn-page-eq", classes="wb-page-btn")
             yield AudioVisualizer(num_bands=10, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
             with Vertical(id="wb-page-deck"):
@@ -469,11 +478,19 @@ class WorkbenchWidget(Widget):
                         yield Label("", id="wb-spec-stream", classes="wb-spec-line")
                 yield Label("", id="wb-spec-profile-header", classes="wb-spec-line")
                 yield Label("", id="wb-spec-profile-desc", classes="wb-spec-line")
-                yield Label("✦ ACOUSTIC RESTORATION SIGNAL CHAIN PIPELINE", id="wb-chain-title", classes="wb-section-title")
+                yield Label(
+                    "✦ ACOUSTIC RESTORATION SIGNAL CHAIN PIPELINE",
+                    id="wb-chain-title",
+                    classes="wb-section-title",
+                )
                 with Vertical(id="wb-chain-box"):
                     yield Label("", id="wb-chain-flow")
                     yield Label("", id="wb-chain-detail")
-                yield Label("✦ PROVENANCE & HARMONIC MASTERING TELEMETRY", id="wb-telemetry-title", classes="wb-section-title")
+                yield Label(
+                    "✦ PROVENANCE & HARMONIC MASTERING TELEMETRY",
+                    id="wb-telemetry-title",
+                    classes="wb-section-title",
+                )
                 with Horizontal(id="wb-telemetry-grid"):
                     with Vertical(id="wb-telemetry-col-left"):
                         yield Label("", id="wb-telem-nyquist", classes="wb-spec-line")
@@ -494,10 +511,14 @@ class WorkbenchWidget(Widget):
                     )
                 with Horizontal(id="wb-eq-sliders-row"):
                     for freq in EQ_FREQUENCIES:
-                        lbl_text = f"{freq}Hz" if freq < 1000 else f"{freq//1000}kHz"
+                        lbl_text = f"{freq}Hz" if freq < 1000 else f"{freq // 1000}kHz"
                         with Vertical(classes="wb-eq-col", id=f"wb-eq-col-{freq}"):
                             yield Button("+", id=f"wb-eq-up-{freq}", classes="wb-eq-btn-up")
-                            yield Label(self._render_fader_track(0.0), id=f"wb-eq-track-{freq}", classes="wb-eq-track")
+                            yield Label(
+                                self._render_fader_track(0.0),
+                                id=f"wb-eq-track-{freq}",
+                                classes="wb-eq-track",
+                            )
                             yield Button("-", id=f"wb-eq-dn-{freq}", classes="wb-eq-btn-dn")
                             yield Label("0.0dB", id=f"wb-eq-val-{freq}", classes="wb-eq-val")
                             yield Label(lbl_text, classes="wb-eq-label")
@@ -532,7 +553,8 @@ class WorkbenchWidget(Widget):
             candidate_enh = self.path_mp3.with_suffix(".enhanced.mp3")
             mode_tag = "neural" if self.neural_enabled else "eco"
             cached_audition = (
-                self.audition_cache_dir / f"{self.path_mp3.stem}_{self.selected_preset_id}_{mode_tag}.mp3"
+                self.audition_cache_dir
+                / f"{self.path_mp3.stem}_{self.selected_preset_id}_{mode_tag}.mp3"
             )
             if candidate_enh.exists():
                 self.path_enh = candidate_enh
@@ -673,11 +695,11 @@ class WorkbenchWidget(Widget):
 
             # Signal Chain Pipeline
             flow_str = (
-                f"[cyan][1. Baseband 0..{cutoff_khz:.1f}k][/cyan] ──> "
-                f"[magenta][2. FIR Split][/magenta] ──> "
-                f"[yellow][3. {preset_name}][/yellow] ──> "
-                f"[blue][4. Stereo ({stereo_pct}%)[/blue] ──> "
-                f"[green][5. Limiter {ceiling:.1f}dBFS][/green]"
+                f"[cyan]\\[1. Baseband 0..{cutoff_khz:.1f}k\\][/cyan] ──> "
+                f"[magenta]\\[2. FIR Split\\][/magenta] ──> "
+                f"[yellow]\\[3. {preset_name}\\][/yellow] ──> "
+                f"[blue]\\[4. Stereo ({stereo_pct}%)\\][/blue] ──> "
+                f"[green]\\[5. Limiter {ceiling:.1f}dBFS\\][/green]"
             )
             self.query_one("#wb-chain-flow", Label).update(f"  {flow_str}")
             active_flag = (
@@ -691,22 +713,31 @@ class WorkbenchWidget(Widget):
 
             # Mastering & Provenance Telemetry
             self.query_one("#wb-telem-nyquist", Label).update(
-                "• Nyquist Headroom : [bold green]22.05 kHz[/bold green] [dim](Full-Band Restoration)[/dim]"
+                "• Nyquist Headroom : [bold green]22.05 kHz[/bold green] "
+                "[dim](Full-Band Restoration)[/dim]"
             )
             self.query_one("#wb-telem-crossover", Label).update(
-                f"• Crossover Filter : [bold cyan]384-tap FIR[/bold cyan] [dim](Phase Linear @ {cutoff_khz:.2f}k)[/dim]"
+                "• Crossover Filter : [bold cyan]384-tap FIR[/bold cyan] "
+                f"[dim](Phase Linear @ {cutoff_khz:.2f}k)[/dim]"
             )
             self.query_one("#wb-telem-passthrough", Label).update(
-                "• Sub-Cutoff Audio : [bold green]Bit-Exact Passthrough[/bold green] [dim](100% Preserved)[/dim]"
+                "• Sub-Cutoff Audio : [bold green]Bit-Exact Passthrough[/bold green] "
+                "[dim](100% Preserved)[/dim]"
             )
             self.query_one("#wb-telem-limiter", Label).update(
-                f"• Limiter Ceiling  : [bold yellow]{ceiling:.1f} dBFS[/bold yellow] [dim](ITU-R BS.1770 Guard)[/dim]"
+                f"• Limiter Ceiling  : [bold yellow]{ceiling:.1f} dBFS[/bold yellow] "
+                "[dim](ITU-R BS.1770 Guard)[/dim]"
             )
             self.query_one("#wb-telem-format", Label).update(
-                "• Export Encoding  : [bold]320 kbps CBR MP3[/bold] [dim](ID3v2 TXXX Provenance)[/dim]"
+                "• Export Encoding  : [bold]320 kbps CBR MP3[/bold] "
+                "[dim](ID3v2 TXXX Provenance)[/dim]"
             )
             dest_folder = "~/Music/Harvested"
-            if hasattr(self.app, "config") and hasattr(self.app.config, "general") and self.app.config.general.output_dir:
+            if (
+                hasattr(self.app, "config")
+                and hasattr(self.app.config, "general")
+                and self.app.config.general.output_dir
+            ):
                 dest_folder = str(self.app.config.general.output_dir)
             elif self.current_job and self.current_job.output_path:
                 dest_folder = str(self.current_job.output_path.parent)
@@ -762,18 +793,20 @@ class WorkbenchWidget(Widget):
 
     def _get_eq_cache_tag(self) -> str:
         """Generate a short cache tag representing active EQ settings."""
-        if (
-            not self.eq_settings.enabled
-            or (
-                not self.eq_settings.hpf_30hz
-                and self.eq_settings.output_trim_db == 0.0
-                and all(v == 0.0 for v in self.eq_settings.bands.values())
-            )
+        if not self.eq_settings.enabled or (
+            not self.eq_settings.hpf_30hz
+            and self.eq_settings.output_trim_db == 0.0
+            and all(v == 0.0 for v in self.eq_settings.bands.values())
         ):
             return ""
         import hashlib
-        band_str = "_".join(f"{f}:{self.eq_settings.bands.get(f, 0.0):.1f}" for f in EQ_FREQUENCIES)
-        key = f"{band_str}_{self.eq_settings.hpf_30hz}_{self.eq_settings.output_trim_db}_{self.eq_settings.enabled}"
+
+        bands = self.eq_settings.bands
+        band_str = "_".join(f"{f}:{bands.get(f, 0.0):.1f}" for f in EQ_FREQUENCIES)
+        key = (
+            f"{band_str}_{self.eq_settings.hpf_30hz}_"
+            f"{self.eq_settings.output_trim_db}_{self.eq_settings.enabled}"
+        )
         return f"_eq_{hashlib.md5(key.encode()).hexdigest()[:6]}"
 
     def switch_page(self, page_id: str) -> None:
@@ -836,7 +869,10 @@ class WorkbenchWidget(Widget):
             btn_trim.label = f"TRIM: {trim_sign}{self.eq_settings.output_trim_db:.1f}dB"
 
             select_preset = self.query_one("#wb-eq-preset-select", Select)
-            if self.eq_settings.preset_name in EQ_PRESETS and select_preset.value != self.eq_settings.preset_name:
+            if (
+                self.eq_settings.preset_name in EQ_PRESETS
+                and select_preset.value != self.eq_settings.preset_name
+            ):
                 select_preset.value = self.eq_settings.preset_name
         except Exception:
             pass
@@ -921,7 +957,9 @@ class WorkbenchWidget(Widget):
             self.query_one("#wb-status", Label).update(f"Enhance failed: {exc}")
 
     async def _async_warm_remaining_presets(self, src: Path) -> None:
-        """Pre-render remaining presets of the active mode so subsequent clicks are instantaneous."""
+        """Pre-render remaining presets of the active mode so subsequent clicks
+        are instantaneous.
+        """
         active_opts = AI_PRESET_OPTIONS if self.neural_enabled else ECO_PRESET_OPTIONS
         mode_tag = "neural" if self.neural_enabled else "eco"
         for _, pid in active_opts:
@@ -986,7 +1024,9 @@ class WorkbenchWidget(Widget):
             if self.path_mp3:
                 mode_tag = "neural" if self.neural_enabled else "eco"
                 eq_tag = self._get_eq_cache_tag()
-                cache_name = f"{self.path_mp3.stem}_{self.selected_preset_id}_{mode_tag}{eq_tag}.mp3"
+                cache_name = (
+                    f"{self.path_mp3.stem}_{self.selected_preset_id}_{mode_tag}{eq_tag}.mp3"
+                )
                 cached_audition = self.audition_cache_dir / cache_name
                 if cached_audition.exists():
                     self.path_enh = cached_audition
@@ -1191,9 +1231,7 @@ class WorkbenchWidget(Widget):
             )
             self._update_inspector()
         except Exception as exc:
-            self.query_one("#wb-status", Label).update(
-                f"Model download failed: {exc}"
-            )
+            self.query_one("#wb-status", Label).update(f"Model download failed: {exc}")
             self.app.notify(
                 f"Model download error: {exc}",
                 title="Download Error",
@@ -1237,18 +1275,26 @@ class WorkbenchWidget(Widget):
                     try:
                         if pb:
                             pb.progress = pct
-                        self.query_one("#wb-status", Label).update(f"Downloading [{int(pct)}%]: {step}")
+                        self.query_one("#wb-status", Label).update(
+                            f"Downloading [{int(pct)}%]: {step}"
+                        )
                     except Exception:
                         pass
+
                 self.app.call_from_thread(_ui)
 
             # 1. Resolve target output directory
             if self.current_job and self.current_job.output_path:
                 out_dir = self.current_job.output_path.parent
-            elif hasattr(self.app, "config") and hasattr(self.app.config, "general") and self.app.config.general.output_dir:
+            elif (
+                hasattr(self.app, "config")
+                and hasattr(self.app.config, "general")
+                and self.app.config.general.output_dir
+            ):
                 out_dir = Path(self.app.config.general.output_dir)
             else:
                 from harvester.config import load_config
+
                 out_dir = Path(load_config().general.output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1297,7 +1343,8 @@ class WorkbenchWidget(Widget):
                 pb.progress = 100.0
             self.query_one("#wb-status", Label).update(f"✓ Downloaded: {out_path.name}")
             self.app.notify(
-                f"✓ Downloaded Enhanced MP3: {out_path.name}\nPreset: {preset.name}\nFolder: {out_dir}",
+                f"✓ Downloaded Enhanced MP3: {out_path.name}\n"
+                f"Preset: {preset.name}\nFolder: {out_dir}",
                 title="OmniRip Enhanced Download",
                 timeout=5.0,
             )

@@ -53,6 +53,7 @@ class NVSRProvider:
             return False
         try:
             import torch
+
             self._torch = torch
             return self.model_path is not None and self.model_path.exists()
         except ImportError:
@@ -107,23 +108,30 @@ class NVSRProvider:
         if self.is_available:
             try:
                 if progress_callback:
-                    progress_callback(46.0, "⚡ [NVSR Neural]: Running neural super-resolution model...")
+                    progress_callback(
+                        46.0, "⚡ [NVSR Neural]: Running neural super-resolution model..."
+                    )
                 raw_sr_output = self._run_inference(audio_2d, sample_rate)
             except Exception as e:
                 logger.warning(
-                    "NVSR neural model execution failed (%s); using GPU-accelerated harmonic vocoder",
+                    "NVSR neural model execution failed (%s); "
+                    "using GPU-accelerated harmonic vocoder",
                     e,
                 )
                 raw_sr_output = None
 
         if raw_sr_output is not None:
             if progress_callback:
-                progress_callback(52.0, "⚡ [NVSR Neural]: Isolating high-frequency passband (>15.5kHz)...")
+                progress_callback(
+                    52.0, "⚡ [NVSR Neural]: Isolating high-frequency passband (>15.5kHz)..."
+                )
             # STRICT GUARANTEE: Split bands to extract ONLY content above cutoff_hz
             _, residual = split_bands(raw_sr_output, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
         else:
             if progress_callback:
-                progress_callback(46.0, "⚡ [NVSR Engine]: Synthesizing harmonic vocoder manifold on GPU (MPS)...")
+                progress_callback(
+                    46.0, "⚡ [NVSR Engine]: Synthesizing harmonic vocoder manifold on GPU (MPS)..."
+                )
             # Multi-order non-linear harmonic vocoder proxy when neural weights are not present
             f_mid = cutoff_hz * 0.5
             _, top_band = split_bands(audio_2d, cutoff_hz=f_mid, sample_rate=sample_rate)
@@ -147,8 +155,8 @@ class NVSRProvider:
                     norm = torch.max(torch.abs(t_top)) + 1e-6
                     x = t_top / norm
                     harmonics_t = (
-                        0.30 * (x ** 2)
-                        + 0.25 * (x ** 3)
+                        0.30 * (x**2)
+                        + 0.25 * (x**3)
                         + 0.15 * (torch.abs(x) - torch.mean(torch.abs(x), dim=-1, keepdim=True))
                         + 0.10 * (torch.tanh(1.8 * x) - x)
                     ) * norm
@@ -162,14 +170,16 @@ class NVSRProvider:
                 norm = float(np.max(np.abs(top_octave))) + 1e-6
                 x = top_octave / norm
                 harmonics = (
-                    0.30 * (x ** 2)
-                    + 0.25 * (x ** 3)
+                    0.30 * (x**2)
+                    + 0.25 * (x**3)
                     + 0.15 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
                     + 0.10 * (np.tanh(1.8 * x) - x)
                 ) * norm
 
             if progress_callback:
-                progress_callback(52.0, "⚡ [NVSR Engine]: Applying crossover isolation above cutoff...")
+                progress_callback(
+                    52.0, "⚡ [NVSR Engine]: Applying crossover isolation above cutoff..."
+                )
             _, residual = split_bands(harmonics, cutoff_hz=cutoff_hz, sample_rate=sample_rate)
 
         if progress_callback:
@@ -195,9 +205,7 @@ class NVSRProvider:
 
         model = self._load_model()
         device = (
-            next(model.parameters()).device
-            if hasattr(model, "parameters")
-            else torch.device("cpu")
+            next(model.parameters()).device if hasattr(model, "parameters") else torch.device("cpu")
         )
 
         with torch.inference_mode():

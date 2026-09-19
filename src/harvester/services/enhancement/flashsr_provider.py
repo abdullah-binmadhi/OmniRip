@@ -89,9 +89,7 @@ class FlashSRProvider:
         import torch
 
         device = (
-            next(model.parameters()).device
-            if hasattr(model, "parameters")
-            else torch.device("cpu")
+            next(model.parameters()).device if hasattr(model, "parameters") else torch.device("cpu")
         )
         with torch.inference_mode():
             tensor = torch.from_numpy(audio_2d).unsqueeze(0).to(device)
@@ -126,7 +124,9 @@ class FlashSRProvider:
         if self.is_available:
             try:
                 if progress_callback:
-                    progress_callback(47.0, "⚡ [FlashSR Diffusion]: Running single-step air latent model...")
+                    progress_callback(
+                        47.0, "⚡ [FlashSR Diffusion]: Running single-step air latent model..."
+                    )
                 raw_output = self._run_inference(audio_2d, sample_rate)
                 if raw_output is not None:
                     _, candidate_air = split_bands(
@@ -143,10 +143,15 @@ class FlashSRProvider:
 
         if air_residual is not None:
             if progress_callback:
-                progress_callback(51.0, "⚡ [FlashSR Diffusion]: Isolating ultrasonic air band (>16kHz)...")
+                progress_callback(
+                    51.0, "⚡ [FlashSR Diffusion]: Isolating ultrasonic air band (>16kHz)..."
+                )
         else:
             if progress_callback:
-                progress_callback(47.0, "⚡ [FlashSR Engine]: Synthesizing ultrasonic air excitation on GPU (MPS)...")
+                progress_callback(
+                    47.0,
+                    "⚡ [FlashSR Engine]: Synthesizing ultrasonic air excitation on GPU (MPS)...",
+                )
             # High-frequency shimmer excitation for ultra-high air band (>16 kHz)
             f_source_low = max(cutoff_hz * 0.6, 10000.0)
             _, source_band = split_bands(audio_2d, cutoff_hz=f_source_low, sample_rate=sample_rate)
@@ -170,8 +175,8 @@ class FlashSRProvider:
                     norm = torch.max(torch.abs(t_sub)) + 1e-6
                     x = t_sub / norm
                     air_harmonics_t = (
-                        0.30 * (x ** 2)
-                        + 0.25 * (x ** 3)
+                        0.30 * (x**2)
+                        + 0.25 * (x**3)
                         + 0.20 * (torch.abs(x) - torch.mean(torch.abs(x), dim=-1, keepdim=True))
                         + 0.15 * (torch.tanh(2.0 * x) - x)
                     ) * norm
@@ -185,8 +190,8 @@ class FlashSRProvider:
                 norm = float(np.max(np.abs(sub_cutoff))) + 1e-6
                 x = sub_cutoff / norm
                 air_harmonics = (
-                    0.30 * (x ** 2)
-                    + 0.25 * (x ** 3)
+                    0.30 * (x**2)
+                    + 0.25 * (x**3)
                     + 0.20 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
                     + 0.15 * (np.tanh(2.0 * x) - x)
                 ) * norm

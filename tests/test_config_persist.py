@@ -25,7 +25,7 @@ def test_persist_creates_missing_file(tmp_path) -> None:
 def test_persist_replaces_existing_value(tmp_path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(
-        "[general]\noutput_dir = \"/music\"\nfirst_run_notice_accepted = false\n",
+        '[general]\noutput_dir = "/music"\nfirst_run_notice_accepted = false\n',
         encoding="utf-8",
     )
     config = _config(tmp_path, config_file)
@@ -34,12 +34,12 @@ def test_persist_replaces_existing_value(tmp_path) -> None:
 
     text = config_file.read_text(encoding="utf-8")
     assert "first_run_notice_accepted = true" in text
-    assert "output_dir = \"/music\"" in text  # other settings preserved
+    assert 'output_dir = "/music"' in text  # other settings preserved
 
 
 def test_persist_inserts_missing_key_under_general(tmp_path) -> None:
     config_file = tmp_path / "config.toml"
-    config_file.write_text("[general]\noutput_dir = \"/music\"\n", encoding="utf-8")
+    config_file.write_text('[general]\noutput_dir = "/music"\n', encoding="utf-8")
     config = _config(tmp_path, config_file)
 
     persist_first_run_acceptance(config)

@@ -209,10 +209,7 @@ async def test_download_completes_and_locates_file(tmp_path: Path) -> None:
             )
         if request.method == "GET" and request.url.path == "/api/v0/session":
             return httpx.Response(200, json={})
-        if (
-            request.method == "POST"
-            and request.url.path == "/api/v0/transfers/downloads/peer"
-        ):
+        if request.method == "POST" and request.url.path == "/api/v0/transfers/downloads/peer":
             posted.append(json.loads(request.content))
             return httpx.Response(200, json={})
         if request.url.path == "/api/v0/transfers/downloads":

@@ -138,11 +138,14 @@ class StreamMonitorWidget(Widget):
                 yield Label("SUB [ 20-250Hz] : ❚❚❚❚❚❚░░░░░░  -8.2 dB", id="mon-band-sub")
                 yield Label("MID [250-4kHz ] : ❚❚❚❚❚❚❚❚░░░░  -4.1 dB", id="mon-band-mid")
                 yield Label(
-                    "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]",
+                    "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB "
+                    "[CUTOFF / TRUNCATED][/dim yellow]",
                     id="mon-band-air",
                 )
                 yield Label(
-                    "Phase: [bold green]+0.94 [Mono Safe][/bold green] • Peak: [bold cyan]-0.1 dBTP[/bold cyan] • LUFS: [bold cyan]-14.2[/bold cyan]",
+                    "Phase: [bold green]+0.94 [Mono Safe][/bold green] • "
+                    "Peak: [bold cyan]-0.1 dBTP[/bold cyan] • "
+                    "LUFS: [bold cyan]-14.2[/bold cyan]",
                     id="mon-telemetry",
                 )
 
@@ -162,7 +165,8 @@ class StreamMonitorWidget(Widget):
             lbl.update("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
             specs.update("320 kbps MP3 • 44.1 kHz Stereo • [yellow]Original Baseband[/yellow]")
             air.update(
-                "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]"
+                "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB "
+                "[CUTOFF / TRUNCATED][/dim yellow]"
             )
 
     def update_levels(self, l_val: float, r_val: float) -> None:
@@ -192,9 +196,15 @@ class StreamMonitorWidget(Widget):
         if self.is_enhanced:
             air_b = int(min(12, max(0, avg * 14 * 0.75)))
             air_db = max(-60.0, 20 * np.log10(max(1e-4, avg * 0.7)))
-            txt_air = f"[bold green]AIR [>15.5kHz ] : {'❚' * air_b}{'░' * (12 - air_b)}  {air_db:5.1f} dB [✦ RESTORED][/bold green]"
+            txt_air = (
+                f"[bold green]AIR [>15.5kHz ] : {'❚' * air_b}{'░' * (12 - air_b)}  "
+                f"{air_db:5.1f} dB [✦ RESTORED][/bold green]"
+            )
         else:
-            txt_air = "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]"
+            txt_air = (
+                "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB "
+                "[CUTOFF / TRUNCATED][/dim yellow]"
+            )
 
         try:
             lbl_l = self.query_one("#mon-vu-l", Label)
@@ -445,11 +455,13 @@ class AudioPlayerWidget(Widget):
             ]
             if self.audio_filter:
                 cmd.extend(["-af", self.audio_filter])
-            cmd.extend([
-                "-loglevel",
-                "quiet",
-                str(self.current_track),
-            ])
+            cmd.extend(
+                [
+                    "-loglevel",
+                    "quiet",
+                    str(self.current_track),
+                ]
+            )
             try:
                 self._proc = subprocess.Popen(
                     cmd,
@@ -476,7 +488,9 @@ class AudioPlayerWidget(Widget):
                 self._filter_debounce_timer.cancel()
             try:
                 loop = asyncio.get_running_loop()
-                self._filter_debounce_timer = loop.call_later(0.06, self._restart_playback_with_filter)
+                self._filter_debounce_timer = loop.call_later(
+                    0.06, self._restart_playback_with_filter
+                )
             except RuntimeError:
                 self._restart_playback_with_filter()
 
@@ -552,7 +566,11 @@ class AudioPlayerWidget(Widget):
                     )
                 except Exception:
                     self._proc = None
-            vis.play()
+                try:
+                    for v in self.app.query(AudioVisualizer):
+                        v.play()
+                except Exception:
+                    pass
 
     def seek_relative(self, delta_s: float) -> None:
         """Seek forward or backward by delta_s seconds."""

@@ -145,9 +145,7 @@ class PipelineOrchestrator:
 
         entries = await self.probe_playlist(url)
         if len(entries) > 1 and not confirmed:
-            raise ValidationError(
-                f"playlist has {len(entries)} entries; confirmation required"
-            )
+            raise ValidationError(f"playlist has {len(entries)} entries; confirmation required")
         jobs: list[TrackJob] = []
         for entry in entries:
             entry_url = entry.get("url") or entry.get("webpage_url") or entry.get("id")
@@ -165,8 +163,8 @@ class PipelineOrchestrator:
             "INFO",
             (
                 f"scan {scan.root}: found {scan.found}, skip {len(scan.skipped)}, "
-                f"queue {len(scan.queued)}; free {scan.free_bytes / (1024 ** 2):.0f} MiB, "
-                f"need {scan.needed_bytes / (1024 ** 2):.0f} MiB for the upgrades"
+                f"queue {len(scan.queued)}; free {scan.free_bytes / (1024**2):.0f} MiB, "
+                f"need {scan.needed_bytes / (1024**2):.0f} MiB for the upgrades"
             ),
         )
         return scan
@@ -190,8 +188,8 @@ class PipelineOrchestrator:
         if scan.needed_bytes > scan.free_bytes:
             raise DiskError(
                 f"not enough free space for the batch: need "
-                f"{scan.needed_bytes / (1024 ** 2):.0f} MiB, have "
-                f"{scan.free_bytes / (1024 ** 2):.0f} MiB (docs/01 NFR-5)"
+                f"{scan.needed_bytes / (1024**2):.0f} MiB, have "
+                f"{scan.free_bytes / (1024**2):.0f} MiB (docs/01 NFR-5)"
             )
         if len(scan.queued) > 25 and not confirmed:
             raise ValidationError(
@@ -521,9 +519,7 @@ class PipelineOrchestrator:
         self._check_cancel(job)
         result = await run_spectral_check(job, self.config, self.ffmpeg)
         job.spectral = result
-        cutoff = (
-            f"cutoff={result.cutoff_hz:.0f}Hz " if result.cutoff_hz is not None else ""
-        )
+        cutoff = f"cutoff={result.cutoff_hz:.0f}Hz " if result.cutoff_hz is not None else ""
         steepness = (
             f"steepness={result.steepness_db_per_khz:.1f}dB/kHz "
             if result.steepness_db_per_khz is not None
@@ -684,9 +680,7 @@ class PipelineOrchestrator:
             )
         )
 
-    async def _emit_log(
-        self, job: TrackJob | None, level: str, text: str
-    ) -> None:
+    async def _emit_log(self, job: TrackJob | None, level: str, text: str) -> None:
         job_id = job.id if job is not None else "batch"
         await self._put_event(
             JobEvent(

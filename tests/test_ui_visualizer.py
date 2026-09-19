@@ -49,7 +49,18 @@ async def test_audio_visualizer_10bands_and_full_width_ruler() -> None:
     plain = rendered.plain
 
     # Verify all 10 frequency band labels are present in the calibrated ruler
-    for band_label in ["31Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]:
+    for band_label in [
+        "31Hz",
+        "63Hz",
+        "125Hz",
+        "250Hz",
+        "500Hz",
+        "1kHz",
+        "2kHz",
+        "4kHz",
+        "8kHz",
+        "16kHz",
+    ]:
         assert band_label in plain
 
     # Verify cutoff marker indicator

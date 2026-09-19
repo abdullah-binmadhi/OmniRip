@@ -97,9 +97,7 @@ class FfmpegService:
         args.append(str(output_path))
         return args
 
-    async def probe_audio_info(
-        self, path: Path, *, job_id: str | None = None
-    ) -> dict[str, Any]:
+    async def probe_audio_info(self, path: Path, *, job_id: str | None = None) -> dict[str, Any]:
         """Probe duration, sample rate, codec, and channels in a single ffprobe JSON pass."""
         try:
             mtime = path.stat().st_mtime_ns if path.is_file() else 0
@@ -226,7 +224,6 @@ class FfmpegService:
             timeout_s=self.config.timeouts.ffprobe_s,
         )
         if returncode != 0:
-
             detail = stderr.decode("utf-8", errors="replace").strip()
             raise ValidationError(f"ffprobe could not identify {path.name}: {detail}")
         codec = stdout.decode("utf-8", errors="replace").strip().lower()
@@ -297,9 +294,7 @@ class FfmpegService:
             raise ValidationError("FFmpeg decode produced no samples")
         return pcm
 
-    async def probe_sample_rate(
-        self, path: Path, *, job_id: str | None = None
-    ) -> int | None:
+    async def probe_sample_rate(self, path: Path, *, job_id: str | None = None) -> int | None:
         info = await self.probe_audio_info(path, job_id=job_id)
         if info.get("sample_rate") is not None:
             return info["sample_rate"]

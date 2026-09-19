@@ -36,10 +36,9 @@ def _config(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_lookup_maps_fields_and_prefers_earliest_release(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_lookup_maps_fields_and_prefers_earliest_release(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ACOUSTID_API_KEY", "test-key")
+
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_RESPONSE)
 
@@ -87,6 +86,7 @@ async def test_lookup_uses_cache_and_skips_network(tmp_path: Path, monkeypatch) 
 @pytest.mark.asyncio
 async def test_low_confidence_result_is_rejected(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ACOUSTID_API_KEY", "test-key")
+
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,

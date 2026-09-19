@@ -455,9 +455,7 @@ def _build_config(
                 slskd.get("stall_timeout_s", 120.0), name="slskd.stall_timeout_s"
             ),
             acquisition_mode=str(slskd.get("acquisition_mode", "best_available")),
-            max_queue_length=_int(
-                slskd.get("max_queue_length", 5), name="slskd.max_queue_length"
-            ),
+            max_queue_length=_int(slskd.get("max_queue_length", 5), name="slskd.max_queue_length"),
             p2p_timeout_s=_float(slskd.get("p2p_timeout_s", 30.0), name="slskd.p2p_timeout_s"),
         ),
         acoustid=AcoustidConfig(

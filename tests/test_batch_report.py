@@ -27,9 +27,23 @@ def test_append_writes_all_schema_fields(tmp_path: Path) -> None:
 
     assert report.path.exists()
     assert REPORT_FIELDS == tuple(
-        ("ts", "job_id", "mode", "input", "status", "reason", "old_bitrate", "source_kind",
-         "spectral_verdict", "cutoff_hz", "identity_shift", "canonical", "output_path",
-         "trash_path", "error")
+        (
+            "ts",
+            "job_id",
+            "mode",
+            "input",
+            "status",
+            "reason",
+            "old_bitrate",
+            "source_kind",
+            "spectral_verdict",
+            "cutoff_hz",
+            "identity_shift",
+            "canonical",
+            "output_path",
+            "trash_path",
+            "error",
+        )
     )
     row = report.rows()[0]
     assert set(row) == set(REPORT_FIELDS)

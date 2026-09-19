@@ -119,6 +119,7 @@ async def test_apply_flush_log_lines_reach_console(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_w_keybinding_opens_workbench_modal(tmp_path) -> None:
     from harvester.ui.screens.curation_workbench import CurationWorkbenchModal
+
     app = _app(tmp_path)
     app.orchestrator = StubOrchestrator()
     dummy_audio = tmp_path / "song.mp3"

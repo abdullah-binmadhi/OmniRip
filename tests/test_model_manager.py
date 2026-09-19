@@ -15,6 +15,7 @@ from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
 
 def test_enhancement_provider_protocol_check():
     """Verify that a dummy class adhering to EnhancementProvider satisfies isinstance check."""
+
     class DummyProvider:
         @property
         def name(self) -> str:
@@ -116,4 +117,3 @@ def test_model_manager_download_direct_http(tmp_path: Path):
         assert out.exists()
         assert out.read_bytes() == b"chunk_1_chunk_2"
         assert 1.0 in progress
-

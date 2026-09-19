@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
 import numpy as np
 
 # Standard ISO 10-band octave frequencies (Hz)
@@ -104,7 +105,9 @@ class MasteringEQSettings:
         self.enabled = True
 
     def to_ffmpeg_af(self) -> str:
-        """Convert active EQ settings to an FFmpeg audio filter (-af) string for real-time playback."""
+        """Convert active EQ settings to an FFmpeg audio filter (-af) string
+        for real-time playback.
+        """
         if not self.enabled and not self.hpf_30hz and abs(self.output_trim_db) <= 0.01:
             return ""
 

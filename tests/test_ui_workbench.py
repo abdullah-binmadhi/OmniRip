@@ -274,7 +274,6 @@ async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) ->
     3. Switching between the 3 AI options updates the audio stream and player immediately.
     """
     from textual.widgets import Select
-    from harvester.ui.workbench import ECO_PRESET_OPTIONS, AI_PRESET_OPTIONS
 
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
@@ -404,13 +403,16 @@ async def test_workbench_dead_space_elements_and_cached_download(tmp_path: Path)
 
         # 3. Simulate pre-rendered audition cache for fast download
         mode_tag = "neural" if wb.neural_enabled else "eco"
-        cache_file = wb.audition_cache_dir / f"{dummy_mp3.stem}_{wb.selected_preset_id}_{mode_tag}.mp3"
+        cache_file = (
+            wb.audition_cache_dir / f"{dummy_mp3.stem}_{wb.selected_preset_id}_{mode_tag}.mp3"
+        )
         cache_file.write_bytes(b"A" * 2048)  # Valid pre-rendered cache
 
         target_file = out_dir / f"{dummy_mp3.stem}.enhanced.mp3"
         assert not target_file.exists()
 
-        # Download should perform instant atomic copy from cache without invoking export_enhanced_derivative
+        # Download should perform instant atomic copy from cache without
+        # invoking export_enhanced_derivative
         with patch.object(wb.exporter, "export_enhanced_derivative") as mock_render:
             btn_dl = app.query_one("#wb-btn-export", Button)
             btn_dl.press()
@@ -552,7 +554,9 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
 
 
 async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
-    """Verify that EQ adjustments update the player's live audio filter across both MP3 and ENH streams."""
+    """Verify that EQ adjustments update the player's live audio filter
+    across both MP3 and ENH streams.
+    """
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
@@ -619,6 +623,3 @@ async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
         btn_reset.press()
         await pilot.pause()
         assert player.audio_filter == ""
-
-
-

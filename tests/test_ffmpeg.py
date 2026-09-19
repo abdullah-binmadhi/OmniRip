@@ -63,4 +63,3 @@ async def test_probe_audio_info_cache(tmp_path: Path) -> None:
     assert sr == 44100
     assert codec == "flac"
     assert len(run_calls) == 1
-

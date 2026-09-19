@@ -6,7 +6,6 @@ import numpy as np
 
 from harvester.analysis.enhancement.eq import (
     EQ_FREQUENCIES,
-    EQ_PRESETS,
     MasteringEQSettings,
     apply_mastering_eq,
 )

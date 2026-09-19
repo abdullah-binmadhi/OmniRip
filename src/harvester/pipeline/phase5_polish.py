@@ -156,9 +156,7 @@ def _mutagen_parses(path: Path) -> bool:
         return False
 
 
-def _swap_into_place(
-    job: TrackJob, temporary_path: Path, target: Path, original_dir: Path
-) -> Path:
+def _swap_into_place(job: TrackJob, temporary_path: Path, target: Path, original_dir: Path) -> Path:
     from harvester.batch.trash import move_to_trash, rollback
 
     assert job.input_path is not None

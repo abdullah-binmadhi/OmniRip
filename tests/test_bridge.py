@@ -66,9 +66,7 @@ async def test_bridge_coalesces_1000_event_storm_into_one_flush() -> None:
     bridge = UiBridge(events, interval_s=0.01, apply=lambda plan: flushes.append(plan))
 
     for index in range(1000):
-        events.put_nowait(
-            JobEvent(job_id=str(index % 10), kind=EventKind.PROGRESS)
-        )
+        events.put_nowait(JobEvent(job_id=str(index % 10), kind=EventKind.PROGRESS))
 
     task = asyncio.create_task(bridge.run())
     await asyncio.sleep(0.05)

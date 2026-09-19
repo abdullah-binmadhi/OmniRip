@@ -61,9 +61,7 @@ def noise_reference(energies: np.ndarray, edges: np.ndarray) -> tuple[float, flo
     return base, floor
 
 
-def detect_cutoff(
-    energies: np.ndarray, edges: np.ndarray
-) -> tuple[float, float, float, float]:
+def detect_cutoff(energies: np.ndarray, edges: np.ndarray) -> tuple[float, float, float, float]:
     """Return (f_c, steepness S, base, floor) per the brick-wall rules."""
 
     base, floor = noise_reference(energies, edges)

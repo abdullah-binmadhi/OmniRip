@@ -142,7 +142,9 @@ class EnhancementExporter:
         audio_2d, _ = ensure_2d_audio(audio)
 
         if progress_callback:
-            progress_callback(38.0, "⚡ [AI Core]: Splitting frequency bands & crossover network...")
+            progress_callback(
+                38.0, "⚡ [AI Core]: Splitting frequency bands & crossover network..."
+            )
 
         # 1. Progressive mono bass
         if preset.progressive_mono:
@@ -156,13 +158,19 @@ class EnhancementExporter:
         # 3. Resolve provider
         provider = self._providers.get(preset.provider_type) or self._providers["conservative"]
         if progress_callback:
-            progress_callback(42.0, f"⚡ [AI Engine]: Synthesizing neural residual ({preset.name})...")
+            progress_callback(
+                42.0, f"⚡ [AI Engine]: Synthesizing neural residual ({preset.name})..."
+            )
 
         import inspect
+
         sig = inspect.signature(provider.generate_residual)
         if "progress_callback" in sig.parameters:
             raw_residual = provider.generate_residual(
-                base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz, progress_callback=progress_callback
+                base_audio,
+                sample_rate=sample_rate,
+                cutoff_hz=cutoff_hz,
+                progress_callback=progress_callback,
             )
         else:
             raw_residual = provider.generate_residual(
@@ -170,7 +178,9 @@ class EnhancementExporter:
             )
 
         if progress_callback:
-            progress_callback(58.0, "⚡ [Spectral Balancer]: Matching spectral slope & mid/side width...")
+            progress_callback(
+                58.0, "⚡ [Spectral Balancer]: Matching spectral slope & mid/side width..."
+            )
 
         # 4. Mid-Side width control on residual
         if preset.residual_stereo_width != 1.0 and raw_residual.shape[0] >= 2:
@@ -192,7 +202,9 @@ class EnhancementExporter:
             scaled_residual = scaled_residual * gain_factor
 
         if progress_callback:
-            progress_callback(66.0, "⚡ [Mastering Limiter]: Recombining bands & true-peak limiting...")
+            progress_callback(
+                66.0, "⚡ [Mastering Limiter]: Recombining bands & true-peak limiting..."
+            )
 
         # 6. Recombination (sub-cutoff audio is untouched)
         enhanced = recombine_audio(lower_band, scaled_residual, ceiling_dbfs=preset.ceiling_dbfs)
@@ -202,9 +214,14 @@ class EnhancementExporter:
             eq_settings.enabled or eq_settings.hpf_30hz or eq_settings.output_trim_db != 0.0
         ):
             if progress_callback:
-                progress_callback(68.0, f"⚡ [10-Band EQ]: Sculpting tonal balance ({eq_settings.preset_name})...")
+                progress_callback(
+                    68.0, f"⚡ [10-Band EQ]: Sculpting tonal balance ({eq_settings.preset_name})..."
+                )
             enhanced = apply_mastering_eq(
-                enhanced, settings=eq_settings, sample_rate=sample_rate, ceiling_dbfs=preset.ceiling_dbfs
+                enhanced,
+                settings=eq_settings,
+                sample_rate=sample_rate,
+                ceiling_dbfs=preset.ceiling_dbfs,
             )
 
         return enhanced
@@ -246,7 +263,7 @@ class EnhancementExporter:
         audio = self.decode_audio_ffmpeg(input_path)
 
         if progress_callback:
-            progress_callback(35.0, f"⚡ [AI Core]: Ingesting float32 stereo audio (48kHz)...")
+            progress_callback(35.0, "⚡ [AI Core]: Ingesting float32 stereo audio (48kHz)...")
         logger.info("Rendering enhanced audio buffer with preset '%s'...", preset.name)
         enhanced = self.render_audio_buffer(
             audio,

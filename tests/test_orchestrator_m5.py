@@ -306,9 +306,7 @@ async def test_batch_free_space_guard_blocks_queue(tmp_path: Path, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_batch_failure_writes_failed_report_row(tmp_path: Path) -> None:
-    orchestrator, _ = _build(
-        tmp_path, ytdlp=FakeYtdlp(fail=True), slskd_offline=True
-    )
+    orchestrator, _ = _build(tmp_path, ytdlp=FakeYtdlp(fail=True), slskd_offline=True)
     music = tmp_path / "library"
     music.mkdir()
     write_mp3(music / "low.mp3", 128_000)

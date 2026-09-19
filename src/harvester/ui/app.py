@@ -236,7 +236,7 @@ class HelpScreen(ModalScreen[None]):
         with Container(classes="modal-card"):
             yield Label("Harvester controls", id="help-title")
             yield Label(
-                "Mode A: paste a URL; Enter or GO submits it. Enable \"Playlists\" to\n"
+                'Mode A: paste a URL; Enter or GO submits it. Enable "Playlists" to\n'
                 "expand a playlist URL into child jobs (capped, confirmed).\n"
                 "Mode B: switch to 'Batch directory', enter a music folder path;\n"
                 "       lossless and >= 256 kbps files are skipped, the rest are\n"
@@ -269,7 +269,7 @@ class BatchConfirmScreen(ModalScreen[None]):
                 f"Scan of {self.scan.root}:\n"
                 f"  found {self.scan.found}, skip {len(self.scan.skipped)}, "
                 f"queue {len(self.scan.queued)} upgrades\n"
-                f"  approx {self.scan.needed_bytes / (1024 ** 2):.0f} MiB disk space needed\n\n"
+                f"  approx {self.scan.needed_bytes / (1024**2):.0f} MiB disk space needed\n\n"
                 "Originals are moved to .trash/ and replaced in place.",
                 id="confirm-body",
             )
@@ -649,9 +649,7 @@ class HarvesterApp(App[None]):
         is_single = event.value == Mode.SINGLE_URL.value
         input_widget = self.query_one("#source-input", Input)
         input_widget.placeholder = (
-            "Paste a URL (Mode A)"
-            if is_single
-            else "Path to a music directory (Mode B)"
+            "Paste a URL (Mode A)" if is_single else "Path to a music directory (Mode B)"
         )
         self.query_one("#submit", Button).disabled = self.orchestrator is None
 
@@ -791,11 +789,7 @@ class HarvesterApp(App[None]):
             self.notify("No audio file on disk for selected job", severity="warning")
             return
 
-        cutoff = (
-            job.spectral.cutoff_hz
-            if (job.spectral and job.spectral.cutoff_hz)
-            else 15500.0
-        )
+        cutoff = job.spectral.cutoff_hz if (job.spectral and job.spectral.cutoff_hz) else 15500.0
         self.push_screen(
             CurationWorkbenchModal(
                 audio_file=target_path,

@@ -131,7 +131,9 @@ class AudioVisualizer(Widget):
         self._current_frame_idx = 0
         self._anim_timer: Timer | None = None
         self._idle_phase = 0.0
-        self._tick_interval_s: float = 0.066  # ~15 FPS: balanced fluid animation without terminal choking
+        self._tick_interval_s: float = (
+            0.066  # ~15 FPS: balanced fluid animation without terminal choking
+        )
 
     def on_mount(self) -> None:
         # 15 FPS update loop: relieves terminal PTY backpressure by 40%
@@ -223,9 +225,9 @@ class AudioVisualizer(Widget):
 
             # Vectorized 2D windowing and batched FFT
             total_samples = (n_frames - 1) * hop_size + frame_size
-            sliced = np.lib.stride_tricks.sliding_window_view(
-                raw[:total_samples], frame_size
-            )[::hop_size][:n_frames]
+            sliced = np.lib.stride_tricks.sliding_window_view(raw[:total_samples], frame_size)[
+                ::hop_size
+            ][:n_frames]
             windowed = sliced * window
             fft_mag = np.abs(np.fft.rfft(windowed, axis=1))
 
@@ -293,28 +295,20 @@ class AudioVisualizer(Widget):
     def _on_tick(self) -> None:
         if self.is_playing:
             # If precomputed frames are available and in bounds, use them
-            if (
-                self._precomputed_frames
-                and self._current_frame_idx < len(self._precomputed_frames)
-            ):
+            if self._precomputed_frames and self._current_frame_idx < len(self._precomputed_frames):
                 self._levels = self._precomputed_frames[self._current_frame_idx].copy()
                 self._current_frame_idx += 1
             else:
-                # Dynamic audio rhythm generator: vectorized NumPy SIMD computation (no Python loops)
+                # Dynamic audio rhythm generator: vectorized NumPy SIMD computation
+                # (no Python loops)
                 t = time.monotonic()
                 ratios = np.linspace(0.0, 1.0, self.num_bands, dtype=np.float32)
                 indices = np.arange(self.num_bands, dtype=np.float32)
                 beat = float(max(0.0, math.sin(t * 4.25)) ** 3)
                 sub_bass = beat * 0.88 * np.maximum(0.0, 1.0 - ratios * 1.5)
-                mids = (
-                    0.55
-                    * (0.5 + 0.5 * np.sin(t * 7.2 + indices * 0.45))
-                    * np.exp(-ratios * 1.2)
-                )
+                mids = 0.55 * (0.5 + 0.5 * np.sin(t * 7.2 + indices * 0.45)) * np.exp(-ratios * 1.2)
                 highs = (
-                    0.45
-                    * (0.5 + 0.5 * np.sin(t * 12.5 + indices * 0.75))
-                    * (0.2 + 0.8 * ratios)
+                    0.45 * (0.5 + 0.5 * np.sin(t * 12.5 + indices * 0.75)) * (0.2 + 0.8 * ratios)
                 )
                 sim_vals = np.clip(sub_bass + mids + highs, 0.08, 0.98).astype(np.float32)
                 self._levels = np.maximum(sim_vals, self._levels * 0.82)
@@ -443,12 +437,16 @@ class AudioVisualizer(Widget):
                     style_str = "bold #ff3366" if is_upper_synthetic else "bold #00ffcc"
                 elif row_from_bottom < int(fill_height):
                     char = "█"
-                    style_str = self._level_style(row_from_bottom, spectrum_height, is_upper_synthetic)
+                    style_str = self._level_style(
+                        row_from_bottom, spectrum_height, is_upper_synthetic
+                    )
                 elif row_from_bottom == int(fill_height):
                     frac = fill_height - int(fill_height)
                     idx = int(round(frac * 8))
                     char = _BLOCKS[idx]
-                    style_str = self._level_style(row_from_bottom, spectrum_height, is_upper_synthetic)
+                    style_str = self._level_style(
+                        row_from_bottom, spectrum_height, is_upper_synthetic
+                    )
 
                 bar_seg = char * bar_w
                 lines[row].append((bar_seg, Style.parse(style_str)))
@@ -467,7 +465,9 @@ class AudioVisualizer(Widget):
             for char_seg, style in line:
                 text.append(char_seg, style=style)
             if row_idx == 0 and self.cutoff_hz:
-                text.append(f"  fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", style="bold yellow")
+                text.append(
+                    f"  fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", style="bold yellow"
+                )
             text.append("\n")
 
         # Calibrated 10-band frequency scale along bottom
@@ -599,7 +599,7 @@ class AudioVisualizer(Widget):
         db_r = 20 * math.log10(max(1e-4, lvl_r)) if lvl_r > 0.05 else -60.0
 
         header = "[-40dB ─── -20dB ─── -10dB ─── -6dB ─── -3dB ─── 0dB ── +3dB]"
-        text.append(f"  {header[:bar_len+12]}\n", style="dim cyan")
+        text.append(f"  {header[: bar_len + 12]}\n", style="dim cyan")
 
         # Left Channel
         text.append("  L ❚", style="bold white")
