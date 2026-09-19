@@ -1349,8 +1349,12 @@ class WorkbenchWidget(Widget):
         """Pre-render remaining presets of the active mode so subsequent clicks
         are instantaneous.
         """
-        active_opts = AI_PRESET_OPTIONS if self.neural_enabled else ECO_PRESET_OPTIONS
-        mode_tag = "neural" if self.neural_enabled else "eco"
+        if self.neural_enabled:
+            # Prevent background memory spikes from heavy neural models; render on demand
+            return
+
+        active_opts = ECO_PRESET_OPTIONS
+        mode_tag = "eco"
         for _, pid in active_opts:
             if pid == self.selected_preset_id:
                 continue

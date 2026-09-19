@@ -851,6 +851,17 @@ class StemSeparator:
         other = output[2]
         vocals_raw = output[3]
         inst_model = drums + bass + other
+        del model, padded_wave, waveform, weight, weight_safe, output
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+        import gc
+
+        gc.collect()
 
         # Cache raw neural outputs for instant re-processing if user picks another profile later
         if raw_vocals_path:
@@ -973,6 +984,19 @@ class StemSeparator:
         inst_model_np = (
             output[0].numpy() + output[1].numpy() + output[2].numpy()
         )  # bass+drums+other
+        del model, waveform, output
+        if "weight" in locals():
+            del weight
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+        import gc
+
+        gc.collect()
 
         # Cache raw neural outputs for instant re-processing if user picks another profile later
         if raw_vocals_path:
