@@ -68,7 +68,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
         await pilot.pause()
         assert wb.active_stream == "MP3"
         assert player.current_track == dummy_mp3
-        assert monitor.is_enhanced is False
+        assert not monitor.is_enhanced
 
         # Check Eco mode presets (Conservative DSP and Fast Neural)
         eco_metrics = {
@@ -88,7 +88,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
             },
         }
 
-        select = app.query_one("#wb-preset-select")
+        select = app.query_one("#wb-preset-select", Select)
         gain_label = app.query_one("#wb-spec-gain")
         trim_label = app.query_one("#wb-spec-trim")
         slope_label = app.query_one("#wb-spec-slope")
@@ -246,7 +246,7 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
         btn_toggle.press()
         await pilot.pause()
 
-        assert wb.neural_enabled is True
+        assert wb.neural_enabled
         assert "NEURAL AI" in str(btn_toggle.label)
         assert "Neural AI" in str(engine_label.render())
 
@@ -317,7 +317,7 @@ async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) ->
         btn_toggle.press()
         await pilot.pause()
 
-        assert wb.neural_enabled is True
+        assert wb.neural_enabled
         assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
             "de_sizzle",
             "extended_air",
@@ -552,7 +552,7 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
 
             btn_toggle.press()
             await pilot.pause()
-            assert wb.eq_settings.enabled is True
+            assert wb.eq_settings.enabled
             assert "EQ: ENGAGED" in str(btn_toggle.label)
 
         # 8. Test Reset Flat

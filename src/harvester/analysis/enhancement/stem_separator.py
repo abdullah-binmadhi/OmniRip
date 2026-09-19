@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy import signal
+from scipy import signal  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def load_audio_numpy(audio_path: Path, target_sr: int = 44100) -> tuple[np.ndarr
         if sr != target_sr and target_sr > 0:
             try:
                 import torch
-                import torchaudio.transforms as T
+                import torchaudio.transforms as T  # type: ignore[import-not-found]
 
                 resampler = T.Resample(orig_freq=sr, new_freq=target_sr)
                 audio_t = torch.from_numpy(audio)
@@ -103,11 +103,11 @@ def load_audio_numpy(audio_path: Path, target_sr: int = 44100) -> tuple[np.ndarr
         logger.debug("soundfile failed to read %s: %s. Trying torchaudio...", audio_path, sf_err)
 
     try:
-        import torchaudio
+        import torchaudio  # type: ignore[import-not-found]
 
         wav_t, sr = torchaudio.load(str(audio_path))
         if sr != target_sr and target_sr > 0:
-            import torchaudio.transforms as T
+            import torchaudio.transforms as T  # type: ignore[import-not-found]
 
             resampler = T.Resample(orig_freq=sr, new_freq=target_sr)
             wav_t = resampler(wav_t)
@@ -138,7 +138,7 @@ def save_audio_numpy(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
 
     try:
         import torch
-        import torchaudio
+        import torchaudio  # type: ignore[import-not-found]
 
         audio_t = torch.from_numpy(audio_clipped)
         torchaudio.save(str(path), audio_t, sample_rate)
@@ -656,13 +656,18 @@ def postprocess_stems(
     inst_model: np.ndarray,
     sr: int,
     blend_weight: float = 0.50,
-    vocal_flags: set[str] | list[str] | str = "natural",
-    inst_flags: set[str] | list[str] | str = "natural",
+    vocal_flags: set[str] | list[str] | str | None = "natural",
+    inst_flags: set[str] | list[str] | str | None = "natural",
     progress_callback: Callable[[float, str], None] | None = None,
     vocal_profile: str | None = None,
     inst_profile: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Unified multi-stage DSP post-processing for vocal and instrumental stems."""
+    if vocal_flags is None:
+        vocal_flags = "natural"
+    if inst_flags is None:
+        inst_flags = "natural"
+
     if vocal_profile is not None and vocal_flags == "natural":
         vocal_flags = {vocal_profile}
     if inst_profile is not None and inst_flags == "natural":
@@ -1218,7 +1223,7 @@ class StemSeparator:
         4. Instrumental Inversion Subtraction (Bit-exact acoustic backing)
         """
         import torch
-        import torchaudio
+        import torchaudio  # type: ignore[import-not-found]
 
         if progress_callback:
             progress_callback(5.0, "Loading Neural HDEMUCS AI Model...")
@@ -1234,13 +1239,14 @@ class StemSeparator:
             waveform = waveform.repeat(2, 1)
 
         total_samples = waveform.shape[1]
-        chunk_len = int(10 * sr)
-        hop_len = int(5 * sr)
+        chunk_len = 10 * sr
+        hop_len = 5 * sr
 
         # Stage 1: Chunked Neural Inference
         if progress_callback:
             progress_callback(10.0, "Neural AI: Separating vocal and musical layers...")
 
+        weight: torch.Tensor | None = None
         if total_samples <= chunk_len:
             ref = waveform.mean(0)
             norm = (waveform - ref.mean()) / (ref.std() + 1e-8)
@@ -1285,7 +1291,7 @@ class StemSeparator:
             output[0].numpy() + output[1].numpy() + output[2].numpy()
         )  # bass+drums+other
         del model, waveform, output
-        if "weight" in locals():
+        if weight is not None:
             del weight
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

@@ -96,10 +96,10 @@
     "semantic_hash": "a7a68462e6184a8c7fa4285414701f8a"
   },
   "pyproject.toml": {
-    "mtime": 1789842062.0120742,
-    "seen": 1789842236.648594,
-    "ast_hash": "0fc403a8eb760168377e81762457e370",
-    "semantic_hash": "0fc403a8eb760168377e81762457e370"
+    "mtime": 1789846671.040186,
+    "seen": 1789847112.967337,
+    "ast_hash": "0b3c637f71cad851f8c8b2f85a9621e9",
+    "semantic_hash": "0b3c637f71cad851f8c8b2f85a9621e9"
   },
   "src/harvester/__init__.py": {
     "mtime": 1789722411.0172296,
@@ -768,16 +768,16 @@
     "semantic_hash": "515fa42b9059dab8b8344e36bee4c08f"
   },
   "src/harvester/ui/workbench.py": {
-    "mtime": 1789846607.56806,
-    "seen": 1789846638.636571,
-    "ast_hash": "126ab17b4fee99ba766b61503e6e8e13",
-    "semantic_hash": "126ab17b4fee99ba766b61503e6e8e13"
+    "mtime": 1789847058.4700027,
+    "seen": 1789847112.968266,
+    "ast_hash": "62206680011a7a40d3444f1df38a36a8",
+    "semantic_hash": "62206680011a7a40d3444f1df38a36a8"
   },
   "tests/test_ui_workbench.py": {
-    "mtime": 1789846607.567292,
-    "seen": 1789846638.637391,
-    "ast_hash": "d5b804587f5f5ea863173ccbf76f24ca",
-    "semantic_hash": "d5b804587f5f5ea863173ccbf76f24ca"
+    "mtime": 1789847034.05968,
+    "seen": 1789847112.969068,
+    "ast_hash": "2b6d0ec41abdbb5f5049a8c3f8a09af4",
+    "semantic_hash": "2b6d0ec41abdbb5f5049a8c3f8a09af4"
   },
   "src/harvester/analysis/enhancement/eq.py": {
     "mtime": 1789825470.6429582,
@@ -834,10 +834,10 @@
     "semantic_hash": ""
   },
   "src/harvester/analysis/enhancement/stem_separator.py": {
-    "mtime": 1789846593.4207451,
-    "seen": 1789846638.635775,
-    "ast_hash": "21d4aaa41548295f9427c8b41db8d01b",
-    "semantic_hash": "21d4aaa41548295f9427c8b41db8d01b"
+    "mtime": 1789847003.8645232,
+    "seen": 1789847112.967484,
+    "ast_hash": "ba6d8f60365b48b612fb9105673ac38f",
+    "semantic_hash": "ba6d8f60365b48b612fb9105673ac38f"
   },
   "tests/test_stem_separator.py": {
     "mtime": 1789846583.8206782,
@@ -846,9 +846,15 @@
     "semantic_hash": "99928fe8e2f503f51d8c07f415fddd09"
   },
   ".vscode/settings.json": {
-    "mtime": 1789836920.7284524,
-    "seen": 1789842236.6485288,
-    "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
-    "semantic_hash": "99914b932bd37a50b983c5e7c90ae93b"
+    "mtime": 1789846981.423382,
+    "seen": 1789847112.967277,
+    "ast_hash": "8ffa343fde78e6eafd2b5984202e5d6f",
+    "semantic_hash": "8ffa343fde78e6eafd2b5984202e5d6f"
+  },
+  "pyrightconfig.json": {
+    "mtime": 1789846975.9553356,
+    "seen": 1789847112.967338,
+    "ast_hash": "a59c5c865cb67ecad3b49c91199933d4",
+    "semantic_hash": "a59c5c865cb67ecad3b49c91199933d4"
   }
 }

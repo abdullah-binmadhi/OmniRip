@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-StreamId = Literal["MP3", "ENH", "A", "B", "C"]
+StreamId = Literal["MP3", "ENH", "A", "B", "C", "VOC", "INST"]
 
 ECO_PRESET_OPTIONS: list[tuple[str, str]] = [
     ("Conservative DSP", "conservative"),
@@ -870,7 +870,7 @@ class WorkbenchWidget(Widget):
                 f"• Acoustic Slope: [bold]-{decay_slope:.1f} dB/oct[/bold] (Roll-off)"
             )
 
-            stereo_pct = int(round(stereo_width * 100))
+            stereo_pct = round(stereo_width * 100)
             if stereo_pct < 80:
                 stereo_str = f"[yellow]{stereo_pct}% Focused (Headphone)[/yellow]"
             else:
@@ -967,12 +967,9 @@ class WorkbenchWidget(Widget):
                 "[dim](ID3v2 TXXX Provenance)[/dim]"
             )
             dest_folder = "~/Music/Harvested"
-            if (
-                hasattr(self.app, "config")
-                and hasattr(self.app.config, "general")
-                and self.app.config.general.output_dir
-            ):
-                dest_folder = str(self.app.config.general.output_dir)
+            app_cfg = getattr(self.app, "config", None)
+            if app_cfg and hasattr(app_cfg, "general") and app_cfg.general.output_dir:
+                dest_folder = str(app_cfg.general.output_dir)
             elif self.current_job and self.current_job.output_path:
                 dest_folder = str(self.current_job.output_path.parent)
             self.query_one("#wb-telem-destination", Label).update(
@@ -1921,14 +1918,11 @@ class WorkbenchWidget(Widget):
                 self.app.call_from_thread(_ui)
 
             # 1. Resolve target output directory
+            app_cfg = getattr(self.app, "config", None)
             if self.current_job and self.current_job.output_path:
                 out_dir = self.current_job.output_path.parent
-            elif (
-                hasattr(self.app, "config")
-                and hasattr(self.app.config, "general")
-                and self.app.config.general.output_dir
-            ):
-                out_dir = Path(self.app.config.general.output_dir)
+            elif app_cfg and hasattr(app_cfg, "general") and app_cfg.general.output_dir:
+                out_dir = Path(app_cfg.general.output_dir)
             else:
                 from harvester.config import load_config
 
