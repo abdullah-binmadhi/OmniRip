@@ -846,10 +846,10 @@
     "semantic_hash": "99928fe8e2f503f51d8c07f415fddd09"
   },
   ".vscode/settings.json": {
-    "mtime": 1789846981.423382,
-    "seen": 1789847112.967277,
-    "ast_hash": "8ffa343fde78e6eafd2b5984202e5d6f",
-    "semantic_hash": "8ffa343fde78e6eafd2b5984202e5d6f"
+    "mtime": 1789847261.9263961,
+    "seen": 1789847300.569685,
+    "ast_hash": "0cb7589f7df02eae952e12a18d0b99de",
+    "semantic_hash": ""
   },
   "pyrightconfig.json": {
     "mtime": 1789846975.9553356,
