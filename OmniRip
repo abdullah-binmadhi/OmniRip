@@ -9,6 +9,9 @@ case " ${*:-} " in
   *" --version "* | *" -v "* | *" --help "* | *" -h "*)
     exec uv run --project "$ROOT" python -m harvester "$@"
     ;;
+  *" --no-slskd "* | *" --offline "*)
+    exec uv run --project "$ROOT" python -m harvester "$@"
+    ;;
 esac
 
 if [ ! -f "$LOCAL_CONFIG" ]; then
@@ -27,6 +30,11 @@ export SLSKD_API_KEY="$API_KEY"
 export HARVESTER_CONFIG="$APP_CONFIG"
 
 if ! curl -fsS -H "X-API-Key: $SLSKD_API_KEY" http://localhost:5030/api/v0/session >/dev/null 2>&1; then
+  if [ ! -x "$ROOT/tools/slskd/slskd" ]; then
+    printf '%s\n' "OmniRip: slskd executable not found at tools/slskd/slskd" >&2
+    printf '%s\n' "Please ensure tools/slskd/slskd is downloaded and executable (see tools/slskd/README.md)." >&2
+    exit 1
+  fi
   printf '%s\n' "OmniRip: starting slskd on localhost:5030..."
   (cd "$ROOT/tools/slskd" && nohup ./slskd --config slskd.local.yml >"$ROOT/tools/slskd/slskd.log" 2>&1 &)
   ready=0
@@ -40,7 +48,10 @@ if ! curl -fsS -H "X-API-Key: $SLSKD_API_KEY" http://localhost:5030/api/v0/sessi
     fi
   done
   if [ "$ready" -ne 1 ]; then
-    printf '%s\n' "OmniRip: slskd did not become ready; see tools/slskd/slskd.log" >&2
+    printf '%s\n' "OmniRip: slskd did not become ready; log output:" >&2
+    if [ -f "$ROOT/tools/slskd/slskd.log" ]; then
+      cat "$ROOT/tools/slskd/slskd.log" >&2
+    fi
     exit 1
   fi
 fi

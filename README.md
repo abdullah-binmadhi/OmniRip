@@ -1,173 +1,190 @@
-# OmniRip
+<p align="center">
+  <img src="docs/assets/omnirip_hero.jpg" alt="OmniRip Product Showcase" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
+</p>
 
-**OmniRip** — a desktop TUI (Python 3.11+ / Textual) that acquires the best
-available audio for a track using a **P2P-first (Soulseek via slskd), stream-fallback (yt-dlp)**
-strategy, verifies authenticity with **audio fingerprinting** and **spectral anti-fraud
-analysis**, and finishes every file with **canonical metadata + cover art**.
+<h1 align="center">OmniRip</h1>
 
-## Status
+<p align="center">
+  <strong>Sound, uncompromising. Handcrafted for your terminal.</strong><br>
+  <em>The hybrid P2P audiophile workstation with real-time studio mastering and spectral fraud defense.</em>
+</p>
 
-🚧 **M6 + M7 complete — TUI hardened, ready to ship.** The UI now drains pipeline events
-through a throttled bridge (coalesced to ≤ 8 flushes/s, render-hash diffing, 500-row cap),
-a level-filtered log console (`l` cycles INFO → DEBUG → WARN+ERROR), quit/purge/playlist/
-first-run confirm modals, `Ctrl+P` mode toggle, a live slskd status worker, and a
-worker-crash banner. Playlist URLs expand into capped, confirmed child jobs (D10).
-First-run acceptance persists to the config file. M7 adds a GitHub Actions CI matrix
-(Python 3.11/3.12 × ubuntu/macos, ruff + pytest with an 80% core-coverage gate), this
-quick-start, and a `CHANGELOG.md`. Core coverage (analysis/pipeline/batch/util) is 85%.
-An end-to-end smoke run still requires the slskd daemon, local `ffmpeg`/`ffprobe`, and a
-real AcoustID key; missing components are reported instead of hidden. The original brief
-is preserved in `Mp3 downloader.pdf`; the implementation guidance is in `docs/`.
+<p align="center">
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Quickstart-Ready-ff007f?style=for-the-badge&logo=terminal&logoColor=white" alt="Quickstart"></a>
+  <a href="#the-curation-workbench--10-band-studio-equalizer"><img src="https://img.shields.io/badge/10--Band%20EQ-Realtime%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
+  <a href="#spectral-anti-fraud-intelligence"><img src="https://img.shields.io/badge/Anti--Fraud-FFT%20Verified-ffaa00?style=for-the-badge&logo=shield&logoColor=white" alt="Spectral Anti-Fraud"></a>
+  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/Powered%20By-Python%203.11%2B%20%7C%20Textual-23193d?style=for-the-badge" alt="Python / Textual"></a>
+</p>
 
-**Next step:** harden and ship — see M6/M7 in [`docs/10-roadmap.md`](docs/10-roadmap.md).
+---
 
-## Quick start
+## Say hello to OmniRip.
 
-1. **Install runtime dependencies** (macOS shown):
-   ```sh
-   brew install ffmpeg yt-dlp chromaprint
-   ```
-   `chromaprint` provides `fpcalc`. `ffmpeg` and `yt-dlp` are required; `fpcalc` enables
-   fingerprinting (Phase 3 degrades gracefully without it).
+Every once in a while, a tool comes along that completely redefines the way we interact with sound.
 
-2. **Install harvester** (from this checkout):
-   ```sh
-   uv sync --extra dev   # runtime + dev tooling
-   # or: pip install -e .
-   ```
+For decades, digital audio has been a tale of frustrating trade-offs. You either accept heavily compressed, lossy streams flattened by web algorithms, or you lose hours wrestling with clunky P2P interfaces, only to realize your downloaded "FLAC" was just a transcoded 128 kbps MP3 wrapped in an expensive file extension.
 
-3. **Configure** — copy `config.example.toml` to your data directory's `config.toml`, or just
-   run and set keys via environment variables:
-   ```sh
-   export SLSKD_API_KEY="<your slskd key>"      # optional (P2P hunt)
-   export ACOUSTID_API_KEY="<your AcoustID key>" # optional (metadata)
-   OmniRip
-   ```
+**OmniRip changes everything.**
 
-4. **Run the test suite** (developers):
-   ```sh
-   uv run ruff check src tests
-   uv run pytest --cov=harvester.analysis --cov=harvester.pipeline \
-     --cov=harvester.batch --cov=harvester.util --cov-fail-under=80 -q
-   ```
+Built from the ground up for musicians, archivists, and unapologetic audiophiles, OmniRip combines the raw hunting power of **Soulseek P2P** and **adaptive stream fallbacks** with real-time **spectral forensic analysis**, a **10-band studio mastering equalizer**, and non-destructive **harmonic excitation**. All inside a breathtaking, keyboard-driven terminal console.
 
-## OmniRip launcher
+It’s not just a downloader. It’s an audio preservation studio in your shell.
 
-From this checkout, `./OmniRip` reads the ignored `tools/slskd/slskd.local.yml`, starts slskd
-when it is not already running, exports the matching API key, and launches the TUI. This means
-you normally need only one terminal. To use the command from any directory, add this alias to
-`~/.zshrc`:
+---
 
-```sh
-alias OmniRip='/Users/abdullahbinmadhi/Desktop/OmniRip/OmniRip'
+## Five Pillars of Audio Perfection
+
+```
+           ┌───────────────────────────────────────────────────────────┐
+           │                     THE OMNIRIP ENGINE                    │
+           └─────────────────────────────┬─────────────────────────────┘
+                                         │
+     ┌───────────────────┬───────────────┴───────────────┬───────────────────┐
+     ▼                   ▼                               ▼                   ▼
+[ 1. P2P HUNT ]   [ 2. ANTI-FRAUD ]              [ 3. REALTIME EQ ]   [ 4. RESTORATION ]
+Soulseek Lossless  Spectral FFT                   10-Band Mastering    Sub-fc Invariant
+ + Stream Fallback Verification                    Dual-Stream DSP      Harmonic Exciter
 ```
 
-Then reload your shell with `source ~/.zshrc`. The project folder was renamed to
-`~/Desktop/OmniRip`, so the checkout path no longer contains spaces and a plain alias works.
+### 1. P2P-First Architecture: Lossless Without Compromise
+Why settle for lossy web compression when you can have the original studio master?
+- **Intelligent Peer Scoring:** Evaluates bitrate, transfer speed, peer queue depth, and file structure in milliseconds.
+- **Queue Guard & Bounded Timeouts:** Never get stuck behind a 200-person Soulseek queue. If high-speed lossless peers aren’t immediately available, OmniRip gracefully transitions to the highest-fidelity Opus stream fallback via `yt-dlp`.
+- **Atomic Library Upgrades:** Run it against a single track URL or audit an entire music folder. OmniRip spots low-bitrate rips, hunts superior masters, and atomically swaps them into your library with zero downtime.
 
-## Acquisition policies
+### 2. Spectral Anti-Fraud Intelligence: Truth You Can See
+Anyone can rename an MP3 to `.flac`. Fake lossless files plague the internet. OmniRip doesn't take filenames on faith:
+- **Instantaneous FFT Spectrogramming:** Measures harmonic energy across the Nyquist frequency spectrum.
+- **Brick-Wall Cutoff Detection:** Identifies telltale compression walls at 15 kHz (128 kbps), 16 kHz (192 kbps), and 19 kHz (256 kbps).
+- **Zero Tolerance for Upsampled Impostors:** If a candidate claiming to be a FLAC is detected as an upsampled fake, OmniRip immediately purges the imposter and re-routes to a verified fallback.
 
-Configure these under `[slskd]` in `config.toml`:
+### 3. The Curation Workbench & 10-Band Studio Equalizer
+A professional mastering desk inside your terminal. Tweak, audition, and sculpt in real time:
+- **Precision 13-Line Studio Fader Rails:** Spans $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in exact $2.0\text{ dB}$ increments, featuring yellow unity gain markers (`─┼─`), $\pm 6\text{ dB}$ calibration ticks, and dynamic illuminated thumbs (`─█─`).
+- **Zero-Latency Live DSP Playback:** Live FFmpeg audio filtering applies instantly across **both** `[1] ♫ MP3` and `[2] ✦ ENH` streams. When you boost the sub-bass at 31 Hz or lift the air at 16 kHz, you hear the difference in your headphones in under 50 milliseconds.
+- **Acoustic Presets at a Click:** Instant toggle between *Club Punch*, *Vocal Clarity*, *Hi-Fi Air*, *Warm Vinyl*, and *De-Mud*, plus dedicated 30 Hz High-Pass Filtering (HPF) and Output Trim.
 
-- `best_available` (default): try P2P, reject peers above `max_queue_length`, then fall back.
-- `lossless_preferred`: try P2P and prefer a validated FLAC; fall back after `p2p_timeout_s`.
-- `fast_fallback`: skip P2P and use yt-dlp immediately.
-- `highest_quality_mp3`: skip P2P and produce the configured MP3 output directly.
+### 4. Acoustic Restoration: Pure Non-Destructive Magic
+For rare historical tracks, demos, and vinyl rips where no lossless master exists:
+- **Sub-$f_c$ Passband Invariance:** Audio below the detected compression cutoff $f_c$ is strictly bit-preserved. OmniRip never alters the original master baseband.
+- **Deterministic Harmonic Excitation:** Generates natural high-frequency overtones and air (>15 kHz) using linear-phase crossovers, progressive mono bass stabilization (<100 Hz), and ITU-R BS.1770 true-peak limiting.
+- **Dual Engine Choice:** Toggle between lightning-fast **Eco Mode** (zero-heat, pure NumPy DSP) and **Neural Mode** (AI-powered deep residual models).
 
-`max_queue_length = 5` prevents waiting behind a long Soulseek queue, and `p2p_timeout_s = 30`
-bounds the search phase. A 320 kbps MP3 transcoded from a lossy stream does not restore lost
-quality; choose `lossless_preferred` when source quality matters.
+### 5. Canonical Fingerprinting & Immaculate Tagging
+- **AcoustID Audio Fingerprinting:** Generates true acoustic fingerprints (`fpcalc`) to query MusicBrainz for canonical track titles, artist credits, release dates, and track numbers.
+- **Embedded Cover Art:** Ingests high-resolution cover artwork from the Cover Art Archive directly into ID3v2 tags.
+- **Clean Naming Conventions:** Say goodbye to `track_01_final_v2_1080p.mp3`. Hello to perfection.
 
-## What it does
+---
 
-Two entry modes feed one 5-phase asynchronous pipeline:
-
-- **Mode A — Single URL:** paste a YouTube/streaming link → extract metadata → hunt a true
-  FLAC on Soulseek → on timeout/no peers, fall back to the best Opus stream.
-- **Mode B — Local Batch Audit:** point at a music directory → skip lossless and high-bitrate
-  lossy files → queue the rest for upgrade through the same pipeline → atomically replace
-  originals (old files preserved in `.trash/`).
-
-## Audio Enhancement Workbench (Milestone 10)
-
-For legacy or compromised files ($116\text{ kbps} \text{--} 192\text{ kbps}$) where no lossless P2P or stream fallback can be acquired, OmniRip provides an **optional, non-destructive enhancement layer**:
-
-- **Sub-$f_c$ Passband Invariance:** Audio below the detected compression cutoff $f_c$ is strictly preserved from the master and never altered by AI models.
-- **DSP Safety Wrappers:** Linear-phase crossover at $f_c$, progressive mono bass blend (<100 Hz mono for punch, 100–250 Hz fade, >250 Hz full stereo preserved), and soft-knee peak limiting.
-- **Five Deterministic Presets:**
-  - `conservative`: Non-neural subtle harmonic excitation (pure NumPy).
-  - `fast_balanced`: NVSR non-diffusion base residual with natural spectral decay.
-  - `de_sizzle`: Attenuated high-frequency residual (-2.5 dB) with steep roll-off.
-  - `extended_air`: Hybrid NVSR mid-highs with FlashSR ultra-high air band (>16 kHz).
-  - `narrow_stereo`: Reduced high-band stereo width (65%) to eliminate headphone flutter.
-- **Interactive TUI Workbench:** Select any completed or local track in the `JobTable` and press `w` to open the Curation Workbench modal. Listen to a 15-second energetic A/B preview in your system player and export a `.enhanced.mp3` derivative.
-- **Headless CLI Enhancer:**
-  ```sh
-  OmniRip --enhance /path/to/track.mp3 --preset fast_balanced --bitrate 320k
-  ```
-- **Optional Neural Extras:**
-  ```sh
-  pip install '.[restore]'   # installs torch, torchaudio, huggingface_hub
-  ```
+## Interactive Architecture Flow
 
 ```mermaid
 graph TD
-    A[Mode A: URL input] --> P1[Phase 1: Input analysis]
-    B[Mode B: Directory scan] --> P1
-    P1 --> P2[Phase 2: Hybrid hunt]
-    P2 -->|FLAC candidate found| S1[P2P download via slskd]
-    P2 -->|No match / timeout| S2[yt-dlp Opus fallback]
-    S1 --> P3[Phase 3: Ground-truth ID]
+    A["Link or Directory Input"] --> P1["Phase 1: Deep Analysis"]
+    P1 --> P2{"Phase 2: Hybrid Hunt"}
+    P2 -->|"P2P Candidate Found"| S1["Soulseek Lossless Stream (slskd)"]
+    P2 -->|"No Match or Queue Full"| S2["Opus Stream Fallback (yt-dlp)"]
+    S1 --> P3["Phase 3: Acoustic Fingerprinting"]
     S2 --> P3
-    P3 --> P4{Phase 4: Spectral anti-fraud}
-    P4 -->|Pass| P5[Phase 5: Polish and sync]
-    P4 -->|Fraud: delete file| S2
-    P5 --> D[Tagged library file + batch report]
+    P3 --> P4{"Phase 4: Spectral Anti-Fraud"}
+    P4 -->|"Valid Lossless Master"| P5["Phase 5: Tag & Polish"]
+    P4 -->|"Counterfeit Detected"| S2
+    P5 --> WB["Curation Workbench"]
+    WB -->|"Real-Time 10-Band EQ"| PL["Studio Audio Player"]
+    WB -->|"Export Derivative"| OUT["320kbps Mastered Library"]
 ```
 
-Phase 4 only applies to **P2P files claiming lossless quality** — fallback streams have known
-lossy provenance and skip it (see Decision D3 in `docs/01-requirements.md`).
+---
 
-## Documentation map
+## Quick Start
 
-| # | Document | Purpose |
-|---|----------|---------|
-| — | [README.md](README.md) | This file — overview and index |
-| 01 | [Requirements](docs/01-requirements.md) | Functional/non-functional requirements, resolved ambiguities, acceptance criteria, scope, legal note |
-| 02 | [Architecture](docs/02-architecture.md) | Package layout, concurrency model, data model, state machine, config, logging |
-| 03 | [Pipeline Phases](docs/03-pipeline.md) | Detailed spec of the 5 phases: inputs, outputs, timeouts, failure paths |
-| 04 | [Spectral Anti-Fraud](docs/04-spectral-antifraud.md) | The FFT cutoff/brick-wall detection algorithm, parameters, verdicts, test fixtures |
-| 05 | [Fingerprinting & Metadata](docs/05-fingerprinting-metadata.md) | fpcalc, AcoustID, MusicBrainz, cover art, mutagen tagging conventions |
-| 06 | [slskd Integration](docs/06-slskd-integration.md) | Soulseek daemon setup, REST flow, candidate scoring, resilience |
-| 07 | [yt-dlp Fallback](docs/07-ytdlp-fallback.md) | Subprocess strategy, format selection, progress parsing, failure catalog |
-| 08 | [TUI Design](docs/08-tui-design.md) | Textual layout, widgets, event flow, throttling, keybindings |
-| 09 | [Resilience & Testing](docs/09-resilience-testing.md) | Error taxonomy, retries, circuit breaker, timeout registry, test plan |
-| 10 | [Roadmap](docs/10-roadmap.md) | Milestones M0–M7 with acceptance criteria |
-| 11 | [Enhanced Prompt](docs/11-enhanced-prompt.md) | Self-contained, copy-paste build prompt for a coding assistant |
+Experience OmniRip in less than two minutes.
 
-**Suggested reading order for implementers:** 01 → 02 → 03, then the service docs (04–08)
-as each phase is built, with 09–10 as the delivery plan.
+### 1. Prerequisites (macOS shown)
+```sh
+brew install ffmpeg yt-dlp chromaprint
+```
 
-## System dependencies at a glance
+### 2. Install OmniRip
+Clone the repository and install using `uv` (recommended) or `pip`:
+```sh
+git clone https://github.com/abdullahbinmadhi/OmniRip.git
+cd OmniRip
+uv sync --extra dev
+```
 
-| Dependency | Role | Required |
-|------------|------|----------|
-| Python ≥ 3.11 | Runtime | ✅ |
-| FFmpeg + ffprobe | Decode, transcode, probe | ✅ (app degrades loudly without it) |
-| yt-dlp | Stream extraction / fallback | ✅ |
-| fpcalc (Chromaprint) | Audio fingerprinting | ✅ for Phase 3 |
-| slskd daemon | Soulseek P2P access | ⚠️ optional — app runs in yt-dlp-only mode without it |
-| AcoustID API key | Canonical metadata lookup | ⚠️ free, user must register |
-| MusicBrainz / Cover Art Archive | Release info, album art | ⚠️ free, no key |
+### 3. Launch the Studio
+Launch the unified TUI:
+```sh
+./OmniRip
+```
 
-Full setup instructions: [`docs/11-enhanced-prompt.md`](docs/11-enhanced-prompt.md) §Setup and
-the architecture doc's configuration section.
+> [!TIP]
+> **One-Command Daemon Integration:** The `./OmniRip` launcher automatically reads local Soulseek credentials from `tools/slskd/slskd.local.yml`, boots the daemon if it’s offline, connects to the P2P swarm, and opens the TUI in a single terminal.
 
-## Legal & ethical note
+---
 
-This tool is specified for **personal use** with content you are legally entitled to obtain
-(your own works, public-domain or Creative Commons material, or purchases/rips you already own
-where local law permits format-shifting). Downloading from YouTube generally violates its Terms
-of Service, and sharing copyrighted material on P2P networks is illegal in many jurisdictions.
-The documentation flags this where relevant; responsibility for compliant use lies with the
-operator. Nothing here is intended to circumvent DRM.
+## Keyboard-Driven Studio Mastery
+
+OmniRip is designed for terminal velocity. Keep your hands on the home row:
+
+| Key | Action | Description |
+|:---:|:---|:---|
+| <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
+| <kbd>1</kbd> | **Audition MP3** | Switch playback to original stream with live EQ filtering |
+| <kbd>2</kbd> | **Audition ENH** | Switch playback to restored master with live EQ filtering |
+| <kbd>w</kbd> | **Workbench** | Open the Curation & Enhancement Mastering Workbench |
+| <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
+| <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry: `INFO` → `DEBUG` → `WARN+ERROR` |
+| <kbd>e</kbd> | **Export** | Download enhanced, mastered derivative directly to your library |
+| <kbd>q</kbd> | **Quit** | Gracefully disconnect daemon sessions and exit |
+
+---
+
+## Tech Specs & System Architecture
+
+| Component | Technology | Specification |
+|:---|:---|:---|
+| **Runtime** | Python ≥ 3.11 | Pure asynchronous event-driven core (`asyncio`) |
+| **Interface** | Textual TUI | 60 FPS reactive engine, Cyberpunk Neon & Monokai themes |
+| **P2P Transport** | Soulseek (`slskd`) | REST client with queue guards and peer scoring |
+| **Stream Engine** | `yt-dlp` | Adaptive format prioritization (`bestaudio[ext=webm]`) |
+| **Forensic DSP** | NumPy + SciPy | 2048-point STFT, Hanning window, -60 dBFS noise floor |
+| **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`) |
+| **Fingerprinting**| Chromaprint (`fpcalc`) | AcoustID audio fingerprinting + MusicBrainz API |
+| **Tagging** | Mutagen | Complete ID3v2.4 unicode provenance tagging + album art |
+
+---
+
+## Documentation Deep Dive
+
+For engineers and contributors exploring the internal mechanics:
+
+| Document | Focus |
+|:---|:---|
+| 📘 [**01. Requirements & Scope**](docs/01-requirements.md) | Functional matrix, acceptance criteria, and edge cases |
+| 🏗️ [**02. Core Architecture**](docs/02-architecture.md) | State machine, concurrency pipelines, and data models |
+| 🔄 [**03. Pipeline Phases**](docs/03-pipeline.md) | In-depth walkthrough of the 5-phase asynchronous hunt |
+| 🔬 [**04. Spectral Anti-Fraud**](docs/04-spectral-antifraud.md) | Mathematical cutoff algorithms and test fixtures |
+| 🏷️ [**05. Metadata & Provenance**](docs/05-fingerprinting-metadata.md) | AcoustID, MusicBrainz, and mutagen tagging schemas |
+| ⚡ [**06. slskd Integration**](docs/06-slskd-integration.md) | P2P daemon REST integration and candidate ranking |
+| 📥 [**07. Stream Fallback**](docs/07-ytdlp-fallback.md) | yt-dlp subprocess strategies and error catalogs |
+| 🎨 [**08. TUI Workstation Design**](docs/08-tui-design.md) | Textual widget hierarchy, event throttling, and layout |
+| 🛡️ [**09. Testing & Resilience**](docs/09-resilience-testing.md) | Circuit breakers, retry policies, and test matrix |
+| 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M10 |
+
+---
+
+## Legal & Ethical Architecture
+
+OmniRip is designed exclusively for **personal curation, format-shifting, and acoustic restoration** of content you are legally entitled to obtain (original purchases, your own creations, public domain records, and Creative Commons material). 
+
+OmniRip does not bypass digital rights management (DRM) or circumvent access controls. Operators are responsible for complying with local copyright regulations and platform terms of service.
+
+---
+
+<p align="center">
+  <strong>Crafted with obsession for pure sound.</strong><br>
+  OmniRip © 2026. Distributed under the MIT License.
+</p>

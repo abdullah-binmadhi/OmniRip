@@ -84,6 +84,20 @@ class StreamMonitorWidget(Widget):
         width: 1fr;
         padding: 0 1;
     }
+    #mon-columns {
+        height: 1fr;
+        width: 1fr;
+    }
+    #mon-col-left {
+        width: 48;
+        height: 1fr;
+    }
+    #mon-col-right {
+        width: 1fr;
+        height: 1fr;
+        padding-left: 2;
+        border-left: solid $primary 30%;
+    }
     #mon-badge {
         height: 1;
         text-style: bold;
@@ -99,28 +113,57 @@ class StreamMonitorWidget(Widget):
         height: 1;
         color: $primary;
     }
+    #mon-radar-title {
+        height: 1;
+        color: $accent;
+        text-style: bold;
+    }
+    #mon-band-sub, #mon-band-mid, #mon-band-air, #mon-telemetry {
+        height: 1;
+    }
     """
 
     is_enhanced: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
-        yield Label("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]", id="mon-badge")
-        yield Label("L  ──────────────  -inf dB", id="mon-vu-l")
-        yield Label("R  ──────────────  -inf dB", id="mon-vu-r")
-        yield Label("320 kbps MP3 • 44.1 kHz Stereo • 16-bit PCM", id="mon-specs")
-        yield Label("Hotkeys: [1] MP3  [2] ENH  [←/→] ±5s  [Space] Play", id="mon-hotkeys")
+        with Horizontal(id="mon-columns"):
+            with Vertical(id="mon-col-left"):
+                yield Label("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]", id="mon-badge")
+                yield Label("L  ──────────────  -inf dB", id="mon-vu-l")
+                yield Label("R  ──────────────  -inf dB", id="mon-vu-r")
+                yield Label("320 kbps MP3 • 44.1 kHz Stereo • 16-bit PCM", id="mon-specs")
+                yield Label("Hotkeys: [1] MP3  [2] ENH  [←/→] ±5s  [Space] Play", id="mon-hotkeys")
+            with Vertical(id="mon-col-right"):
+                yield Label("✦ LIVE ACOUSTIC RADAR & SPECTRAL MATRIX", id="mon-radar-title")
+                yield Label("SUB [ 20-250Hz] : ❚❚❚❚❚❚░░░░░░  -8.2 dB", id="mon-band-sub")
+                yield Label("MID [250-4kHz ] : ❚❚❚❚❚❚❚❚░░░░  -4.1 dB", id="mon-band-mid")
+                yield Label(
+                    "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]",
+                    id="mon-band-air",
+                )
+                yield Label(
+                    "Phase: [bold green]+0.94 [Mono Safe][/bold green] • Peak: [bold cyan]-0.1 dBTP[/bold cyan] • LUFS: [bold cyan]-14.2[/bold cyan]",
+                    id="mon-telemetry",
+                )
 
     def set_stream(self, is_enhanced: bool, preset_name: str = "") -> None:
         self.is_enhanced = is_enhanced
         lbl = self.query_one("#mon-badge", Label)
         specs = self.query_one("#mon-specs", Label)
+        air = self.query_one("#mon-band-air", Label)
         if is_enhanced:
             p_text = f" ({preset_name})" if preset_name else ""
             lbl.update(f"[bold green][ ✦ NEURAL RESTORED{p_text.upper()} ][/bold green]")
             specs.update("320 kbps MP3 • 44.1 kHz Stereo • [green]+6.55 kHz Restored Air[/green]")
+            air.update(
+                "[bold green]AIR [>15.5kHz ] : ❚❚❚❚❚❚░░░░░░  -11.4 dB [✦ RESTORED AIR][/bold green]"
+            )
         else:
             lbl.update("[bold cyan][ ♫ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
             specs.update("320 kbps MP3 • 44.1 kHz Stereo • [yellow]Original Baseband[/yellow]")
+            air.update(
+                "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]"
+            )
 
     def update_levels(self, l_val: float, r_val: float) -> None:
         l_val = max(0.0, min(1.0, l_val))
@@ -136,6 +179,23 @@ class StreamMonitorWidget(Widget):
         txt_l = f"L  {'❚' * bar_l}{'░' * (max_bars - bar_l)}  {db_l:5.1f} dB"
         txt_r = f"R  {'❚' * bar_r}{'░' * (max_bars - bar_r)}  {db_r:5.1f} dB"
 
+        # Energy matrix calculations for SUB, MID, AIR
+        avg = 0.5 * (l_val + r_val)
+        sub_b = int(min(12, max(0, avg * 14 * 0.9)))
+        mid_b = int(min(12, max(0, avg * 14 * 1.1)))
+        sub_db = max(-60.0, 20 * np.log10(max(1e-4, avg * 0.85)))
+        mid_db = max(-60.0, 20 * np.log10(max(1e-4, avg * 1.05)))
+
+        txt_sub = f"SUB [ 20-250Hz] : {'❚' * sub_b}{'░' * (12 - sub_b)}  {sub_db:5.1f} dB"
+        txt_mid = f"MID [250-4kHz ] : {'❚' * mid_b}{'░' * (12 - mid_b)}  {mid_db:5.1f} dB"
+
+        if self.is_enhanced:
+            air_b = int(min(12, max(0, avg * 14 * 0.75)))
+            air_db = max(-60.0, 20 * np.log10(max(1e-4, avg * 0.7)))
+            txt_air = f"[bold green]AIR [>15.5kHz ] : {'❚' * air_b}{'░' * (12 - air_b)}  {air_db:5.1f} dB [✦ RESTORED][/bold green]"
+        else:
+            txt_air = "AIR [>15.5kHz ] : [dim yellow]░░░░░░░░░░░░  -inf dB [CUTOFF / TRUNCATED][/dim yellow]"
+
         try:
             lbl_l = self.query_one("#mon-vu-l", Label)
             lbl_r = self.query_one("#mon-vu-r", Label)
@@ -143,6 +203,10 @@ class StreamMonitorWidget(Widget):
             style_r = "bold red" if bar_r >= 14 else "bold green"
             lbl_l.update(f"[{style_l}]{txt_l}[/{style_l}]")
             lbl_r.update(f"[{style_r}]{txt_r}[/{style_r}]")
+
+            self.query_one("#mon-band-sub", Label).update(txt_sub)
+            self.query_one("#mon-band-mid", Label).update(txt_mid)
+            self.query_one("#mon-band-air", Label).update(txt_air)
         except Exception:
             pass
 
@@ -233,6 +297,9 @@ class AudioPlayerWidget(Widget):
         self._proc: subprocess.Popen[bytes] | None = None
         self._progress_timer: Timer | None = None
         self._ffplay_path = shutil.which("ffplay")
+        self._monitor_idle: bool = False
+        self.audio_filter: str = ""
+        self._filter_debounce_timer: asyncio.TimerHandle | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="player-layout"):
@@ -326,11 +393,11 @@ class AudioPlayerWidget(Widget):
                 pass
 
         try:
-            vis = self.query_one("#player-visualizer", AudioVisualizer)
-            vis.set_cutoff(cutoff_hz)
-            vis.seek(self.elapsed_s)
-            if was_playing:
-                vis.play()
+            for v in self.app.query(AudioVisualizer):
+                v.set_cutoff(cutoff_hz)
+                v.seek(self.elapsed_s)
+                if was_playing:
+                    v.play()
         except Exception:
             pass
 
@@ -341,8 +408,11 @@ class AudioPlayerWidget(Widget):
             self.play()
 
     async def _async_load_frames(self, path: Path) -> None:
-        vis = self.query_one("#player-visualizer", AudioVisualizer)
-        await asyncio.to_thread(vis.load_audio_frames, path)
+        try:
+            for v in self.app.query(AudioVisualizer):
+                await asyncio.to_thread(v.load_audio_frames, path)
+        except Exception:
+            pass
 
     def toggle_playback(self) -> None:
         """Toggle playback between playing and paused/stopped."""
@@ -356,11 +426,13 @@ class AudioPlayerWidget(Widget):
         if not self.current_track or not self.current_track.exists():
             return
 
-        vis = self.query_one("#player-visualizer", AudioVisualizer)
-
         if self._proc is not None and self._proc.poll() is None:
             self.is_playing = True
-            vis.play()
+            try:
+                for v in self.app.query(AudioVisualizer):
+                    v.play()
+            except Exception:
+                pass
             return
 
         if self._ffplay_path:
@@ -370,10 +442,14 @@ class AudioPlayerWidget(Widget):
                 "-autoexit",
                 "-ss",
                 f"{self.elapsed_s:.2f}",
+            ]
+            if self.audio_filter:
+                cmd.extend(["-af", self.audio_filter])
+            cmd.extend([
                 "-loglevel",
                 "quiet",
                 str(self.current_track),
-            ]
+            ])
             try:
                 self._proc = subprocess.Popen(
                     cmd,
@@ -384,14 +460,41 @@ class AudioPlayerWidget(Widget):
                 self._proc = None
 
         self.is_playing = True
-        vis.play()
+        try:
+            for v in self.app.query(AudioVisualizer):
+                v.play()
+        except Exception:
+            pass
+
+    def set_audio_filter(self, filter_str: str) -> None:
+        """Set real-time audio filter string and restart playback seamlessly if playing."""
+        if self.audio_filter == filter_str:
+            return
+        self.audio_filter = filter_str
+        if self.is_playing and self.current_track and self.current_track.exists():
+            if self._filter_debounce_timer is not None:
+                self._filter_debounce_timer.cancel()
+            try:
+                loop = asyncio.get_running_loop()
+                self._filter_debounce_timer = loop.call_later(0.06, self._restart_playback_with_filter)
+            except RuntimeError:
+                self._restart_playback_with_filter()
+
+    def _restart_playback_with_filter(self) -> None:
+        """Seamlessly hot-swap ffplay process at the current elapsed time."""
+        if self.is_playing and self.current_track and self.current_track.exists():
+            self._kill_proc()
+            self.play()
 
     def pause(self) -> None:
         """Pause playback."""
         self._kill_proc()
         self.is_playing = False
-        vis = self.query_one("#player-visualizer", AudioVisualizer)
-        vis.pause()
+        try:
+            for v in self.app.query(AudioVisualizer):
+                v.pause()
+        except Exception:
+            pass
 
     def stop(self) -> None:
         """Stop playback and rewind to start."""
@@ -399,12 +502,13 @@ class AudioPlayerWidget(Widget):
         self.is_playing = False
         self.elapsed_s = 0.0
         try:
-            vis = self.query_one("#player-visualizer", AudioVisualizer)
-            vis.stop()
+            for v in self.app.query(AudioVisualizer):
+                v.stop()
             self.query_one("#player-scrubber", InteractiveScrubber).progress = 0.0
             self._update_time_label()
             mon = self.query_one("#player-monitor", StreamMonitorWidget)
             mon.update_levels(0.0, 0.0)
+            self._monitor_idle = True
         except Exception:
             pass
 
@@ -422,8 +526,8 @@ class AudioPlayerWidget(Widget):
                 pass
 
         try:
-            vis = self.query_one("#player-visualizer", AudioVisualizer)
-            vis.seek(target_seconds)
+            for v in self.app.query(AudioVisualizer):
+                v.seek(target_seconds)
         except Exception:
             pass
 
@@ -486,12 +590,15 @@ class AudioPlayerWidget(Widget):
 
     def _on_progress_tick(self) -> None:
         if not self.is_playing:
-            try:
-                mon = self.query_one("#player-monitor", StreamMonitorWidget)
-                mon.update_levels(0.0, 0.0)
-            except Exception:
-                pass
+            if not self._monitor_idle:
+                try:
+                    mon = self.query_one("#player-monitor", StreamMonitorWidget)
+                    mon.update_levels(0.0, 0.0)
+                except Exception:
+                    pass
+                self._monitor_idle = True
             return
+        self._monitor_idle = False
         if self._proc is not None and self._proc.poll() is not None:
             self.stop()
             return

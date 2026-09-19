@@ -25,8 +25,8 @@ CYBERPUNK_THEME = Theme(
 )
 
 AVAILABLE_THEMES: list[tuple[str, str]] = [
-    ("Tokyo Night", "tokyo-night"),
     ("Cyberpunk Neon", "cyberpunk-neon"),
+    ("Tokyo Night", "tokyo-night"),
     ("Catppuccin Mocha", "catppuccin-mocha"),
     ("Nordic Frost", "nord"),
     ("Dracula Night", "dracula"),

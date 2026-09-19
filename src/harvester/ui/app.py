@@ -547,7 +547,7 @@ class HarvesterApp(App[None]):
     def on_mount(self) -> None:
         register_custom_themes(self)
         try:
-            self.theme = "tokyo-night"
+            self.theme = "cyberpunk-neon"
         except Exception:
             pass
         if self.auto_startup:

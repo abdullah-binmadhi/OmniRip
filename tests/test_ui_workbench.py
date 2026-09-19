@@ -6,10 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.app import App, ComposeResult
-from textual.widgets import Button
+from textual.widgets import Button, Label, ProgressBar, Select
 
 from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
+from harvester.ui.visualizer import AudioVisualizer
 from harvester.ui.workbench import WorkbenchWidget
 
 
@@ -68,8 +69,8 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
         assert player.current_track == dummy_mp3
         assert monitor.is_enhanced is False
 
-        # Comprehensive check for all 5 presets: Gain, Trim Bar, Slope, Stereo, Engine
-        expected_metrics = {
+        # Check Eco mode presets (Conservative DSP and Fast Neural)
+        eco_metrics = {
             "conservative": {
                 "gain": "0.0 dB",
                 "trim": "-3dB ─── ▲ ─── +3dB",
@@ -84,6 +85,33 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
                 "stereo": "100% Stereo (Mono <100Hz)",
                 "engine": "NVSR Multi-Band Residual",
             },
+        }
+
+        select = app.query_one("#wb-preset-select")
+        gain_label = app.query_one("#wb-spec-gain")
+        trim_label = app.query_one("#wb-spec-trim")
+        slope_label = app.query_one("#wb-spec-slope")
+        stereo_label = app.query_one("#wb-spec-stereo")
+        engine_label = app.query_one("#wb-spec-engine")
+
+        for preset_id, expected in eco_metrics.items():
+            select.value = preset_id
+            await pilot.pause()
+            assert wb.selected_preset_id == preset_id
+
+            assert expected["gain"] in str(gain_label.render())
+            assert expected["trim"] in str(trim_label.render())
+            assert expected["slope"] in str(slope_label.render())
+            assert expected["stereo"] in str(stereo_label.render())
+            assert expected["engine"] in str(engine_label.render())
+
+        # Switch to Neural AI Mode: reveals the 3 AI presets
+        btn_neural = app.query_one("#wb-btn-neural-toggle", Button)
+        btn_neural.press()
+        await pilot.pause()
+        assert wb.neural_enabled is True
+
+        ai_metrics = {
             "de_sizzle": {
                 "gain": "-2.5 dB",
                 "trim": "-3dB ══▲══ 0dB --",
@@ -107,14 +135,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
             },
         }
 
-        select = app.query_one("#wb-preset-select")
-        gain_label = app.query_one("#wb-spec-gain")
-        trim_label = app.query_one("#wb-spec-trim")
-        slope_label = app.query_one("#wb-spec-slope")
-        stereo_label = app.query_one("#wb-spec-stereo")
-        engine_label = app.query_one("#wb-spec-engine")
-
-        for preset_id, expected in expected_metrics.items():
+        for preset_id, expected in ai_metrics.items():
             select.value = preset_id
             await pilot.pause()
             assert wb.selected_preset_id == preset_id
@@ -244,6 +265,360 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             wb.trigger_models_download()
             status_label = app.query_one("#wb-status")
             assert "already downloaded" in str(status_label.render())
+
+
+async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) -> None:
+    """Verify that:
+    1. Eco Mode reveals only the first 2 options (Conservative DSP and Fast Neural).
+    2. AI Mode reveals only the last 3 options (Milder Highs, Extended Air, Narrow Residual).
+    3. Switching between the 3 AI options updates the audio stream and player immediately.
+    """
+    from textual.widgets import Select
+    from harvester.ui.workbench import ECO_PRESET_OPTIONS, AI_PRESET_OPTIONS
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        sel = app.query_one("#wb-preset-select", Select)
+        btn_toggle = app.query_one("#wb-btn-neural-toggle", Button)
+        btn_enh = app.query_one("#btn-stream-enh", Button)
+
+        # 1. Initially in Eco Mode: only 2 options revealed
+        assert wb.neural_enabled is False
+        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
+            "conservative",
+            "fast_balanced",
+        ]
+        assert wb.selected_preset_id == "conservative"
+
+        # 2. Toggle to Neural AI Mode: reveals only the 3 AI options
+        btn_toggle.press()
+        await pilot.pause()
+
+        assert wb.neural_enabled is True
+        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
+            "de_sizzle",
+            "extended_air",
+            "narrow_stereo",
+        ]
+        assert wb.selected_preset_id in ("extended_air", "de_sizzle", "narrow_stereo")
+
+        # 3. Setup mock audio and audition files for all 3 AI options
+        dummy_mp3 = tmp_path / "track.mp3"
+        dummy_mp3.write_bytes(b"base-audio")
+        wb.path_mp3 = dummy_mp3
+
+        ai_files = {}
+        for pid in ["de_sizzle", "extended_air", "narrow_stereo"]:
+            enh_file = wb.audition_cache_dir / f"{dummy_mp3.stem}_{pid}_neural.mp3"
+            enh_file.parent.mkdir(parents=True, exist_ok=True)
+            enh_file.write_bytes(f"audio-{pid}".encode())
+            ai_files[pid] = enh_file
+
+        # Activate ENH stream
+        btn_enh.press()
+        await pilot.pause()
+        assert wb.active_stream == "ENH"
+
+        # 4. Switch between the 3 AI options and verify immediate sound/player routing
+        for pid in ["de_sizzle", "extended_air", "narrow_stereo"]:
+            sel.value = pid
+            await pilot.pause()
+            assert wb.selected_preset_id == pid
+            assert wb.path_enh == ai_files[pid]
+            assert player.current_track == ai_files[pid]
+
+        # 5. Toggle back to Eco Mode: returns to the 2 Eco options
+        btn_toggle.press()
+        await pilot.pause()
+
+        assert wb.neural_enabled is False
+        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
+            "conservative",
+            "fast_balanced",
+        ]
+        assert wb.selected_preset_id in ("conservative", "fast_balanced")
+
+
+async def test_workbench_dead_space_elements_and_cached_download(tmp_path: Path) -> None:
+    """Verify that:
+    1. The signal chain pipeline and telemetry grid fill the workbench inspector space.
+    2. Download button leverages the audition cache for instant atomic export.
+    """
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        out_dir = tmp_path / "music_out"
+        out_dir.mkdir()
+        dummy_mp3 = out_dir / "mysong.mp3"
+        dummy_mp3.write_bytes(b"original-mp3-stream")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.id = "job-telemetry-test"
+        job.output_path = dummy_mp3
+        job.spectral.cutoff_hz = 15800.0
+
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        # Verify visualizer is 10-band
+        vis = app.query_one("#wb-visualizer", AudioVisualizer)
+        assert vis.num_bands == 10
+
+        # Verify download progress bar exists
+        pb = app.query_one("#wb-download-progress", ProgressBar)
+        assert pb is not None
+        assert pb.total == 100.0
+
+        # 1. Verify signal chain pipeline widgets
+        chain_title = app.query_one("#wb-chain-title")
+        assert "SIGNAL CHAIN PIPELINE" in str(chain_title.render())
+
+        chain_flow = app.query_one("#wb-chain-flow")
+        assert "1. Baseband" in str(chain_flow.render())
+        assert "5. Limiter" in str(chain_flow.render())
+
+        chain_detail = app.query_one("#wb-chain-detail")
+        assert "Engine:" in str(chain_detail.render())
+        assert "Status:" in str(chain_detail.render())
+
+        # 2. Verify telemetry grid widgets
+        telem_title = app.query_one("#wb-telemetry-title")
+        assert "HARMONIC MASTERING TELEMETRY" in str(telem_title.render())
+
+        telem_nyquist = app.query_one("#wb-telem-nyquist")
+        assert "22.05 kHz" in str(telem_nyquist.render())
+
+        telem_crossover = app.query_one("#wb-telem-crossover")
+        assert "384-tap FIR" in str(telem_crossover.render())
+
+        telem_passthrough = app.query_one("#wb-telem-passthrough")
+        assert "Bit-Exact" in str(telem_passthrough.render())
+
+        telem_limiter = app.query_one("#wb-telem-limiter")
+        assert "Limiter Ceiling" in str(telem_limiter.render())
+
+        telem_format = app.query_one("#wb-telem-format")
+        assert "320 kbps" in str(telem_format.render())
+
+        # 3. Simulate pre-rendered audition cache for fast download
+        mode_tag = "neural" if wb.neural_enabled else "eco"
+        cache_file = wb.audition_cache_dir / f"{dummy_mp3.stem}_{wb.selected_preset_id}_{mode_tag}.mp3"
+        cache_file.write_bytes(b"A" * 2048)  # Valid pre-rendered cache
+
+        target_file = out_dir / f"{dummy_mp3.stem}.enhanced.mp3"
+        assert not target_file.exists()
+
+        # Download should perform instant atomic copy from cache without invoking export_enhanced_derivative
+        with patch.object(wb.exporter, "export_enhanced_derivative") as mock_render:
+            btn_dl = app.query_one("#wb-btn-export", Button)
+            btn_dl.press()
+            await pilot.pause()
+            await pilot.pause()
+
+            mock_render.assert_not_called()
+
+        assert target_file.exists()
+        assert target_file.read_bytes() == b"A" * 2048
+        status = app.query_one("#wb-status")
+        assert "Downloaded" in str(status.render())
+
+
+async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
+    """Verify Workbench 2-page system and interactive 10-band equalizer."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "eq_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.id = "job-eq-test"
+        job.output_path = dummy_mp3
+        job.spectral.cutoff_hz = 15500.0
+
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        # 1. Verify initial state is Deck page
+        assert wb.active_page == "deck"
+        page_deck = app.query_one("#wb-page-deck")
+        page_eq = app.query_one("#wb-page-eq")
+        assert page_deck.styles.display != "none"
+        assert page_eq.styles.display == "none"
+
+        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
+        btn_page_eq = app.query_one("#wb-btn-page-eq", Button)
+        assert "● DECK" in str(btn_page_deck.label)
+        assert "○ EQ" in str(btn_page_eq.label)
+
+        # 2. Switch to 10-Band EQ page
+        btn_page_eq.press()
+        await pilot.pause()
+
+        assert wb.active_page == "eq"
+        assert page_deck.styles.display == "none"
+        assert page_eq.styles.display != "none"
+        assert "○ DECK" in str(btn_page_deck.label)
+        assert "● EQ" in str(btn_page_eq.label)
+
+        # 3. Test EQ Band adjustments (+/-)
+        val_16k = app.query_one("#wb-eq-val-16000", Label)
+        assert "0.0dB" in str(val_16k.render())
+
+        btn_up_16k = app.query_one("#wb-eq-up-16000", Button)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_up_16k.press()
+            await pilot.pause()
+            assert wb.eq_settings.bands[16000] == 1.0
+            assert "+1.0dB" in str(val_16k.render())
+
+            btn_up_16k.press()
+            await pilot.pause()
+            assert wb.eq_settings.bands[16000] == 2.0
+            assert "+2.0dB" in str(val_16k.render())
+
+            btn_dn_16k = app.query_one("#wb-eq-dn-16000", Button)
+            btn_dn_16k.press()
+            await pilot.pause()
+            assert wb.eq_settings.bands[16000] == 1.0
+            assert "+1.0dB" in str(val_16k.render())
+
+        # 4. Test HPF toggle
+        btn_hpf = app.query_one("#wb-btn-eq-hpf", Button)
+        assert "HPF 30Hz: OFF" in str(btn_hpf.label)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_hpf.press()
+            await pilot.pause()
+            assert wb.eq_settings.hpf_30hz is True
+            assert "HPF 30Hz: ON" in str(btn_hpf.label)
+
+        # 5. Test Trim cycle
+        btn_trim = app.query_one("#wb-btn-eq-trim", Button)
+        assert "TRIM: 0.0dB" in str(btn_trim.label)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_trim.press()
+            await pilot.pause()
+            assert wb.eq_settings.output_trim_db == -1.0
+            assert "TRIM: -1.0dB" in str(btn_trim.label)
+
+        # 6. Test +3dB Air button
+        btn_air = app.query_one("#wb-btn-eq-air", Button)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_air.press()
+            await pilot.pause()
+            assert wb.eq_settings.bands[16000] == 4.0
+            assert "+4.0dB" in str(val_16k.render())
+
+        # 7. Test Bypass toggle
+        btn_toggle = app.query_one("#wb-btn-eq-toggle", Button)
+        assert "⚡ EQ: ENGAGED" in str(btn_toggle.label)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_toggle.press()
+            await pilot.pause()
+            assert wb.eq_settings.enabled is False
+            assert "○ EQ: BYPASS" in str(btn_toggle.label)
+
+            btn_toggle.press()
+            await pilot.pause()
+            assert wb.eq_settings.enabled is True
+            assert "⚡ EQ: ENGAGED" in str(btn_toggle.label)
+
+        # 8. Test Reset Flat
+        btn_reset = app.query_one("#wb-btn-eq-reset", Button)
+        with patch.object(wb, "_schedule_eq_render"):
+            btn_reset.press()
+            await pilot.pause()
+            assert wb.eq_settings.bands[16000] == 0.0
+            assert wb.eq_settings.output_trim_db == 0.0
+            assert "0.0dB" in str(val_16k.render())
+
+        # 9. Test Preset selection
+        sel_preset = app.query_one("#wb-eq-preset-select", Select)
+        with patch.object(wb, "_schedule_eq_render"):
+            sel_preset.value = "Hi-Fi Air"
+            await pilot.pause()
+            assert wb.eq_settings.preset_name == "Hi-Fi Air"
+            assert wb.eq_settings.bands[16000] == 5.0
+            assert "+5.0dB" in str(val_16k.render())
+
+        # 10. Switch back to Deck page
+        btn_page_deck.press()
+        await pilot.pause()
+        assert wb.active_page == "deck"
+        assert page_deck.styles.display != "none"
+        assert page_eq.styles.display == "none"
+
+
+async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
+    """Verify that EQ adjustments update the player's live audio filter across both MP3 and ENH streams."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+
+        dummy_mp3 = tmp_path / "sync_eq_test.mp3"
+        dummy_mp3.write_bytes(b"dummy-audio-content")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.id = "job-sync-eq"
+        job.output_path = dummy_mp3
+        job.spectral.cutoff_hz = 15000.0
+
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        # 1. Initially flat on MP3 stream -> no filter
+        assert wb.active_stream == "MP3"
+        assert player.audio_filter == ""
+
+        # 2. Boost 31Hz and 63Hz bass bands while on MP3
+        btn_up_31 = app.query_one("#wb-eq-up-31", Button)
+        btn_up_31.press()
+        await pilot.pause()
+        assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
+
+        btn_up_63 = app.query_one("#wb-eq-up-63", Button)
+        btn_up_63.press()
+        await pilot.pause()
+        assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=1.00" in player.audio_filter
+
+        # 3. Switch stream to ENH -> active EQ filter must be preserved!
+        btn_enh = app.query_one("#btn-stream-enh", Button)
+        btn_enh.press()
+        await pilot.pause()
+        assert wb.active_stream == "ENH"
+        assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=1.00" in player.audio_filter
+
+        # 4. Apply 'Club Punch' preset while on ENH
+        sel_preset = app.query_one("#wb-eq-preset-select", Select)
+        sel_preset.value = "Club Punch"
+        await pilot.pause()
+        assert "equalizer=f=31:width_type=o:w=1:g=3.50" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=4.00" in player.audio_filter
+
+        # 5. Switch back to MP3 -> active EQ filter must still apply!
+        btn_mp3 = app.query_one("#btn-stream-mp3", Button)
+        btn_mp3.press()
+        await pilot.pause()
+        assert wb.active_stream == "MP3"
+        assert "equalizer=f=31:width_type=o:w=1:g=3.50" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=4.00" in player.audio_filter
+
+        # 6. Toggle HPF 30Hz
+        btn_hpf = app.query_one("#wb-btn-eq-hpf", Button)
+        btn_hpf.press()
+        await pilot.pause()
+        assert "highpass=f=30" in player.audio_filter
+
+        # 7. Reset Flat -> audio filter clears back to empty
+        btn_reset = app.query_one("#wb-btn-eq-reset", Button)
+        btn_reset.press()
+        await pilot.pause()
+        assert player.audio_filter == ""
 
 
 

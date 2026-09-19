@@ -166,3 +166,46 @@ def test_enhancement_exporter_neural_toggle():
     assert not exporter._providers["nvsr"].neural_enabled
 
 
+def test_export_progress_callback_granularity(tmp_path: Path):
+    """Verify that export_enhanced_derivative calls progress_callback with granular AI telemetry."""
+    exporter = EnhancementExporter()
+    source_path = tmp_path / "sample.mp3"
+    source_path.write_bytes(b"DUMMY_MP3_CONTENT")
+
+    dummy_audio = np.random.normal(0, 0.1, (2, 48000)).astype(np.float32)
+    progress_log: list[tuple[float, str]] = []
+
+    def on_progress(pct: float, msg: str) -> None:
+        progress_log.append((pct, msg))
+
+    with patch.object(exporter, "decode_audio_ffmpeg", return_value=dummy_audio):
+        with patch.object(exporter, "encode_mp3_ffmpeg"):
+            with patch.object(exporter, "_apply_provenance_tags"):
+                # Test with fast_balanced (NVSR neural preset)
+                out_path = exporter.export_enhanced_derivative(
+                    input_path=source_path,
+                    preset=PRESETS["fast_balanced"],
+                    progress_callback=on_progress,
+                )
+                assert out_path.exists() or out_path.name.endswith(".enhanced.mp3")
+
+    # Verify milestones were recorded
+    percentages = [p[0] for p in progress_log]
+    messages = [p[1] for p in progress_log]
+
+    assert 10.0 in percentages
+    assert 35.0 in percentages
+    assert 72.0 in percentages or 70.0 in percentages
+    assert 100.0 in percentages
+
+    # Crucial: verify intermediate AI telemetry between 35% and 70%
+    intermediate_pcts = [pct for pct in percentages if 35.0 < pct < 70.0]
+    assert len(intermediate_pcts) >= 3, f"Expected intermediate AI progress updates, got: {percentages}"
+
+    # Verify AI messages contain telemetry descriptors
+    all_msgs_str = " ".join(messages)
+    assert "AI Core" in all_msgs_str or "AI Engine" in all_msgs_str
+    assert "Spectral Balancer" in all_msgs_str or "Mastering Limiter" in all_msgs_str
+
+
+

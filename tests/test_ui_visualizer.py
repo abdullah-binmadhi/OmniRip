@@ -37,3 +37,21 @@ async def test_audio_visualizer_modes_and_render() -> None:
         # Cycle back to start
         assert vis.mode == "spectrum"
         await pilot.pause()
+
+
+async def test_audio_visualizer_10bands_and_full_width_ruler() -> None:
+    """Verify that spectrum analyzer renders 10 frequency bands and calibrated ruler."""
+    vis = AudioVisualizer(num_bands=10, cutoff_hz=15500.0)
+    vis.is_playing = True
+    vis.feed_levels([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+
+    rendered = vis._render_spectrum(width=100, height=8)
+    plain = rendered.plain
+
+    # Verify all 10 frequency band labels are present in the calibrated ruler
+    for band_label in ["31Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]:
+        assert band_label in plain
+
+    # Verify cutoff marker indicator
+    assert "fc: 15.5 kHz (Cutoff)" in plain
+    assert "┆" in plain

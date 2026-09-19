@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import mutagen
@@ -17,6 +18,7 @@ from harvester.analysis.enhancement.dsp import (
     recombine_audio,
     split_bands,
 )
+from harvester.analysis.enhancement.eq import MasteringEQSettings, apply_mastering_eq
 from harvester.analysis.enhancement.presets import EnhancementPreset
 from harvester.analysis.enhancement.provider import EnhancementProvider
 from harvester.services.enhancement.conservative_provider import ConservativeDSPProvider
@@ -123,16 +125,24 @@ class EnhancementExporter:
         preset: EnhancementPreset,
         cutoff_hz: float = 15500.0,
         sample_rate: int = 48000,
+        progress_callback: Callable[[float, str], None] | None = None,
+        eq_settings: MasteringEQSettings | None = None,
     ) -> np.ndarray:
         """
-        Render enhanced audio array according to preset parameters:
+        Apply complete enhancement DSP pipeline to in-memory audio array.
+
+        Pipeline:
         1. Progressive mono bass blend (<100 Hz mono, 100-250 Hz fade).
         2. Complementary band split at cutoff_hz.
         3. Provider residual generation.
         4. Preset width / gain / slope scaling.
         5. Recombination with untouched lower band + soft limiter.
+        6. 10-Band studio mastering equalizer & tone sculpting.
         """
         audio_2d, _ = ensure_2d_audio(audio)
+
+        if progress_callback:
+            progress_callback(38.0, "⚡ [AI Core]: Splitting frequency bands & crossover network...")
 
         # 1. Progressive mono bass
         if preset.progressive_mono:
@@ -145,9 +155,22 @@ class EnhancementExporter:
 
         # 3. Resolve provider
         provider = self._providers.get(preset.provider_type) or self._providers["conservative"]
-        raw_residual = provider.generate_residual(
-            base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz
-        )
+        if progress_callback:
+            progress_callback(42.0, f"⚡ [AI Engine]: Synthesizing neural residual ({preset.name})...")
+
+        import inspect
+        sig = inspect.signature(provider.generate_residual)
+        if "progress_callback" in sig.parameters:
+            raw_residual = provider.generate_residual(
+                base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz, progress_callback=progress_callback
+            )
+        else:
+            raw_residual = provider.generate_residual(
+                base_audio, sample_rate=sample_rate, cutoff_hz=cutoff_hz
+            )
+
+        if progress_callback:
+            progress_callback(58.0, "⚡ [Spectral Balancer]: Matching spectral slope & mid/side width...")
 
         # 4. Mid-Side width control on residual
         if preset.residual_stereo_width != 1.0 and raw_residual.shape[0] >= 2:
@@ -168,9 +191,32 @@ class EnhancementExporter:
             gain_factor = 10.0 ** (preset.residual_gain_db / 20.0)
             scaled_residual = scaled_residual * gain_factor
 
+        if progress_callback:
+            progress_callback(66.0, "⚡ [Mastering Limiter]: Recombining bands & true-peak limiting...")
+
         # 6. Recombination (sub-cutoff audio is untouched)
         enhanced = recombine_audio(lower_band, scaled_residual, ceiling_dbfs=preset.ceiling_dbfs)
+
+        # 7. Apply 10-Band Mastering Equalizer & Tone Sculptor if configured
+        if eq_settings is not None and (
+            eq_settings.enabled or eq_settings.hpf_30hz or eq_settings.output_trim_db != 0.0
+        ):
+            if progress_callback:
+                progress_callback(68.0, f"⚡ [10-Band EQ]: Sculpting tonal balance ({eq_settings.preset_name})...")
+            enhanced = apply_mastering_eq(
+                enhanced, settings=eq_settings, sample_rate=sample_rate, ceiling_dbfs=preset.ceiling_dbfs
+            )
+
         return enhanced
+
+    def generate_derivative_path(self, input_path: Path, preset: EnhancementPreset) -> Path:
+        """Generate default output path for enhancement derivative."""
+        stem = input_path.stem
+        if stem.endswith(".enhanced"):
+            out_name = f"{stem}.mp3"
+        else:
+            out_name = f"{stem}.enhanced.mp3"
+        return input_path.parent / out_name
 
     def export_enhanced_derivative(
         self,
@@ -179,37 +225,49 @@ class EnhancementExporter:
         output_path: Path | None = None,
         cutoff_hz: float = 15500.0,
         bitrate: str = "320k",
+        progress_callback: Callable[[float, str], None] | None = None,
+        eq_settings: MasteringEQSettings | None = None,
     ) -> Path:
         """
         Decode input file, render enhanced audio, write MP3 derivative, and attach ID3 tags.
-        Original input file is never touched or overwritten.
         """
         input_path = Path(input_path)
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
         if output_path is None:
-            # Default naming: {name}.enhanced.mp3 alongside original
-            stem = input_path.stem
-            if stem.endswith(".enhanced"):
-                out_name = f"{stem}.mp3"
-            else:
-                out_name = f"{stem}.enhanced.mp3"
-            output_path = input_path.parent / out_name
+            output_path = self.generate_derivative_path(input_path, preset)
         else:
             output_path = Path(output_path)
 
+        if progress_callback:
+            progress_callback(10.0, "Decoding audio source stream (FFmpeg)...")
         logger.info("Decoding audio from %s...", input_path.name)
         audio = self.decode_audio_ffmpeg(input_path)
 
+        if progress_callback:
+            progress_callback(35.0, f"⚡ [AI Core]: Ingesting float32 stereo audio (48kHz)...")
         logger.info("Rendering enhanced audio buffer with preset '%s'...", preset.name)
-        enhanced = self.render_audio_buffer(audio, preset=preset, cutoff_hz=cutoff_hz)
+        enhanced = self.render_audio_buffer(
+            audio,
+            preset=preset,
+            cutoff_hz=cutoff_hz,
+            progress_callback=progress_callback,
+            eq_settings=eq_settings,
+        )
 
+        if progress_callback:
+            progress_callback(72.0, "Encoding 320kbps MP3 derivative (LAME)...")
         logger.info("Encoding MP3 derivative to %s...", output_path.name)
         self.encode_mp3_ffmpeg(enhanced, output_path, bitrate=bitrate)
 
+        if progress_callback:
+            progress_callback(90.0, "Attaching ID3v2 provenance tags...")
         # Apply Mutagen ID3 provenance tags
         self._apply_provenance_tags(input_path, output_path, preset)
+
+        if progress_callback:
+            progress_callback(100.0, "Download complete.")
         return output_path
 
     def _apply_provenance_tags(

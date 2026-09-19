@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import numpy as np
 
@@ -58,6 +59,7 @@ class HybridCoOpProvider:
         audio: np.ndarray,
         sample_rate: int,
         cutoff_hz: float,
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> np.ndarray:
         """
         Synthesize multi-band residual combining NVSR mid-high and FlashSR air band.
@@ -65,17 +67,45 @@ class HybridCoOpProvider:
         audio_2d, was_1d = ensure_2d_audio(audio)
         mid_boundary = max(cutoff_hz, 16000.0)
 
+        if progress_callback:
+            progress_callback(43.0, "⚡ [Hybrid Co-Op]: Invoking NVSR mid-high frequency generator...")
+
+        import inspect
+
         # 1. Generate NVSR residual above cutoff
-        nvsr_res = self.nvsr.generate_residual(audio_2d, sample_rate, cutoff_hz)
+        sig_nvsr = inspect.signature(self.nvsr.generate_residual)
+        if "progress_callback" in sig_nvsr.parameters:
+            nvsr_res = self.nvsr.generate_residual(
+                audio_2d, sample_rate, cutoff_hz, progress_callback=progress_callback
+            )
+        else:
+            nvsr_res = self.nvsr.generate_residual(audio_2d, sample_rate, cutoff_hz)
+
         # Bandpass NVSR to [cutoff_hz, mid_boundary]
         nvsr_mid_high, _ = split_bands(nvsr_res, cutoff_hz=mid_boundary, sample_rate=sample_rate)
 
+        if progress_callback:
+            progress_callback(49.0, "⚡ [Hybrid Co-Op]: Invoking FlashSR ultrasonic air band generator...")
+
         # 2. Generate FlashSR air-band residual (> 16 kHz)
-        flash_res = self.flashsr.generate_residual(audio_2d, sample_rate, mid_boundary)
+        sig_flash = inspect.signature(self.flashsr.generate_residual)
+        if "progress_callback" in sig_flash.parameters:
+            flash_res = self.flashsr.generate_residual(
+                audio_2d, sample_rate, mid_boundary, progress_callback=progress_callback
+            )
+        else:
+            flash_res = self.flashsr.generate_residual(audio_2d, sample_rate, mid_boundary)
+
         _, flash_air = split_bands(flash_res, cutoff_hz=mid_boundary, sample_rate=sample_rate)
+
+        if progress_callback:
+            progress_callback(54.0, "⚡ [Hybrid Co-Op]: Summing complementary phase-aligned sub-bands...")
 
         # 3. Sum complementary residuals
         combined_residual = nvsr_mid_high + flash_air
+
+        if progress_callback:
+            progress_callback(56.0, "⚡ [Hybrid Co-Op]: Matching spectral slope & target decay...")
 
         # 4. Final spectral slope sanity check
         scaled = match_spectral_slope(

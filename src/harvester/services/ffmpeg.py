@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -21,6 +23,7 @@ class FfmpegService:
     def __init__(self, config: AppConfig, registry: SubprocessRegistry | None = None) -> None:
         self.config = config
         self.registry = registry or SubprocessRegistry()
+        self._probe_cache: dict[tuple[Path, int], dict[str, Any]] = {}
 
     async def _resolve(self, setting: str) -> list[str]:
         try:
@@ -94,7 +97,84 @@ class FfmpegService:
         args.append(str(output_path))
         return args
 
+    async def probe_audio_info(
+        self, path: Path, *, job_id: str | None = None
+    ) -> dict[str, Any]:
+        """Probe duration, sample rate, codec, and channels in a single ffprobe JSON pass."""
+        try:
+            mtime = path.stat().st_mtime_ns if path.is_file() else 0
+        except OSError:
+            mtime = 0
+        resolved_path = path.resolve()
+        cache_key = (resolved_path, mtime)
+        if cache_key in self._probe_cache:
+            return self._probe_cache[cache_key]
+
+        info: dict[str, Any] = {
+            "duration": None,
+            "sample_rate": None,
+            "codec": None,
+            "channels": None,
+        }
+        try:
+            binary = await self._resolve(self.config.ffmpeg.probe_binary)
+            command = [
+                *binary,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=codec_name,sample_rate,channels",
+                "-of",
+                "json",
+                str(path),
+            ]
+            returncode, stdout, stderr = await self._run(
+                command,
+                job_id=job_id,
+                timeout_s=self.config.timeouts.ffprobe_s,
+            )
+            if returncode == 0 and stdout:
+                payload = json.loads(stdout.decode("utf-8", errors="replace"))
+                fmt = payload.get("format", {})
+                if "duration" in fmt:
+                    try:
+                        dur = float(fmt["duration"])
+                        if dur > 0:
+                            info["duration"] = dur
+                    except (ValueError, TypeError):
+                        pass
+                streams = payload.get("streams", [])
+                if streams:
+                    s = streams[0]
+                    codec = s.get("codec_name")
+                    if codec:
+                        info["codec"] = str(codec).strip().lower()
+                    if "sample_rate" in s:
+                        try:
+                            info["sample_rate"] = int(s["sample_rate"])
+                        except (ValueError, TypeError):
+                            pass
+                    if "channels" in s:
+                        try:
+                            info["channels"] = int(s["channels"])
+                        except (ValueError, TypeError):
+                            pass
+        except Exception:
+            pass
+
+        if (
+            info["duration"] is not None
+            or info["sample_rate"] is not None
+            or info["codec"] is not None
+        ):
+            self._probe_cache[cache_key] = info
+        return info
+
     async def probe_duration(self, path: Path, *, job_id: str | None = None) -> float:
+        info = await self.probe_audio_info(path, job_id=job_id)
+        if info.get("duration") is not None and info["duration"] > 0:
+            return info["duration"]
+
         binary = await self._resolve(self.config.ffmpeg.probe_binary)
         command = [
             *binary,
@@ -123,6 +203,10 @@ class FfmpegService:
         return duration
 
     async def probe_codec(self, path: Path, *, job_id: str | None = None) -> str:
+        info = await self.probe_audio_info(path, job_id=job_id)
+        if info.get("codec"):
+            return info["codec"]
+
         binary = await self._resolve(self.config.ffmpeg.probe_binary)
         command = [
             *binary,
@@ -216,6 +300,10 @@ class FfmpegService:
     async def probe_sample_rate(
         self, path: Path, *, job_id: str | None = None
     ) -> int | None:
+        info = await self.probe_audio_info(path, job_id=job_id)
+        if info.get("sample_rate") is not None:
+            return info["sample_rate"]
+
         binary = await self._resolve(self.config.ffmpeg.probe_binary)
         command = [
             *binary,
