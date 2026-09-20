@@ -48,6 +48,9 @@ where = ["src"]
 venvPath = "."
 venv = ".venv"
 
+[tool.pyrefly]
+python-interpreter-path = ".venv/bin/python"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
