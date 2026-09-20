@@ -55,13 +55,22 @@ Thumbs.db
 
 # IDE & Editor files
 .idea/
+.vscode/
+.zed/
 *.swp
 *.swo
 *~
-.vscode/*
-!.vscode/settings.json
-.zed/*
-!.zed/settings.json
+
+# Local environment & versioning
+.python-version
+
+# AI Agent & Harness files (local-only)
+AGENTS.md
+.rules
+.graphifyignore
+
+# Local reference documents
+*.pdf
 
 # Model weights & Checkpoints
 *.pt

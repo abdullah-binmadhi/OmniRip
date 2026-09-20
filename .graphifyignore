@@ -1,3 +1,0 @@
-# Vendored toolchain (slskd daemon bundle + web assets) — runtime dependency,
-# not part of the project corpus. Tracked tooling, not source.
-tools/
