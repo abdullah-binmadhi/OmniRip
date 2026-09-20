@@ -93,6 +93,37 @@ Extract clean acapellas for sampling or generate pristine backing tracks for DJ 
 - **Automated Acoustic Defect Detector:** Built-in acoustic analyzer that measures mid/side dominance, spectral flatness, and vocal core frequency energy. It automatically identifies **Pure Instrumental** tracks to bypass vocal bleed gating and preserves sub-bass punch, or detects vocals and auto-tunes recommended remediation flags and blend weights.
 - **5-Model On-Device AI Registry:** Press the **`MODELS`** button in the workbench to inspect and verify all five on-device neural engines (**BS-RoFormer**, **HDEMUCS**, **De-Reverb**, **FlashSR**, and **NVSR**). OmniRip checks local caches, verifies dependencies, reclaims PyTorch Metal memory pools, and automatically downloads missing weights on demand.
 
+### 5b. FL Studio Multi-Track Arrangement & 10 Surgical Stem Edit Operations
+Take complete timeline command of separated stems with OmniRip's terminal DAW arrangement studio, inspired by FL Studio:
+- **6-Page Studio Layout (<kbd>F1</kbd>–<kbd>F6</kbd>):** A clean full-width workspace with zero screen crowding:
+  - **`[F1] ≡ TRACKS & LOGS`**: Live P2P queue, download telemetry, and track inspection.
+  - **`[F2] ◈ VISUALIZER`**: Dedicated multi-panel audio visualization studio featuring a dual-channel calibrated VU meter, 10-band octave real-time spectrum analyzer, phase correlation stereo meter, and full-width braille waveform scrubber.
+  - **`[F3] ⎈ DECK`**: Mastering deck overview, loudness radar, and anti-fraud spectral diagnostics.
+  - **`[F4] 🎚 EQ`**: 10-band studio mastering equalizer with $\pm 12\text{ dB}$ vertical fader rails and real-time DSP auditioning.
+  - **`[F5] 𝄢 STEMS`**: 5-stage neural ensemble separation control with Linkwitz-Riley LR4 crossover, de-reverb, and 20 forensic remediations. Includes a one-click **`[ ▤ OPEN IN LAYERS ]`** bridge.
+  - **`[F6] ▤ LAYERS`**: FL Studio multi-track arrangement studio with timeline editing and surgical tools.
+- **FL Studio Multi-Track Timeline:**
+  - **Track Header Cards (24-char width):** Each stem has a dedicated header with track badge, glowing Mute `[●]` LED indicator, Solo `[S]` button, and distinct stem color accents (Vocals: Neon Pink `#ff3399`, Drums: Crimson Red `#ff4444`, Bass: Royal Blue `#3388ff`, Instruments: Amber `#ffaa00`).
+  - **3-Row High-Density Braille Waveforms:** Real multi-track arrangement visualizer with per-cell Braille waveform envelopes showing transient activity across time.
+  - **Dual Musical Time Ruler:** Displays both musical **Bars & Beats** (e.g. `BAR 1.1`, `BAR 2.1` calibrated to track BPM) and exact wall-clock time (`00:00`, `00:05`, `00:10`).
+- **10 Per-Second Surgical DSP Edit Tools:**
+  Apply precise mathematical DSP fixes to any individual 1-second cell on any stem:
+  - **`[M] MUTE` (<kbd>m</kbd>):** Zeroes amplitude in the selected second.
+  - **`[B] BLEED` (<kbd>b</kbd>):** Attenuates sideband vocal/instrument bleed.
+  - **`[S] DE-ESS` (<kbd>s</kbd>):** Cuts harsh $5.5\text{–}8.5\text{ kHz}$ sibilance spikes.
+  - **`[U] DE-MUD` (<kbd>u</kbd>):** Cuts boomy $250\text{–}400\text{ Hz}$ boxiness.
+  - **`[P] PUNCH` (<kbd>p</kbd>):** Transient compressor and dynamic punch exciter.
+  - **`[H] DE-HUM` (<kbd>h</kbd>):** 50/60 Hz notch filter plus 30–120 Hz sub-rumble attenuation ($-18\text{ dB}$).
+  - **`[A] AIR+` (<kbd>a</kbd>):** High-shelf sheen boost ($+4\text{ dB}$) from $10\text{–}20\text{ kHz}$ for presence and sparkle.
+  - **`[C] DE-CLICK` (<kbd>c</kbd>):** Outlier transient derivative spike detector with median interpolation.
+  - **`[G] GATE` (<kbd>g</kbd>):** Soft downward expander for low-level noise floors ($< -38\text{ dBFS}$).
+  - **`[T] TAME` (<kbd>t</kbd>):** Soft tanh peak compression limiter for hot transients ($> -3\text{ dBFS}$).
+  - **`[R] RESET` (<kbd>r</kbd>):** Reverts the selected cell back to the original unedited stem.
+- **Coherent Stems-to-Layers Pipeline:**
+  - One-click **`[ ▤ OPEN IN LAYERS ]`** button on the `STEMS` page seamlessly loads newly separated stems directly into the multi-track timeline.
+  - If stems are not yet separated, the **`[ ⚡ BUILD STEMS ]`** button inside `LAYERS` initiates the neural pipeline on demand.
+  - Dedicated mouse-clickable tool buttons on the Layers action bar provide instant access to all 10 surgical operations, plus **`[ 💾 SAVE LAYERS ]`** (exports 320 kbps mastered layer stems with 20 ms clickless crossfades) and **`[ CLEAR ]`**.
+
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
 - **AcoustID Audio Fingerprinting:** Instead of relying on random filenames, OmniRip uses Chromaprint (`fpcalc`) to listen to the song's acoustic fingerprint—just like Shazam. It queries the open MusicBrainz database to retrieve the official canonical song title, artist name, album, release year, genre, and track number.
@@ -182,11 +213,18 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | Key | Action | Description |
 |:---:|:---|:---|
 | <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
+| <kbd>F1</kbd>–<kbd>F6</kbd> | **Page Navigation** | Switch studio pages: `[F1]` Tracks & Logs, `[F2]` Visualizer, `[F3]` Deck, `[F4]` EQ, `[F5]` Stems, `[F6]` Layers |
 | <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
 | <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
 | <kbd>3</kbd> | **Audition [3] ✦ VOC** | Switch playback to Isolated Studio Acapella / Vocal stem with live 10-band EQ |
 | <kbd>4</kbd> | **Audition [4] ✦ INST** | Switch playback to Bleed-Free Instrumental stem with live 10-band EQ |
 | <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to sculpt EQ, stems, and audition modes |
+| <kbd>m</kbd> / <kbd>b</kbd> / <kbd>s</kbd> / <kbd>u</kbd> / <kbd>p</kbd> | **Surgical Stem Ops** | Apply Mute, Bleed, De-Ess, De-Mud, or Drum Punch to selected 1-second cell |
+| <kbd>h</kbd> / <kbd>a</kbd> / <kbd>c</kbd> / <kbd>g</kbd> / <kbd>t</kbd> | **Advanced Surgical Ops**| Apply De-Hum, Air+, De-Click, Noise Gate, or Transient Tame to selected cell |
+| <kbd>r</kbd> | **Reset Cell** | Revert active timeline cell back to unedited stem audio |
+| <kbd>x</kbd> / <kbd>z</kbd> | **Mute / Solo Track** | Toggle Mute `[●]` LED or Solo `[S]` state on selected stem track |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | **Track Select** | Navigate active stem track in Layers studio |
+| <kbd>←</kbd> / <kbd>→</kbd> | **Scrub / Seek** | Scrub playhead across timeline / Move per-second surgical cursor |
 | <kbd>+</kbd> / <kbd>-</kbd> | **Stem Texture Blend** | Fine-tune neural stem blend weight ($0\% = \text{Cleanest} \leftrightarrow 100\% = \text{Richest}$) |
 | <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
 | <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry levels: `INFO` → `DEBUG` → `WARN+ERROR` |
@@ -206,6 +244,7 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | **Forensic DSP** | NumPy + SciPy | 2048-point STFT, Hanning window, -60 dBFS noise floor |
 | **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`) |
 | **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, de-reverb, 20 surgical FX |
+| **Layer Studio** | FL Studio Timeline | 24-char track headers, Mute/Solo LEDs, 3-row braille waveforms, 10 DSP tools |
 | **Acoustic Detector**| Spectral Analysis | Real-time mid/side dominance, tonality, vocal presence auto-tuning |
 | **Restoration** | FlashSR + NVSR + Eco | Sub-cutoff bit-exact invariance, 384-tap linear-phase crossover |
 | **AI Model Registry**| ModelManager (5 Models) | Automatic download & verification: `bs_roformer`, `hdemucs`, `dereverb`, `flashsr`, `nvsr` |
@@ -230,6 +269,8 @@ For engineers and contributors exploring the internal mechanics:
 | 🎨 [**08. TUI Workstation Design**](docs/08-tui-design.md) | Textual widget hierarchy, event throttling, and layout |
 | 🛡️ [**09. Testing & Resilience**](docs/09-resilience-testing.md) | Circuit breakers, retry policies, and test matrix |
 | 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M10 |
+| 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 5-Model on-device AI registry, weights management, PyTorch MPS |
+| 🎛️ [**12. Layer Studio & Surgical Edits**](docs/12-layers-studio.md) | FL Studio arrangement timeline, 10 per-second surgical DSP edits |
 
 ---
 

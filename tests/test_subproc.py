@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 import pytest
 
@@ -9,7 +10,7 @@ from harvester.util.subproc import SubprocessRegistry
 async def test_registry_terminates_process_by_job_prefix() -> None:
     registry = SubprocessRegistry()
     process = await asyncio.create_subprocess_exec(
-        "python",
+        sys.executable,
         "-c",
         "import time; time.sleep(30)",
         stdout=asyncio.subprocess.PIPE,

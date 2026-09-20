@@ -6,6 +6,24 @@ All notable changes to `harvester` are documented here. Versioning follows
 
 ## [Unreleased]
 
+### Added
+
+- **6-Page Full-Width Navigation Architecture:**
+  - Decoupled workbench into six dedicated full-width pages (`F1`–`F6`): `[ ≡ TRACKS & LOGS ]`, `[ ◈ VISUALIZER ]`, `[ ⎈ DECK ]`, `[ 🎚 EQ ]`, `[ 𝄢 STEMS ]`, and `[ ▤ LAYERS ]`.
+  - Dedicated multi-panel Audio Visualizer studio (`F2`) featuring a dual-channel calibrated VU meter, real-time 10-band octave spectrum analyzer, stereo phase correlation meter, and full-width braille waveform scrub ruler.
+- **FL Studio Multi-Track Arrangement Interface:**
+  - 24-character track header cards displaying stem badges, glowing Mute `[●]` LED indicators, Solo `[S]` buttons, and distinct stem color accents (Vocals Pink, Drums Red, Bass Blue, Instruments Amber).
+  - 3-row high-density Braille waveforms per track displaying amplitude and transient contours.
+  - Dual musical Bars/Beats and time ruler calibrated to track BPM.
+- **10 Per-Second Surgical Stem DSP Operations:**
+  - Expanded surgical toolkit with 5 new operations: `de_hum` (50/60 Hz notch + sub-rumble cut, -18 dB), `air_boost` (10–20 kHz high-shelf presence sheen, +4 dB), `de_click` (outlier derivative spike detector with 5-sample median interpolation), `noise_gate` (downward expander for noise floor < -38 dBFS), and `transient_tame` (soft tanh peak compression limiter > -3 dBFS).
+  - Existing surgical operations: `mute`, `de_bleed`, `de_ess`, `de_mud`, `drum_punch`, and `reset`.
+  - Distinct op badges (`M`, `B`, `S`, `U`, `P`, `H`, `A`, `C`, `G`, `T`) on timeline cells.
+- **Stems-to-Layers Pipeline Cohesion:**
+  - One-click `[ ▤ OPEN IN LAYERS ]` bridge on `STEMS` page directly populating the FL Studio arrangement timeline.
+  - One-click `[ ⚡ BUILD STEMS ]` trigger on `LAYERS` toolbar initiating neural separation on demand.
+  - Mouse-clickable tool palette buttons on the Layers action bar for all 10 operations, `[ 💾 SAVE LAYERS ]`, and `[ CLEAR ]`.
+
 ## [0.2.0] — 2026-09-18
 
 Milestone 10 release: Neural Audio Enhancement Workbench.

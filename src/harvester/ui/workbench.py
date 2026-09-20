@@ -31,6 +31,7 @@ from harvester.analysis.enhancement.eq import (
     EQ_PRESETS,
     MasteringEQSettings,
 )
+from harvester.analysis.enhancement.layer_editor import EditPlan
 from harvester.analysis.enhancement.presets import PRESETS
 from harvester.analysis.enhancement.stem_separator import (
     INST_REMEDIATIONS,
@@ -39,6 +40,7 @@ from harvester.analysis.enhancement.stem_separator import (
 from harvester.models import TrackJob
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
+from harvester.ui.layer_studio import LayerStudio
 from harvester.ui.visualizer import AudioVisualizer
 
 if TYPE_CHECKING:
@@ -518,6 +520,78 @@ class WorkbenchWidget(Widget):
         width: 1fr;
         display: none;
     }
+    #wb-page-layers {
+        height: auto;
+        width: 1fr;
+        display: none;
+    }
+    #wb-page-vis {
+        height: auto;
+        min-height: 1fr;
+        border-top: heavy $primary;
+        background: $panel;
+        padding: 0 1;
+        display: none;
+    }
+    .wb-vis-row-top {
+        height: 10;
+        width: 1fr;
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+    .wb-vis-row-bot {
+        height: 10;
+        width: 1fr;
+        margin-bottom: 1;
+    }
+    .wb-vis-cell {
+        width: 1fr;
+        height: 10;
+        border: round $secondary;
+        background: #0d0e15;
+        padding: 0 1;
+        margin-right: 1;
+    }
+    .wb-vis-label {
+        text-style: bold;
+        color: $warning;
+        height: 1;
+        margin-bottom: 0;
+    }
+    #wb-layers-title {
+        height: 1;
+        width: 1fr;
+        color: $accent;
+        text-style: bold;
+        margin-top: 1;
+    }
+    #wb-layers-actions {
+        height: auto;
+        width: 1fr;
+        margin-top: 1;
+    }
+    #wb-layers-actions .wb-layers-btn {
+        margin-right: 1;
+    }
+    #wb-layers-actions .wb-layers-btn:hover {
+        text-style: bold;
+        background: $accent;
+        color: $surface;
+    }
+    #wb-layers-hint {
+        height: 1;
+        width: 1fr;
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #wb-layer-status {
+        margin-bottom: 1;
+    }
+    #wb-layer-studio {
+        height: auto;
+        min-height: 7;
+        margin-top: 1;
+    }
     #wb-blend-row {
         height: auto;
         width: 1fr;
@@ -736,6 +810,12 @@ class WorkbenchWidget(Widget):
         self._is_generating_stems: bool = False
         self._active_stem_tasks: set[Path] = set()
 
+        # Layer Studio: separated per-source stems + their stem directory
+        self.layer_track = None
+        self.layer_stem_dir: Path | None = None
+        self.layer_edit_plan: EditPlan | None = None
+        self._is_building_layers: bool = False
+
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
         calibration ticks, and movable thumb.
@@ -848,7 +928,8 @@ class WorkbenchWidget(Widget):
                     )
                     yield Button("EQ", id="wb-btn-page-eq", classes="wb-page-btn")
                     yield Button("STEMS", id="wb-btn-page-stems", classes="wb-page-btn")
-            yield AudioVisualizer(num_bands=10, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
+                    yield Button("LAYERS", id="wb-btn-page-layers", classes="wb-page-btn")
+                    yield Button("VISUALS", id="wb-btn-page-vis", classes="wb-page-btn")
             with Vertical(id="wb-page-deck"):
                 yield Label("RESTORATION MASTERING DECK", id="wb-inspector-title")
                 yield Label("", id="wb-gauge-orig")
@@ -930,6 +1011,7 @@ class WorkbenchWidget(Widget):
                     yield Button("🎤  AUDITION VOC", id="wb-btn-audition-voc", classes="wb-stem-action-btn")
                     yield Button("🎸  AUDITION INST", id="wb-btn-audition-inst", classes="wb-stem-action-btn")
                     yield Button("📦  AI MODELS", id="wb-btn-stem-models", classes="wb-stem-action-btn")
+                    yield Button("▤  OPEN IN LAYERS", id="wb-btn-open-layers", classes="wb-stem-action-btn wb-action-resep")
                 yield Label("", id="wb-acoustic-status", classes="wb-acoustic-status")
 
                 with Vertical(id="wb-blend-row"):
@@ -1039,6 +1121,58 @@ class WorkbenchWidget(Widget):
                             classes="wb-diagnostic-list",
                         )
 
+            with Vertical(id="wb-page-layers"):
+                yield Label(
+                    "LAYER STUDIO  [Per-Second Susbstem Timeline: VOCALS / BASS / DRUMS / OTHER]",
+                    id="wb-layers-title",
+                    classes="wb-section-title",
+                )
+                with Horizontal(id="wb-layers-actions"):
+                    yield Button("⚡ BUILD STEMS", id="wb-btn-build-layers", classes="wb-layers-btn")
+                    yield Button("💾 SAVE LAYERS", id="wb-btn-save-layers", classes="wb-layers-btn")
+                    yield Button("CLEAR", id="wb-btn-clear-layers", classes="wb-layers-btn")
+                    yield Button("MUTE", id="wb-btn-tool-mute", classes="wb-tool-btn")
+                    yield Button("BLEED", id="wb-btn-tool-bleed", classes="wb-tool-btn")
+                    yield Button("DE-ESS", id="wb-btn-tool-ess", classes="wb-tool-btn")
+                    yield Button("DE-MUD", id="wb-btn-tool-mud", classes="wb-tool-btn")
+                    yield Button("PUNCH", id="wb-btn-tool-punch", classes="wb-tool-btn")
+                    yield Button("DE-HUM", id="wb-btn-tool-hum", classes="wb-tool-btn")
+                    yield Button("AIR+", id="wb-btn-tool-air", classes="wb-tool-btn")
+                    yield Button("DE-CLICK", id="wb-btn-tool-click", classes="wb-tool-btn")
+                    yield Button("GATE", id="wb-btn-tool-gate", classes="wb-tool-btn")
+                    yield Button("TAME", id="wb-btn-tool-tame", classes="wb-tool-btn")
+                    yield Button("RESET", id="wb-btn-tool-reset", classes="wb-tool-btn")
+                yield LayerStudio(id="wb-layer-studio")
+                yield Label(
+                    "Click cell to select · m Mute · b De-Bleed · s De-Ess · u De-Mud · p Punch · h De-Hum · a Air+ · c De-Click · g Gate · t Tame · r Reset",
+                    id="wb-layers-hint",
+                )
+                yield Label("", id="wb-layer-status", classes="wb-acoustic-status")
+
+            with Vertical(id="wb-page-vis"):
+                yield Label(
+                    "AUDIO VISUALIZATION STUDIO  [Multi-Engine Acoustic Analysis]",
+                    id="wb-vis-title",
+                    classes="wb-section-title",
+                )
+                with Horizontal(classes="wb-vis-row-top"):
+                    with Vertical(classes="wb-vis-cell"):
+                        yield Label("10-BAND SPECTRUM ANALYZER (fc Cutoff)", classes="wb-vis-label")
+                        yield AudioVisualizer(num_bands=10, mode="spectrum", cutoff_hz=self.cutoff_hz, id="wb-visualizer")
+                    with Vertical(classes="wb-vis-cell"):
+                        yield Label("PHOSPHOR WAVEFORM OSCILLOSCOPE", classes="wb-vis-label")
+                        yield AudioVisualizer(mode="oscilloscope", id="wb-vis-osc")
+                with Horizontal(classes="wb-vis-row-bot"):
+                    with Vertical(classes="wb-vis-cell"):
+                        yield Label("SYMMETRICAL MIRRORED DANCE", classes="wb-vis-label")
+                        yield AudioVisualizer(mode="mirrored", id="wb-vis-mir")
+                    with Vertical(classes="wb-vis-cell"):
+                        yield Label("BRAILLE WAVE MATRIX (2x4 Dot Matrix)", classes="wb-vis-label")
+                        yield AudioVisualizer(mode="braille", id="wb-vis-braille")
+                    with Vertical(classes="wb-vis-cell"):
+                        yield Label("STEREO VU DECK (dB Headroom)", classes="wb-vis-label")
+                        yield AudioVisualizer(mode="vu_meter", id="wb-vis-vu")
+
         yield ProgressBar(id="wb-download-progress", total=100, show_eta=True)
         yield StockTickerTape("", id="wb-status")
 
@@ -1131,6 +1265,8 @@ class WorkbenchWidget(Widget):
             if v_cand.exists() and i_cand.exists():
                 self.path_voc = v_cand
                 self.path_inst = i_cand
+                if stem_dir.exists():
+                    self.layer_stem_dir = stem_dir
 
         try:
             pb = self.query_one("#wb-stem-progress", ProgressBar)
@@ -1521,6 +1657,7 @@ class WorkbenchWidget(Widget):
                 force_reseparate=force,
                 crossover_hz=self.stem_crossover_hz,
                 dereverb_intensity=self.stem_dereverb_intensity,
+                save_individual_sources=True,
             )
 
             if res.vocals_path and res.vocals_path.parent:
@@ -1536,6 +1673,14 @@ class WorkbenchWidget(Widget):
                 self.path_voc = res.vocals_path
                 self.path_inst = res.instrumental_path
                 track_name = source_path.name
+
+                self.layer_track = None
+                self.layer_stem_dir = (
+                    res.vocals_path.parent
+                    if res.vocals_path and res.vocals_path.parent
+                    else None
+                )
+                self._ensure_layers_built()
 
                 if self.active_stream == "VOC":
                     self._route_to_player(
@@ -1621,18 +1766,28 @@ class WorkbenchWidget(Widget):
         return f"_eq_{hashlib.md5(key.encode()).hexdigest()[:6]}"
 
     def switch_page(self, page_id: str) -> None:
-        """Switch between 'deck', 'eq', and 'stems' tabs inside the inspector container."""
+        """Switch between 'deck', 'eq', 'stems', 'layers', and 'vis' tabs inside the inspector container."""
         self.active_page = page_id
         try:
             btn_deck = self.query_one("#wb-btn-page-deck", Button)
             btn_eq = self.query_one("#wb-btn-page-eq", Button)
             btn_stems = self.query_one("#wb-btn-page-stems", Button)
+            btn_layers = self.query_one("#wb-btn-page-layers", Button)
+            btn_vis = self.query_one("#wb-btn-page-vis", Button)
             page_deck = self.query_one("#wb-page-deck", Vertical)
             page_eq = self.query_one("#wb-page-eq", Vertical)
             page_stems = self.query_one("#wb-page-stems", Vertical)
+            page_layers = self.query_one("#wb-page-layers", Vertical)
+            page_vis = self.query_one("#wb-page-vis", Vertical)
 
             # Update button active styles
-            for btn, pid in ((btn_deck, "deck"), (btn_eq, "eq"), (btn_stems, "stems")):
+            for btn, pid in (
+                (btn_deck, "deck"),
+                (btn_eq, "eq"),
+                (btn_stems, "stems"),
+                (btn_layers, "layers"),
+                (btn_vis, "vis"),
+            ):
                 if page_id == pid:
                     btn.add_class("wb-page-btn-active")
                 else:
@@ -1642,6 +1797,8 @@ class WorkbenchWidget(Widget):
             page_deck.styles.display = "block" if page_id == "deck" else "none"
             page_eq.styles.display = "block" if page_id == "eq" else "none"
             page_stems.styles.display = "block" if page_id == "stems" else "none"
+            page_layers.styles.display = "block" if page_id == "layers" else "none"
+            page_vis.styles.display = "block" if page_id == "vis" else "none"
 
             if page_id == "eq":
                 self._update_eq_ui()
@@ -1650,6 +1807,8 @@ class WorkbenchWidget(Widget):
                     self.set_active_stream("VOC")
                 else:
                     self._update_blend_ui()
+            elif page_id == "layers":
+                self._ensure_layers_built()
         except Exception:
             pass
 
@@ -1829,10 +1988,10 @@ class WorkbenchWidget(Widget):
 
         # Update workbench visualizer
         try:
-            vis = self.query_one("#wb-visualizer", AudioVisualizer)
-            vis.set_cutoff(self.cutoff_hz)
-            vis.play()
-            self.run_worker(asyncio.to_thread(vis.load_audio_frames, audio_path), name="vis-load")
+            for vis in self.query(AudioVisualizer):
+                vis.set_cutoff(self.cutoff_hz)
+                vis.play()
+                self.run_worker(asyncio.to_thread(vis.load_audio_frames, audio_path), name="vis-load")
         except Exception:
             pass
 
@@ -2033,6 +2192,45 @@ class WorkbenchWidget(Widget):
             self.switch_page("eq")
         elif btn_id == "wb-btn-page-stems":
             self.switch_page("stems")
+        elif btn_id in ("wb-btn-page-layers", "wb-btn-open-layers"):
+            self.switch_page("layers")
+        elif btn_id == "wb-btn-build-layers":
+            target = self.path_mp3
+            if target and target.exists():
+                self._trigger_stem_separation(target, force=False)
+                self._ensure_layers_built()
+            else:
+                try:
+                    self.query_one("#wb-layer-status", Label).update("No active track loaded to separate.")
+                except Exception:
+                    pass
+        elif btn_id == "wb-btn-page-vis":
+            self.switch_page("vis")
+        elif btn_id == "wb-btn-save-layers":
+            self._commit_layers_async()
+        elif btn_id == "wb-btn-clear-layers":
+            self._clear_layer_edits()
+        elif btn_id.startswith("wb-btn-tool-"):
+            tool_op_map = {
+                "wb-btn-tool-mute": "mute",
+                "wb-btn-tool-bleed": "de_bleed",
+                "wb-btn-tool-ess": "de_ess",
+                "wb-btn-tool-mud": "de_mud",
+                "wb-btn-tool-punch": "drum_punch",
+                "wb-btn-tool-hum": "de_hum",
+                "wb-btn-tool-air": "air_boost",
+                "wb-btn-tool-click": "de_click",
+                "wb-btn-tool-gate": "noise_gate",
+                "wb-btn-tool-tame": "transient_tame",
+                "wb-btn-tool-reset": "reset",
+            }
+            op = tool_op_map.get(btn_id)
+            if op:
+                try:
+                    studio = self.query_one("#wb-layer-studio", LayerStudio)
+                    studio._request_edit(op)
+                except Exception:
+                    pass
         elif btn_id == "wb-btn-audition-voc":
             self.set_active_stream("VOC")
         elif btn_id == "wb-btn-audition-inst":
@@ -2252,6 +2450,263 @@ class WorkbenchWidget(Widget):
                 self.query_one("#wb-acoustic-status", Label).update("Acoustic analysis failed.")
             except Exception:
                 pass
+
+    def on_layer_studio_seek_requested(self, message: LayerStudio.SeekRequested) -> None:
+        """Jump playback to the second the user tapped on the layer timeline."""
+        try:
+            player: AudioPlayerWidget = self.app.query_one("#audio-player")  # type: ignore
+            player.seek(message.seconds)
+        except Exception:
+            pass
+
+    def on_layer_studio_selection_changed(self, message: LayerStudio.SelectionChanged) -> None:
+        """Surface the selected cell's details in the layer status line."""
+        if message.segment is None:
+            self.query_one("#wb-layer-status", Label).update("")
+            return
+        seg = message.segment
+        layers = ", ".join(f"{k}:{int(v * 100)}%" for k, v in seg.levels.items())
+        if seg.issues:
+            issues = "; ".join(f"{i.layer}: {i.label} ({i.severity:.0%})" for i in seg.issues)
+        else:
+            issues = "No defects flagged"
+        self.query_one("#wb-layer-status", Label).update(
+            f"t={seg.start_s:.0f}s–{seg.end_s:.0f}s → {layers} · {issues}"
+        )
+
+    def on_layer_studio_edit_requested(
+        self, message: LayerStudio.EditRequested
+    ) -> None:
+        """Record a per-cell edit op into the non-destructive EditPlan."""
+        if self.layer_track is None:
+            return
+        plan = self.layer_edit_plan
+        if plan is None:
+            plan = EditPlan()
+            self.layer_edit_plan = plan
+        plan.add(message.layer or "", message.segment_idx, message.op)
+        try:
+            studio = self.query_one("#wb-layer-studio", LayerStudio)
+            studio.edit_plan = plan
+        except Exception:
+            pass
+        self.query_one("#wb-layer-status", Label).update(
+            f"{plan.count} edit(s) staged → press SAVE LAYERS to commit."
+        )
+
+    def _clear_layer_edits(self) -> None:
+        """Remove all staged edits (raw cache untouched)."""
+        self.layer_edit_plan = EditPlan()
+        try:
+            studio = self.query_one("#wb-layer-studio", LayerStudio)
+            studio.edit_plan = self.layer_edit_plan
+        except Exception:
+            pass
+        self.query_one("#wb-layer-status", Label).update(
+            "Edits cleared. Nothing staged."
+        )
+
+    def _commit_layers_async(self) -> None:
+        """Commit the staged edit plan onto the layer files in a background thread."""
+        if self.layer_track is None or not self.layer_edit_plan or self.layer_edit_plan.count == 0:
+            self.query_one("#wb-layer-status", Label).update(
+                "Nothing to save — stage edits by clicking a cell, then m/b/s/u/p."
+            )
+            return
+        if self._is_building_layers:
+            self.query_one("#wb-layer-status", Label).update(
+                "Layer timeline is busy — wait for the current build to finish."
+            )
+            return
+        self._is_building_layers = True
+        self.run_worker(
+            self._async_commit_layers(),
+            name="layer-studio-commit",
+        )
+
+    async def _async_commit_layers(self) -> None:
+        """Apply the staged EditPlan, then rebuild the grid from committed files."""
+        from harvester.analysis.enhancement.layer_editor import commit_edit_plan
+        from harvester.analysis.enhancement.layers import build_layer_sources
+
+        try:
+            if (
+                not self.layer_track
+                or not self.layer_edit_plan
+                or not self.layer_stem_dir
+            ):
+                return
+            stem_dir = self.layer_stem_dir
+            input_stem = self.path_mp3.stem if self.path_mp3 else ""
+            mode = "ensemble" if self.neural_enabled else "eco"
+            self.query_one("#wb-layer-status", Label).update(
+                "Committing edits with 20ms crossfades…"
+            )
+            sources = await asyncio.to_thread(
+                build_layer_sources,
+                stem_dir,
+                input_stem,
+                mode,
+                sample_rate=44100,
+                crossover_hz=self.stem_crossover_hz,
+            )
+            # M3: snapshot the pre-edit reconstruction so we can verify the
+            # mix-reconstruction error budget on the edited seconds after commit.
+            from harvester.analysis.enhancement.layer_editor import reconstruct_mix
+
+            edited_cells = self.layer_edit_plan.cells()
+            pre_mix = await asyncio.to_thread(reconstruct_mix, sources, 44100)
+            written = await asyncio.to_thread(
+                commit_edit_plan, self.layer_edit_plan, sources, 44100
+            )
+            self.layer_edit_plan = EditPlan()
+            try:
+                studio = self.query_one("#wb-layer-studio", LayerStudio)
+                studio.edit_plan = self.layer_edit_plan
+            except Exception:
+                pass
+
+            # Rebuild the grid so the timeline reflects the committed edits.
+            from harvester.analysis.enhancement.layer_editor import rebuild_track_after_commit
+            from harvester.analysis.enhancement.layers import estimate_duration
+
+            duration_src = self.path_inst or self.path_voc or self.path_mp3
+            duration = (
+                await asyncio.to_thread(estimate_duration, duration_src)
+                if duration_src
+                else 0.0
+            )
+            track = await asyncio.to_thread(
+                rebuild_track_after_commit,
+                stem_dir,
+                input_stem,
+                mode,
+                duration,
+                sample_rate=44100,
+                crossover_hz=self.stem_crossover_hz,
+            )
+            self.layer_track = track
+            try:
+                studio = self.query_one("#wb-layer-studio", LayerStudio)
+                studio.track = track
+            except Exception:
+                pass
+            residual_note = ""
+            try:
+                from harvester.analysis.enhancement.layer_editor import (
+                    RECONSTRUCTION_BUDGET_DB,
+                    verify_mix_residual,
+                )
+
+                post_mix = await asyncio.to_thread(reconstruct_mix, sources, 44100)
+                _, worst, violating = verify_mix_residual(
+                    pre_mix, post_mix, 44100, budget_db=RECONSTRUCTION_BUDGET_DB
+                )
+                edited_idx = {idx for _, idx, _ in edited_cells}
+                clean_violating = [i for i in violating if i not in edited_idx]
+                if not clean_violating:
+                    residual_note = f" · mix residual ≤ {RECONSTRUCTION_BUDGET_DB:.0f} dBFS"
+                else:
+                    residual_note = (
+                        f" · residual {worst:.1f} dBFS @ s{clean_violating[0]} "
+                        f"(unedited leak, {len(clean_violating)}s)"
+                    )
+            except Exception as res_exc:
+                logger.debug("mix residual verification skipped: %s", res_exc)
+            self.query_one("#wb-layer-status", Label).update(
+                f"Saved layers: {', '.join(sorted(written))} · "
+                f"timeline rebuilt ({track.n_segments}s).{residual_note}"
+            )
+        except Exception as exc:
+            logger.exception("Layer Studio commit failed: %s", exc)
+            try:
+                self.query_one("#wb-layer-status", Label).update(
+                    f"Layer save failed: {exc}"
+                )
+            except Exception:
+                pass
+        finally:
+            self._is_building_layers = False
+
+    def _ensure_layers_built(self) -> None:
+        """Build the per-source layer timeline if stems exist and it isn't built yet."""
+        if self._is_building_layers or self.layer_track is not None:
+            return
+        if not self.path_mp3 or not self.path_mp3.exists():
+            self.query_one("#wb-layer-status", Label).update(
+                "Load and separate a track to build the Layer Studio timeline."
+            )
+            return
+        if self.neural_enabled is False and self.path_inst is not None:
+            stem_dir = self.path_inst.parent
+        else:
+            stem_dir = self.layer_stem_dir
+        if stem_dir is None or not stem_dir.exists():
+            self.query_one("#wb-layer-status", Label).update(
+                "Separate stems first, then open LAYERS."
+            )
+            return
+
+        mode = "ensemble" if self.neural_enabled else "eco"
+        self._is_building_layers = True
+        self.run_worker(
+            self._async_build_layers(stem_dir, self.path_mp3.stem, mode),
+            name="layer-studio-build",
+        )
+
+    async def _async_build_layers(
+        self, stem_dir: Path, input_stem: str, mode: str
+    ) -> None:
+        """Run layer analysis in a background thread and hand the grid to the widget."""
+        try:
+            from harvester.analysis.enhancement.layers import (
+                LayerTrack,
+                build_layer_track,
+                estimate_duration,
+            )
+
+            duration_src = self.path_inst or self.path_voc or self.path_mp3
+            duration = await asyncio.to_thread(estimate_duration, duration_src) if duration_src else 0.0
+
+            def _build() -> LayerTrack:
+                return build_layer_track(
+                    stem_dir,
+                    input_stem,
+                    mode,
+                    duration_s=duration,
+                    sample_rate=44100,
+                    crossover_hz=self.stem_crossover_hz,
+                )
+
+            track = await asyncio.to_thread(_build)
+            if track is None or not track.segments:
+                raise RuntimeError("Layer analysis produced no timeline segments.")
+
+            self.layer_track = track
+            try:
+                studio = self.query_one("#wb-layer-studio", LayerStudio)
+                studio.track = track
+            except Exception:
+                pass
+            try:
+                n_issues = sum(len(s.issues) for s in track.segments)
+                self.query_one("#wb-layer-status", Label).update(
+                    f"LAYERS READY: {len(track.active_layers)} layers · "
+                    f"{track.n_segments}s timeline · {n_issues} defect seconds flagged "
+                    f"(click a cell to seek & inspect)."
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.exception("Layer analysis failed: %s", exc)
+            try:
+                self.query_one("#wb-layer-status", Label).update(
+                    f"Layer analysis failed: {exc}"
+                )
+            except Exception:
+                pass
+        finally:
+            self._is_building_layers = False
 
     def toggle_neural_engine(self) -> None:
         """Toggle between Eco DSP mode (cool, zero heat) and Neural AI mode."""

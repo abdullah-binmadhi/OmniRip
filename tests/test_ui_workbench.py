@@ -1061,3 +1061,109 @@ async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> N
         assert page_deck.styles.display != "none"
         assert page_stems.styles.display == "none"
 
+
+@pytest.mark.asyncio
+async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Path):
+    """Verify dedicated visuals page, visualizer isolation, and app navigation."""
+    from harvester.config import load_config
+    from harvester.ui.app import HarvesterApp
+
+    dummy_mp3 = tmp_path / "nav_test.mp3"
+    dummy_mp3.write_bytes(b"\xff\xfb\x90\x44" + b"\x00" * 1024)
+
+    cfg = load_config(environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+    app = HarvesterApp(cfg, auto_startup=False)
+    async with app.run_test() as pilot:
+        wb = app.query_one(WorkbenchWidget)
+        page_vis = app.query_one("#wb-page-vis")
+        page_deck = app.query_one("#wb-page-deck")
+        btn_page_vis = app.query_one("#wb-btn-page-vis", Button)
+        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
+
+        # 1. Initially on DECK page, VISUALS page is hidden
+        assert wb.active_page == "deck"
+        assert page_deck.styles.display != "none"
+        assert page_vis.styles.display == "none"
+
+        # 2. Switch to VISUALS page in workbench
+        btn_page_vis.press()
+        await pilot.pause()
+        assert wb.active_page == "vis"
+        assert page_vis.styles.display != "none"
+        assert page_deck.styles.display == "none"
+        assert "wb-page-btn-active" in btn_page_vis.classes
+
+        # 3. Verify all 5 visualizer engines exist inside wb-page-vis
+        assert app.query_one("#wb-visualizer", AudioVisualizer) is not None
+        assert app.query_one("#wb-vis-osc", AudioVisualizer) is not None
+        assert app.query_one("#wb-vis-mir", AudioVisualizer) is not None
+        assert app.query_one("#wb-vis-braille", AudioVisualizer) is not None
+        assert app.query_one("#wb-vis-vu", AudioVisualizer) is not None
+
+        # 4. Top-level app nav bar tests
+        btn_nav_tracks = app.query_one("#btn-nav-tracks", Button)
+        btn_nav_vis = app.query_one("#btn-nav-vis", Button)
+        tracks_pane = app.query_one("#tracks-pane")
+        wb_pane = app.query_one("#workbench-pane")
+
+        # Switch to TRACKS via top nav
+        btn_nav_tracks.press()
+        await pilot.pause()
+        assert tracks_pane.styles.display != "none"
+        assert wb_pane.styles.display == "none"
+        assert "app-nav-active" in btn_nav_tracks.classes
+
+        # Switch to VISUALIZER via top nav
+        btn_nav_vis.press()
+        await pilot.pause()
+        assert tracks_pane.styles.display == "none"
+        assert wb_pane.styles.display != "none"
+        assert wb.active_page == "vis"
+        assert "app-nav-active" in btn_nav_vis.classes
+
+
+@pytest.mark.asyncio
+async def test_layer_studio_fl_studio_arrangement_features(tmp_path: Path):
+    """Verify FL Studio-style multi-row track swimlanes, Mute/Solo toggles, and dual ruler."""
+    import numpy as np
+    from harvester.analysis.enhancement.layers import LayerTrack, LayerSource, LayerSegment
+    from harvester.ui.layer_studio import LayerStudio
+
+    sources = {
+        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0, -12.0, -15.0]), np.array([0.8, 0.7, 0.5])),
+        "drums": LayerSource("drums", tmp_path / "drm.wav", np.array([-6.0, -6.0, -8.0]), np.array([0.9, 0.9, 0.6])),
+    }
+    segments = [
+        LayerSegment(0, 0.0, 1.0, {"vocals": 0.8, "drums": 0.9}),
+        LayerSegment(1, 1.0, 2.0, {"vocals": 0.7, "drums": 0.9}),
+        LayerSegment(2, 2.0, 3.0, {"vocals": 0.5, "drums": 0.6}),
+    ]
+    track = LayerTrack(duration_s=3.0, sample_rate=44100, sources=sources, segments=segments)
+
+    studio = LayerStudio()
+    studio.track = track
+
+    # Verify initial state: none muted, none soloed
+    assert len(studio._muted_layers) == 0
+    assert studio._solo_layer is None
+
+    # Render test
+    rendered = studio.render().plain
+    assert "BARS / BEATS" in rendered
+    assert "TIME (SECONDS)" in rendered
+    assert "VOCALS" in rendered
+    assert "DRUMS" in rendered
+    assert "[●]" in rendered
+    assert "[S]" in rendered
+
+    # Toggle Mute on vocals
+    studio._muted_layers.add("vocals")
+    rendered_muted = studio.render().plain
+    assert "[○]" in rendered_muted
+
+    # Toggle Solo on drums
+    studio._solo_layer = "drums"
+    assert studio._solo_layer == "drums"
+
+
+

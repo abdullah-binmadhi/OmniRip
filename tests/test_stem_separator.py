@@ -210,6 +210,9 @@ def _mock_separate_bs_roformer(
     inst_path: Path,
     raw_vocals_path: Path | None = None,
     raw_inst_path: Path | None = None,
+    raw_bass_path: Path | None = None,
+    raw_drums_path: Path | None = None,
+    raw_other_path: Path | None = None,
     progress_callback: Callable[[float, str], None] | None = None,
     blend_weight: float = 0.70,
     vocal_profile: str = "natural",
@@ -228,6 +231,12 @@ def _mock_separate_bs_roformer(
         save_audio_numpy(raw_voc, raw_vocals_path, sr)
     if raw_inst_path:
         save_audio_numpy(raw_inst, raw_inst_path, sr)
+    if raw_bass_path:
+        save_audio_numpy(raw_inst * 0.5, raw_bass_path, sr)
+    if raw_drums_path:
+        save_audio_numpy(raw_inst * 0.3, raw_drums_path, sr)
+    if raw_other_path:
+        save_audio_numpy(raw_inst * 0.2, raw_other_path, sr)
     voc_clean, inst_clean = postprocess_stems(
         audio,
         raw_voc,
@@ -461,6 +470,31 @@ def test_stem_separator_force_reseparate(tmp_path: Path, sample_stereo_wav: Path
         # Third call WITH force bypasses cache
         separator.separate_file(sample_stereo_wav, mode="bs_roformer", force_reseparate=True)
         assert call_count == 2
+
+
+def test_stem_separator_save_individual_sources(sample_stereo_wav: Path, tmp_path: Path) -> None:
+    """Verify save_individual_sources=True persists per-source raw stems for Layer Studio."""
+    separator = StemSeparator(cache_dir=tmp_path / "cache_src")
+    with patch.object(separator, "_separate_bs_roformer", side_effect=_mock_separate_bs_roformer):
+        res = separator.separate_file(
+            sample_stereo_wav, mode="bs_roformer", save_individual_sources=True
+        )
+
+    stem_dir = res.vocals_path.parent
+    suffix = f"{sample_stereo_wav.stem}_bs_roformer"
+    for source in ("vocals", "bass", "drums", "other"):
+        raw = stem_dir / f"{suffix}_raw_{source}.wav"
+        assert raw.exists(), f"missing {raw.name}"
+        assert raw.stat().st_size > 1000
+
+    # Default: individual sources are NOT persisted unless requested
+    separator_default = StemSeparator(cache_dir=tmp_path / "cache_src_default")
+    with patch.object(
+        separator_default, "_separate_bs_roformer", side_effect=_mock_separate_bs_roformer
+    ):
+        res_default = separator_default.separate_file(sample_stereo_wav, mode="bs_roformer")
+    stem_dir_default = res_default.vocals_path.parent
+    assert not (stem_dir_default / f"{suffix}_raw_bass.wav").exists()
 
 
 def test_apply_adaptive_vad_gate() -> None:

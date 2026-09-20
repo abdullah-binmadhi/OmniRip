@@ -91,22 +91,51 @@ Button:disabled {
     color: $text;
 }
 
-#workspace-split {
+#app-nav-bar {
+    height: 3;
+    width: 1fr;
+    margin: 0 1 0 1;
+    align: left middle;
+    background: $surface;
+    border-bottom: heavy $secondary;
+}
+
+.app-nav-btn {
+    min-width: 14;
+    margin-right: 1;
+    height: 3;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    text-style: bold;
+}
+
+.app-nav-btn:hover {
+    color: $accent;
+    background: $panel;
+}
+
+.app-nav-active {
+    background: $primary;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#workspace-pages {
     height: 1fr;
     width: 1fr;
     margin: 1 1 0 1;
 }
 
 #tracks-pane {
-    width: 46%;
+    width: 1fr;
     height: 1fr;
-    margin-right: 1;
 }
 
 #workbench-pane {
-    width: 54%;
-    min-width: 70;
+    width: 1fr;
     height: 1fr;
+    display: none;
 }
 
 #jobs {

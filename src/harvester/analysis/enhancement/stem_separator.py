@@ -1020,6 +1020,7 @@ class StemSeparator:
         force_reseparate: bool = False,
         crossover_hz: float = 300.0,
         dereverb_intensity: float = 0.40,
+        save_individual_sources: bool = False,
     ) -> StemResult:
         """
         Separate audio track into isolated vocals and instrumental backing using
@@ -1063,6 +1064,19 @@ class StemSeparator:
 
         raw_vocals_path = stem_dir / f"{input_path.stem}_{mode}_raw_vocals.wav"
         raw_inst_path = stem_dir / f"{input_path.stem}_{mode}_raw_inst.wav"
+
+        # Individual source stems (bass/drums/other) for the Layer Studio timeline.
+        # Persisted alongside the merged outputs so the layer grid can be built
+        # without re-running neural inference.
+        raw_bass_path = (
+            stem_dir / f"{input_path.stem}_{mode}_raw_bass.wav" if save_individual_sources else None
+        )
+        raw_drums_path = (
+            stem_dir / f"{input_path.stem}_{mode}_raw_drums.wav" if save_individual_sources else None
+        )
+        raw_other_path = (
+            stem_dir / f"{input_path.stem}_{mode}_raw_other.wav" if save_individual_sources else None
+        )
 
         # Check existing final cache
         if not force_reseparate and (
@@ -1141,6 +1155,9 @@ class StemSeparator:
                         inst_path,
                         raw_vocals_path=raw_vocals_path,
                         raw_inst_path=raw_inst_path,
+                        raw_bass_path=raw_bass_path,
+                        raw_drums_path=raw_drums_path,
+                        raw_other_path=raw_other_path,
                         progress_callback=progress_callback,
                         blend_weight=bs_roformer_weight,
                         vocal_flags=v_set,
@@ -1178,6 +1195,9 @@ class StemSeparator:
                     inst_path,
                     raw_vocals_path=raw_vocals_path,
                     raw_inst_path=raw_inst_path,
+                    raw_bass_path=raw_bass_path,
+                    raw_drums_path=raw_drums_path,
+                    raw_other_path=raw_other_path,
                     progress_callback=progress_callback,
                     blend_weight=bs_roformer_weight,
                     vocal_flags=v_set,
@@ -1209,6 +1229,9 @@ class StemSeparator:
                     inst_path,
                     raw_vocals_path=raw_vocals_path,
                     raw_inst_path=raw_inst_path,
+                    raw_bass_path=raw_bass_path,
+                    raw_drums_path=raw_drums_path,
+                    raw_other_path=raw_other_path,
                     progress_callback=progress_callback,
                     blend_weight=hdemucs_weight,
                     vocal_flags=v_set,
@@ -1327,6 +1350,9 @@ class StemSeparator:
         inst_flags: set[str] | list[str] | str = "natural",
         vocal_profile: str | None = None,
         inst_profile: str | None = None,
+        raw_bass_path: Path | None = None,
+        raw_drums_path: Path | None = None,
+        raw_other_path: Path | None = None,
     ) -> StemResult:  # pragma: no cover
         """
         State-of-the-Art Band-Split Rotary Position Transformer (BS-RoFormer).
@@ -1450,6 +1476,13 @@ class StemSeparator:
         other = output[2]
         vocals_raw = output[3]
         inst_model = drums + bass + other
+
+        # Persist individual source stems for the Layer Studio timeline
+        if raw_bass_path and raw_drums_path and raw_other_path and raw_vocals_path:
+            save_audio_numpy(bass, raw_bass_path, sr)
+            save_audio_numpy(drums, raw_drums_path, sr)
+            save_audio_numpy(other, raw_other_path, sr)
+
         del model, padded_wave, waveform, weight, weight_safe, output
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -1514,6 +1547,9 @@ class StemSeparator:
         inst_profile: str | None = None,
         crossover_hz: float = 300.0,
         dereverb_intensity: float = 0.40,
+        raw_bass_path: Path | None = None,
+        raw_drums_path: Path | None = None,
+        raw_other_path: Path | None = None,
     ) -> StemResult:
         """
         Dual-Model Architecture Ensembling (BS-RoFormer + HDEMUCS).
@@ -1535,6 +1571,9 @@ class StemSeparator:
             inst_path,
             raw_vocals_path=raw_vocals_path,
             raw_inst_path=raw_inst_path,
+            raw_bass_path=raw_bass_path,
+            raw_drums_path=raw_drums_path,
+            raw_other_path=raw_other_path,
             progress_callback=lambda pct, msg: progress_callback(5.0 + 0.45 * pct, f"[RoFormer] {msg}")
             if progress_callback
             else None,
@@ -1552,10 +1591,32 @@ class StemSeparator:
         temp_voc_hdemucs = vocals_path.parent / f"{vocals_path.stem}_hdemucs_tmp.wav"
         temp_inst_hdemucs = inst_path.parent / f"{inst_path.stem}_hdemucs_tmp.wav"
         try:
+            hd_src = raw_bass_path.parent if raw_bass_path else vocals_path.parent
             self._separate_neural(
                 input_path,
                 temp_voc_hdemucs,
                 temp_inst_hdemucs,
+                raw_vocals_path=hd_src / f"{vocals_path.stem}_hdemucs_raw_vocals.wav"
+                if raw_vocals_path
+                else None,
+                raw_inst_path=hd_src / f"{inst_path.stem}_hdemucs_raw_inst.wav"
+                if raw_inst_path
+                else None,
+                raw_bass_path=(
+                    raw_bass_path.with_name(f"{raw_bass_path.stem}_hdemucs.wav")
+                    if raw_bass_path
+                    else None
+                ),
+                raw_drums_path=(
+                    raw_drums_path.with_name(f"{raw_drums_path.stem}_hdemucs.wav")
+                    if raw_drums_path
+                    else None
+                ),
+                raw_other_path=(
+                    raw_other_path.with_name(f"{raw_other_path.stem}_hdemucs.wav")
+                    if raw_other_path
+                    else None
+                ),
                 progress_callback=lambda pct, msg: progress_callback(50.0 + 0.40 * pct, f"[HDEMUCS] {msg}")
                 if progress_callback
                 else None,
@@ -1642,6 +1703,9 @@ class StemSeparator:
         inst_flags: set[str] | list[str] | str = "natural",
         vocal_profile: str | None = None,
         inst_profile: str | None = None,
+        raw_bass_path: Path | None = None,
+        raw_drums_path: Path | None = None,
+        raw_other_path: Path | None = None,
     ) -> StemResult:  # pragma: no cover
         """
         Multi-Stage Neural AI Pipeline:
@@ -1718,9 +1782,16 @@ class StemSeparator:
 
         vocals_raw = output[3].numpy()
         # Reconstruct HDEMUCS instrumental from the three non-vocal stems
-        inst_model_np = (
-            output[0].numpy() + output[1].numpy() + output[2].numpy()
-        )  # bass+drums+other
+        bass_np = output[0].numpy()
+        drums_np = output[1].numpy()
+        other_np = output[2].numpy()
+        inst_model_np = bass_np + drums_np + other_np
+
+        # Persist individual source stems for the Layer Studio timeline
+        if raw_bass_path and raw_drums_path and raw_other_path and raw_vocals_path:
+            save_audio_numpy(bass_np, raw_bass_path, sr)
+            save_audio_numpy(drums_np, raw_drums_path, sr)
+            save_audio_numpy(other_np, raw_other_path, sr)
         del model, waveform, output
         if weight is not None:
             del weight

@@ -15,6 +15,7 @@ milestone per work session with a coding assistant, feeding it
 | 6 | TUI hardening | M5 | ✅ Complete — bridge throttle/coalesce, modals, keybindings, first-run, status worker, playlist flow |
 | 7 | QA & packaging | M6 | ✅ Complete — CI matrix, coverage gate, quickstart, CHANGELOG |
 | 10 | Neural Audio Enhancement Workbench | M6 | ✅ Complete — model manager, DSP crossover/progressive mono, NVSR/FlashSR providers, presets, preview manager, workbench screen, CLI --enhance |
+| 11 | Layer Studio (M1: visualize & inspect + M2: per-second editing + M3: hardening) | M10 | ✅ Complete — raw 4-stem persistence, per-second LR4 layer assembly + segment flags, LAYERS tab, playhead-synced grid + click-to-seek, cell-op edits (docs/12 §4), mix reconstruction residual budget + de-bleed fixture + run-length collapse (docs/12 §5) |
 
 ---
 
@@ -166,6 +167,51 @@ not automatable without those binaries.
 - Headless CLI flags: `harvester --enhance FILE [--preset PRESET] [--bitrate BITRATE]`.
 
 **Status:** ✅ Implementation complete. Validated with 28 passing unit and integration tests across DSP, providers, exporter, presets, previews, and UI pilot (`tests/test_model_manager.py`, `tests/test_enhancement_dsp.py`, `tests/test_enhancement_providers.py`, `tests/test_enhancement_exporter.py`, `tests/test_enhancement_workbench.py`, `tests/test_main.py`, `tests/test_ui_pilot.py`). Zero regressions on full project test suite (205 passed).
+
+## M11 — Layer Studio (M1: visualize & inspect + M2: per-second editing)
+
+**Specs:** docs/12-layers-studio.md (M1, M2), D14.
+**Build:**
+- `stem_separator.py`: `save_individual_sources` + per-source raw stems
+  (`raw_bass/drums/other_path`) persisted through `_separate_ensemble` / `_separate_bs_roformer`
+  / `_separate_neural`, HDEMUCS twins named `{...}_hdemucs.wav`.
+- `layers.py`: `LayerTrack`/`LayerSource`/`LayerSegment`/`LayerIssue`, per-source LR4
+  assembly (HDEMUCS low anchor vs BS-RoFormer), fixed 1 s envelopes (RMS dBFS + peak),
+  5 issue fingerprints (vocal_bleed / whisper / sizzle / mud / sub_rumble), Eco 2-layer
+  fallback, `build_layer_track`.
+- `layer_studio.py`: `LayerStudio` widget — ruler + per-layer grid, block-glyph levels,
+  issue color flags, playhead-synced auto-scroll (0.25 s timer vs `#audio-player`),
+  click-to-seek (`SeekRequested` / `SelectionChanged`), scroll keybindings, and M2:
+  `edit_plan` reactive, `EditRequested` message, `m/b/s/u/p/r` cell-op keybindings,
+  `✎` edited-cell markers.
+- `layer_editor.py`: `EditPlan` (toggle/reset/clear), cell ops (mute / de-bleed -24 dB
+  vocal core / de-ess -14 dB sibilance / de-mud -10 dB mud / drum-punch), zero-phase FFT
+  band notches, `render_edited_layer` with 20 ms equal-power crossfade splices,
+  `commit_edit_plan` (32-bit PCM in place) with -1 dBFS soft limiter,
+  `rebuild_track_after_commit`, and M3: `reconstruct_mix` / `mix_residual_db` /
+  `verify_mix_residual` (per-second inversion residual, -40 dBFS budget).
+- `layers.py` M3: `CellRun` + `run_length_collapse` (level bucket × issue × op, split_at
+  boundaries), `segment_band_level` in-band meter, `LONG_TRACK_SECONDS = 600`,
+  `ANALYSIS_MS_PER_SECOND_BUDGET = 100 ms/s`; `layer_studio.py` renders ≥ 600 s tracks as
+  run-length cells; `workbench.py` commit worker surfaces the post-commit mix residual.
+- `workbench.py`: LAYERS page, background `layer-studio-build` worker, seek/selection
+  message handlers, `save_individual_sources=True` on separation, `layer_stem_dir` set in
+  `load_job`, LAYERS READY status summary, and M2: layer edit-plan state,
+  `EditRequested` handler, SAVE LAYERS / CLEAR EDITS buttons, async `layer-studio-commit`
+  worker reusing cached layer files then rebuilding the grid.
+
+**Status:** ✅ M1 + M2 + M3 implementation complete. Full suite 292 passed / 1 skipped,
+clean Ruff. New coverage (`tests/test_layers.py`): envelope units, 4-stem LR4 assembly +
+disk cache, Eco fallback, full track build with injected bass vocal-band burst →
+`vocal_bleed` on the exact second, headless `LayerStudio` mount/render/playhead sync,
+`EditRequested` probe + edit-marker render; plus `save_individual_sources` persistence in
+`tests/test_stem_separator.py` and `tests/test_layer_editor.py` (EditPlan semantics,
+band-cut energy assertions, neighbour byte-identity + crossfade continuity, commit→rebuild
+mute flow, PCM_32/-1 dBFS ceiling). M3 hardening (`tests/test_layer_hardening.py`): mix
+reconstruction ≤ -40 dBFS inversion, edited-seconds-only budget violations, de-bleed
+fixture dropping in-band leak ≥ 20 dB, 600 s analysis within the per-second budget with
+single-run-length collapse, and the widget's long-track run-length render. Spec in
+docs/12 §5.
 
 ---
 

@@ -468,6 +468,12 @@ class HarvesterApp(App[None]):
         ("3", "select_stream_voc", "Stream VOC"),
         ("4", "select_stream_inst", "Stream INST"),
         ("v", "toggle_vis_mode", "Visualizer"),
+        ("f1", "nav_page_tracks", "Tracks"),
+        ("f2", "nav_page_vis", "Visualizer"),
+        ("f3", "nav_page_deck", "Deck"),
+        ("f4", "nav_page_eq", "EQ"),
+        ("f5", "nav_page_stems", "Stems"),
+        ("f6", "nav_page_layers", "Layers"),
     ]
 
     def __init__(
@@ -534,11 +540,18 @@ class HarvesterApp(App[None]):
                     yield Button("CONVERT", id="submit", variant="primary", disabled=True)
                     yield Button("THEME", id="btn-theme")
                     yield Button("SOULSEEK", id="btn-soulseek")
-            with Horizontal(id="workspace-split"):
-                with Vertical(id="tracks-pane"):
+            with Horizontal(id="app-nav-bar"):
+                yield Button("≡ TRACKS & LOGS", id="btn-nav-tracks", classes="app-nav-btn app-nav-active")
+                yield Button("◈ VISUALIZER", id="btn-nav-vis", classes="app-nav-btn")
+                yield Button("⎈ DECK", id="btn-nav-deck", classes="app-nav-btn")
+                yield Button("🎚 EQ", id="btn-nav-eq", classes="app-nav-btn")
+                yield Button("𝄢 STEMS", id="btn-nav-stems", classes="app-nav-btn")
+                yield Button("▤ LAYERS", id="btn-nav-layers", classes="app-nav-btn")
+            with Container(id="workspace-pages"):
+                with Vertical(id="tracks-pane", classes="app-full-page"):
                     yield JobTable()
                     yield LogConsole(max_lines=self.config.ui.max_log_lines)
-                with Vertical(id="workbench-pane"):
+                with Vertical(id="workbench-pane", classes="app-full-page"):
                     yield WorkbenchWidget(
                         on_exported=lambda path: self.notify(
                             f"Exported: {path.name}", severity="information"
@@ -642,6 +655,71 @@ class HarvesterApp(App[None]):
             self.action_cycle_theme()
         elif event.button.id == "btn-soulseek":
             self.action_open_soulseek_login()
+        elif event.button.id == "btn-nav-tracks":
+            self.switch_workspace_page("tracks")
+        elif event.button.id == "btn-nav-vis":
+            self.switch_workspace_page("vis")
+        elif event.button.id == "btn-nav-deck":
+            self.switch_workspace_page("deck")
+        elif event.button.id == "btn-nav-eq":
+            self.switch_workspace_page("eq")
+        elif event.button.id == "btn-nav-stems":
+            self.switch_workspace_page("stems")
+        elif event.button.id == "btn-nav-layers":
+            self.switch_workspace_page("layers")
+
+    def switch_workspace_page(self, target: str) -> None:
+        """Switch full-screen page between tracks-pane and workbench subpages."""
+        try:
+            tracks_pane = self.query_one("#tracks-pane", Vertical)
+            wb_pane = self.query_one("#workbench-pane", Vertical)
+            wb = self.query_one(WorkbenchWidget)
+
+            nav_buttons = {
+                "tracks": "#btn-nav-tracks",
+                "vis": "#btn-nav-vis",
+                "deck": "#btn-nav-deck",
+                "eq": "#btn-nav-eq",
+                "stems": "#btn-nav-stems",
+                "layers": "#btn-nav-layers",
+            }
+            for key, btn_id in nav_buttons.items():
+                try:
+                    btn = self.query_one(btn_id, Button)
+                    if key == target:
+                        btn.add_class("app-nav-active")
+                    else:
+                        btn.remove_class("app-nav-active")
+                except Exception:
+                    pass
+
+            if target == "tracks":
+                tracks_pane.styles.display = "block"
+                wb_pane.styles.display = "none"
+            else:
+                tracks_pane.styles.display = "none"
+                wb_pane.styles.display = "block"
+                wb.switch_page(target)
+        except Exception:
+            pass
+
+    def action_nav_page_tracks(self) -> None:
+        self.switch_workspace_page("tracks")
+
+    def action_nav_page_vis(self) -> None:
+        self.switch_workspace_page("vis")
+
+    def action_nav_page_deck(self) -> None:
+        self.switch_workspace_page("deck")
+
+    def action_nav_page_eq(self) -> None:
+        self.switch_workspace_page("eq")
+
+    def action_nav_page_stems(self) -> None:
+        self.switch_workspace_page("stems")
+
+    def action_nav_page_layers(self) -> None:
+        self.switch_workspace_page("layers")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "source-input":
@@ -848,9 +926,13 @@ class HarvesterApp(App[None]):
         player.toggle_playback()
 
     def action_toggle_vis_mode(self) -> None:
-        """Toggle visualizer between spectrum analyzer and oscilloscope."""
-        player = self.query_one(AudioPlayerWidget)
-        player.toggle_vis_mode()
+        """Toggle visualizer mode and switch to dedicated visualizer page."""
+        self.switch_workspace_page("vis")
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.toggle_vis_mode()
+        except Exception:
+            pass
 
     def action_seek_backward(self) -> None:
         """Seek backward 5 seconds in player."""

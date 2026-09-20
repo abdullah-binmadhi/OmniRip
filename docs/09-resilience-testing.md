@@ -68,6 +68,8 @@ own timeout — add it here first.
 | slskd health check | 5 s | `timeouts.health_s` |
 | Subprocess kill grace (TERM→KILL) | 5 s | `timeouts.kill_grace_s` |
 | UI service status interval | 10 s | `ui.status_interval_s` |
+| Layer Studio per-second analysis budget | 100 ms / s of track | `layers.ANALYSIS_MS_PER_SECOND_BUDGET` |
+| Layer Studio run-length collapse threshold | 600 s (≥ 600 segments) | `layers.LONG_TRACK_SECONDS` |
 
 ## 5. Cancellation & shutdown semantics
 
