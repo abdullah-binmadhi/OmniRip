@@ -14,13 +14,14 @@ tools/slskd/*
 !tools/slskd/README.md
 !tools/slskd/slskd.yml
 
-# Runtime data; the graphify-out/ knowledge graph is intentionally tracked.
+# Runtime data
 .harvester/
 .omnirip/
 *.pt
 *.bin
 *.wav
 *.enhanced.mp3
-graphify-out/cache/
-graphify-out/reflections/
-graphify-out/2026-*/
+
+# Graphify knowledge graph outputs and caches
+graphify-out/
+.graphify/
