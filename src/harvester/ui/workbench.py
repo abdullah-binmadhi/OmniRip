@@ -223,10 +223,41 @@ class WorkbenchWidget(Widget):
         min-width: 22;
         margin-right: 1;
     }
+    #wb-export-split {
+        width: auto;
+        height: auto;
+    }
     #wb-btn-export {
         width: auto;
-        min-width: 22;
+        min-width: 18;
         padding: 0 1;
+    }
+    #wb-btn-export-menu {
+        width: 3;
+        min-width: 3;
+        padding: 0;
+        border-left: solid $success-darken-2;
+    }
+    #wb-export-dropdown {
+        display: none;
+        width: 30;
+        background: $surface;
+        border: round $success;
+        padding: 0;
+        offset: 0 3;
+        layer: overlay;
+    }
+    .wb-export-choice {
+        width: 1fr;
+        height: 1;
+        margin: 0;
+        padding: 0 1;
+        background: $surface;
+        border: none;
+    }
+    .wb-export-choice:hover {
+        background: $success 30%;
+        color: $success;
     }
     #wb-visualizer {
         height: 8;
@@ -618,6 +649,7 @@ class WorkbenchWidget(Widget):
     active_stream: reactive[StreamId] = reactive("MP3")
     current_job: reactive[TrackJob | None] = reactive(None)
     cutoff_hz: reactive[float] = reactive(15500.0)
+    _export_mode: reactive[str] = reactive("ENH")  # "ENH" | "VOC" | "INST"
 
     def __init__(
         self,
@@ -755,7 +787,13 @@ class WorkbenchWidget(Widget):
             yield Select(
                 options=preset_options, value=self.selected_preset_id, id="wb-preset-select"
             )
-            yield Button("SAVE ENHANCED", id="wb-btn-export", variant="success")
+            with Horizontal(id="wb-export-split"):
+                yield Button("💾 SAVE ENHANCED", id="wb-btn-export", variant="success")
+                yield Button("▾", id="wb-btn-export-menu", variant="success")
+            with Vertical(id="wb-export-dropdown"):
+                yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
+                yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
+                yield Button("🎸  Instrumental (WAV)", id="wb-export-choose-inst", classes="wb-export-choice")
 
         with Vertical(id="wb-inspector-container"):
             with Horizontal(id="wb-deck-header-row"):
@@ -1924,6 +1962,17 @@ class WorkbenchWidget(Widget):
             self.trigger_models_download()
         elif btn_id == "wb-btn-export":
             self._export_derivative()
+        elif btn_id == "wb-btn-export-menu":
+            self._toggle_export_dropdown()
+        elif btn_id in ("wb-export-choose-enh", "wb-export-choose-voc", "wb-export-choose-inst"):
+            mode_map = {
+                "wb-export-choose-enh": "ENH",
+                "wb-export-choose-voc": "VOC",
+                "wb-export-choose-inst": "INST",
+            }
+            self._set_export_mode(mode_map[btn_id])
+            self._toggle_export_dropdown(force_close=True)
+            self._export_derivative()
         elif btn_id == "wb-btn-page-deck":
             self.switch_page("deck")
         elif btn_id == "wb-btn-page-eq":
@@ -2347,6 +2396,32 @@ class WorkbenchWidget(Widget):
                 timeout=5.0,
             )
 
+    def _toggle_export_dropdown(self, force_close: bool = False) -> None:
+        """Show or hide the export-type dropdown menu."""
+        try:
+            dd = self.query_one("#wb-export-dropdown", Vertical)
+            if force_close or dd.styles.display != "none":
+                dd.styles.display = "none"
+            else:
+                dd.styles.display = "block"
+        except Exception:
+            pass
+
+    def _set_export_mode(self, mode: str) -> None:
+        """Update the export mode and reflect it in the main button label."""
+        self._export_mode = mode
+        labels = {
+            "ENH": "💾 SAVE ENHANCED",
+            "VOC": "💾 SAVE VOCALS",
+            "INST": "💾 SAVE INST",
+        }
+        try:
+            self.query_one("#wb-btn-export", Button).label = labels.get(
+                mode, "💾 SAVE ENHANCED"
+            )
+        except Exception:
+            pass
+
     def _export_derivative(self) -> None:
         src = self.path_mp3
         if not src or not src.exists():
@@ -2354,9 +2429,9 @@ class WorkbenchWidget(Widget):
             return
 
         preset = PRESETS.get(self.selected_preset_id) or PRESETS["conservative"]
-        if self.active_stream == "VOC":
+        if self._export_mode == "VOC":
             self.query_one("#wb-status", Label).update("Saving Isolated Vocals (Acapella)...")
-        elif self.active_stream == "INST":
+        elif self._export_mode == "INST":
             self.query_one("#wb-status", Label).update("Saving Karaoke Instrumental...")
         else:
             self.query_one("#wb-status", Label).update(
@@ -2408,8 +2483,8 @@ class WorkbenchWidget(Widget):
                 out_dir = Path(load_config().general.output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            # Handle isolated stem export if active stream is VOC or INST
-            if self.active_stream == "VOC" and self.path_voc and self.path_voc.exists():
+            # Handle isolated stem export based on user-selected export mode
+            if self._export_mode == "VOC" and self.path_voc and self.path_voc.exists():
                 target_dest = out_dir / f"{src.stem}_vocals.wav"
                 temp_dest = target_dest.with_suffix(f".tmp_{uuid.uuid4().hex[:6]}.wav")
                 await asyncio.to_thread(shutil.copy2, self.path_voc, temp_dest)
@@ -2422,7 +2497,7 @@ class WorkbenchWidget(Widget):
                 self.app.notify(f"Saved Acapella: {target_dest.name}", title="OmniRip Stems")
                 return
 
-            if self.active_stream == "INST" and self.path_inst and self.path_inst.exists():
+            if self._export_mode == "INST" and self.path_inst and self.path_inst.exists():
                 target_dest = out_dir / f"{src.stem}_instrumental.wav"
                 temp_dest = target_dest.with_suffix(f".tmp_{uuid.uuid4().hex[:6]}.wav")
                 await asyncio.to_thread(shutil.copy2, self.path_inst, temp_dest)
