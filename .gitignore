@@ -1,26 +1,96 @@
+# Byte-compiled / optimized / build artifacts
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+*.egg
+build/
+dist/
+wheels/
+*.so
+
+# Environments & dependencies
+.venv/
+env/
+venv/
+ENV/
+
+# Configuration & Secrets
+config.toml
+.env
+.env.*
+!.env.example
+
+# Testing & Coverage
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
-.venv/
-config.toml
+.hypothesis/
+.tox/
+.nox/
+
+# Type checkers & tooling caches
+.pyrefly/
+.pyre/
+.ropeproject/
+
+# Logs and databases
+*.log
+logs/
+*.sqlite3
+*.db
+
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/settings.json
+.zed/*
+!.zed/settings.json
+
+# Model weights & Checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+
+# Audio outputs & downloads
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.opus
+*.aac
+*.aiff
+downloads/
+output/
+
+# Local runtime data
+.harvester/
+.omnirip/
 
 # Local daemon configuration, credentials, binaries, and runtime data.
 tools/slskd/*
 !tools/slskd/README.md
 !tools/slskd/slskd.yml
-
-# Runtime data
-.harvester/
-.omnirip/
-*.pt
-*.bin
-*.wav
-*.enhanced.mp3
 
 # Graphify knowledge graph outputs and caches
 graphify-out/
