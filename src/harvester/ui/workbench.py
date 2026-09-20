@@ -109,13 +109,13 @@ class StockTickerTape(Label):
 
     def _render_marquee(self) -> None:
         feed = self._raw_message.strip() if self._raw_message.strip() else self._default_feed
-        ribbon = f"  ▲▼  {feed}    ▪▪▪    "
-        if ribbon:
-            pos = self._ticker_pos % len(ribbon)
-            scrolled = ribbon[pos:] + ribbon[:pos]
-        else:
-            scrolled = ""
-        super().update(scrolled)
+        unit = f"  ▲▼  {feed}    ▪▪▪    "
+        # Repeat the unit to fill at least 3× the widget width so there is
+        # never dead space even when the message is very short.
+        target_len = max(len(unit), self.size.width * 3 if self.size.width else len(unit) * 3)
+        ribbon = (unit * (target_len // len(unit) + 1))[:target_len]
+        pos = self._ticker_pos % len(ribbon)
+        super().update(ribbon[pos:] + ribbon[:pos])
 
 
 class DefectChecklist(Vertical):
@@ -233,10 +233,9 @@ class WorkbenchWidget(Widget):
         padding: 0 1;
     }
     #wb-btn-export-menu {
-        width: 3;
-        min-width: 3;
-        padding: 0;
-        border-left: solid $success-darken-2;
+        width: 5;
+        min-width: 5;
+        padding: 0 1;
     }
     #wb-export-dropdown {
         display: none;
@@ -789,7 +788,7 @@ class WorkbenchWidget(Widget):
             )
             with Horizontal(id="wb-export-split"):
                 yield Button("💾 SAVE ENHANCED", id="wb-btn-export", variant="success")
-                yield Button("▾", id="wb-btn-export-menu", variant="success")
+                yield Button(" v ", id="wb-btn-export-menu", variant="success")
             with Vertical(id="wb-export-dropdown"):
                 yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
                 yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
