@@ -11,16 +11,21 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import platformdirs
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.reactive import reactive
+from textual.visual import VisualType
 from textual.widget import Widget
-from textual.widgets import Button, Label, ProgressBar, Select, SelectionList
-from textual.widgets.selection_list import Selection
+from textual.widgets import Button, Checkbox, Label, ProgressBar, Select, SelectionList
 
+from harvester.analysis.enhancement.acoustic_detector import (
+    AcousticAnalysisResult,
+    analyze_track_acoustics,
+)
 from harvester.analysis.enhancement.eq import (
     EQ_FREQUENCIES,
     EQ_PRESETS,
@@ -53,6 +58,111 @@ AI_PRESET_OPTIONS: list[tuple[str, str]] = [
     ("Extended Air (Hybrid)", "extended_air"),
     ("Narrow Residual (Headphone Safe)", "narrow_stereo"),
 ]
+
+
+class StockTickerTape(Label):
+    """Marquee stock ribbon ticker tape displaying real-time audio and model status."""
+
+    DEFAULT_CSS = """
+    StockTickerTape {
+        height: 1;
+        width: 1fr;
+        color: $warning;
+        background: #11111b;
+        text-style: bold;
+        padding: 0 1;
+        overflow-x: hidden;
+        overflow-y: hidden;
+        text-wrap: nowrap;
+        text-overflow: clip;
+    }
+    """
+
+    def __init__(self, initial_text: str = "", **kwargs: Any) -> None:
+        super().__init__(initial_text, **kwargs)
+        self._raw_message: str = initial_text
+        self._ticker_pos: int = 0
+        self._default_feed: str = (
+            "OmniRip Studio Engine  ·  "
+            "▲ BSR: 85% (>300Hz Vocals)  ·  "
+            "▼ HDEMUCS: 15% (<300Hz Bass)  ·  "
+            "★ Limiter: -0.1 dBFS  ·  "
+            "✔ Models: Active  ·  "
+            "✦ Master 24-bit/320k"
+        )
+
+    def set_feed(self, feed: str) -> None:
+        self._default_feed = feed
+
+    def update(self, content: VisualType = "", *, layout: bool = True) -> None:
+        msg = str(content) if content else ""
+        self._raw_message = msg
+        self._ticker_pos = 0
+        self._render_marquee()
+
+    def on_mount(self) -> None:
+        self.set_interval(0.20, self._step_ticker)
+
+    def _step_ticker(self) -> None:
+        self._ticker_pos += 1
+        self._render_marquee()
+
+    def _render_marquee(self) -> None:
+        feed = self._raw_message.strip() if self._raw_message.strip() else self._default_feed
+        ribbon = f"  ▲▼  {feed}    ▪▪▪    "
+        if ribbon:
+            pos = self._ticker_pos % len(ribbon)
+            scrolled = ribbon[pos:] + ribbon[:pos]
+        else:
+            scrolled = ""
+        super().update(scrolled)
+
+
+class DefectChecklist(Vertical):
+    """Directly tickable defect checklist with clean spacing and no vertical scrolling."""
+
+    class SelectedChanged(Message):
+        """Emitted when any checkbox option changes state."""
+
+        def __init__(self, checklist: DefectChecklist) -> None:
+            super().__init__()
+            self.checklist = checklist
+            self.selection_list = checklist  # For compatibility
+
+    def __init__(self, items: list[tuple[str, str, bool]], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._items = items
+        self._checkboxes: dict[str, Checkbox] = {}
+
+    def compose(self) -> ComposeResult:
+        for label, key, default_val in self._items:
+            cb = Checkbox(label, value=default_val, id=f"chk-{self.id or 'list'}-{key}", classes="wb-defect-checkbox")
+            self._checkboxes[key] = cb
+            yield cb
+
+    @property
+    def selected(self) -> list[str]:
+        return [k for k, cb in self._checkboxes.items() if cb.value]
+
+    def select(self, key: str) -> None:
+        if key in self._checkboxes:
+            self._checkboxes[key].value = True
+
+    def deselect(self, key: str) -> None:
+        if key in self._checkboxes:
+            self._checkboxes[key].value = False
+
+    def select_all(self) -> None:
+        for cb in self._checkboxes.values():
+            cb.value = True
+
+    def deselect_all(self) -> None:
+        for cb in self._checkboxes.values():
+            cb.value = False
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        event.stop()
+        self.post_message(self.SelectedChanged(self))
 
 
 class WorkbenchWidget(Widget):
@@ -292,7 +402,8 @@ class WorkbenchWidget(Widget):
         height: auto;
     }
     .wb-spec-line {
-        height: 1;
+        min-height: 1;
+        height: auto;
         color: $text;
     }
     .wb-section-title {
@@ -335,17 +446,49 @@ class WorkbenchWidget(Widget):
         display: none;
         margin-top: 1;
     }
+    #wb-page-stems {
+        height: auto;
+        width: 1fr;
+        display: none;
+    }
     #wb-blend-row {
         height: auto;
         width: 1fr;
         margin-top: 1;
+        display: block;
+    }
+    .wb-model-row {
+        height: 1;
+        width: 1fr;
+        margin-top: 0;
+        margin-bottom: 0;
         align: left middle;
     }
-    .wb-blend-label {
-        width: 1fr;
+    .wb-model-title {
+        width: 38;
         height: 1;
         color: $accent;
         text-style: bold;
+    }
+    .wb-stepper-box {
+        height: 1;
+        width: auto;
+        align: left middle;
+    }
+    .wb-step-btn {
+        height: 1;
+        min-width: 5;
+        width: 5;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: $secondary;
+        color: #000000;
+        text-style: bold;
+    }
+    .wb-step-btn:hover {
+        background: $accent;
+        color: #000000;
     }
     .wb-blend-val {
         width: 6;
@@ -354,30 +497,68 @@ class WorkbenchWidget(Widget):
         color: $warning;
         text-style: bold;
     }
-    .wb-blend-btn {
+    .wb-model-desc {
         height: 1;
-        min-width: 3;
-        width: 3;
-        padding: 0;
-        margin: 0 0 0 1;
-        border: solid $secondary;
-        background: $surface;
-        color: $secondary;
+        color: $text-muted;
+        margin-left: 2;
+    }
+    #wb-stem-actions-row {
+        height: 1;
+        width: 1fr;
+        margin-top: 1;
+        align: left middle;
+    }
+    .wb-stem-action-btn {
+        height: 1;
+        min-width: 15;
+        padding: 0 1;
+        margin-right: 1;
+        border: none;
         text-style: bold;
     }
-    .wb-blend-btn:hover {
+    .wb-action-detect {
+        background: $accent;
+        color: #000000;
+    }
+    .wb-action-detect:hover {
         background: $secondary;
+        color: #000000;
+    }
+    .wb-action-resep {
+        background: $panel;
+        color: $warning;
+    }
+    .wb-action-resep:hover {
+        background: $warning;
         color: #000000;
     }
     #wb-status {
         height: 1;
+        width: 1fr;
         color: $warning;
+        background: #11111b;
+        text-style: bold;
+        margin-top: 1;
+        padding: 0 1;
+        overflow: hidden;
+    }
+    #wb-acoustic-status {
+        height: auto;
+        width: 1fr;
+        color: $accent;
+        text-style: bold;
+        margin-top: 1;
+    }
+    #wb-stems-racks-row {
+        height: auto;
+        width: 1fr;
         margin-top: 1;
     }
     .wb-diagnostic-panel {
         height: auto;
         width: 1fr;
-        margin-top: 1;
+        margin-top: 0;
+        margin-right: 1;
         display: none;
         background: $surface;
         border: round $accent;
@@ -401,12 +582,36 @@ class WorkbenchWidget(Widget):
         margin-left: 1;
         border: none;
     }
-    .wb-diagnostic-list {
-        height: 6;
+    DefectChecklist {
+        height: auto;
         width: 1fr;
         background: transparent;
         border: none;
-        overflow-y: auto;
+        overflow-y: hidden;
+        overflow-x: hidden;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+    .wb-defect-checkbox {
+        height: 1;
+        background: transparent;
+        border: none;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    .wb-defect-checkbox:hover {
+        color: $accent;
+    }
+    .wb-defect-checkbox:focus {
+        background: transparent;
+        text-style: bold;
+    }
+    .wb-diagnostic-list {
+        height: auto;
+        width: 1fr;
+        background: transparent;
+        border: none;
+        overflow-y: hidden;
     }
     """
 
@@ -437,6 +642,8 @@ class WorkbenchWidget(Widget):
         # Stem blend weights: how much to trust neural model output vs. inversion subtraction
         self.stem_bsr_blend: float = 0.70  # BS-RoFormer (specialized transformer)
         self.stem_hdemucs_blend: float = 0.50  # HDEMUCS (general-purpose model)
+        self.stem_crossover_hz: float = 300.0  # Phase-aligned LR4 crossover frequency
+        self.stem_dereverb_intensity: float = 0.40  # Anechoic De-Reverb intensity (0.0 to 1.0)
 
         # Multi-choice stem defect remediations (10 vocal, 10 instrumental):
         self.vocal_flags: set[str] = set()
@@ -558,6 +765,7 @@ class WorkbenchWidget(Widget):
                         "DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active"
                     )
                     yield Button("EQ", id="wb-btn-page-eq", classes="wb-page-btn")
+                    yield Button("STEMS", id="wb-btn-page-stems", classes="wb-page-btn")
             yield AudioVisualizer(num_bands=10, cutoff_hz=self.cutoff_hz, id="wb-visualizer")
             with Vertical(id="wb-page-deck"):
                 yield Label("RESTORATION MASTERING DECK", id="wb-inspector-title")
@@ -601,57 +809,6 @@ class WorkbenchWidget(Widget):
                         yield Label("", id="wb-telem-format", classes="wb-spec-line")
                         yield Label("", id="wb-telem-destination", classes="wb-spec-line")
 
-                # --- Stem Blend Weight Controls ---
-                yield Label(
-                    "STEM BLEND  [0% = Cleanest Separation  ·  100% = Richest Texture]",
-                    classes="wb-section-title",
-                )
-                with Horizontal(id="wb-blend-row"):
-                    yield Label("BS-RoFormer:", classes="wb-blend-label")
-                    yield Label(
-                        f"{int(self.stem_bsr_blend * 100)}%",
-                        id="wb-blend-bsr-val",
-                        classes="wb-blend-val",
-                    )
-                    yield Button("+", id="wb-blend-bsr-up", classes="wb-blend-btn")
-                    yield Button("-", id="wb-blend-bsr-dn", classes="wb-blend-btn")
-                    yield Label("  HDEMUCS:", classes="wb-blend-label")
-                    yield Label(
-                        f"{int(self.stem_hdemucs_blend * 100)}%",
-                        id="wb-blend-hdemucs-val",
-                        classes="wb-blend-val",
-                    )
-                    yield Button("+", id="wb-blend-hdemucs-up", classes="wb-blend-btn")
-                    yield Button("-", id="wb-blend-hdemucs-dn", classes="wb-blend-btn")
-
-                # --- Stem Imperfection Remediation Diagnostic Controls ---
-                with Vertical(id="wb-diagnostic-voc-panel", classes="wb-diagnostic-panel"):
-                    with Horizontal(classes="wb-diagnostic-toolbar"):
-                        yield Label("Vocal Defect Remediations:", classes="wb-diagnostic-label")
-                        yield Button("ALL", id="wb-btn-voc-all", classes="wb-diagnostic-btn")
-                        yield Button("CLEAR", id="wb-btn-voc-clear", classes="wb-diagnostic-btn")
-                    yield SelectionList[str](
-                        *[
-                            Selection(label, key, key in self.vocal_flags)
-                            for key, label in VOCAL_REMEDIATIONS.items()
-                        ],
-                        id="wb-voc-flags-list",
-                        classes="wb-diagnostic-list",
-                    )
-                with Vertical(id="wb-diagnostic-inst-panel", classes="wb-diagnostic-panel"):
-                    with Horizontal(classes="wb-diagnostic-toolbar"):
-                        yield Label("Inst Defect Remediations:", classes="wb-diagnostic-label")
-                        yield Button("ALL", id="wb-btn-inst-all", classes="wb-diagnostic-btn")
-                        yield Button("CLEAR", id="wb-btn-inst-clear", classes="wb-diagnostic-btn")
-                    yield SelectionList[str](
-                        *[
-                            Selection(label, key, key in self.inst_flags)
-                            for key, label in INST_REMEDIATIONS.items()
-                        ],
-                        id="wb-inst-flags-list",
-                        classes="wb-diagnostic-list",
-                    )
-
             with Vertical(id="wb-page-eq"):
                 with Horizontal(id="wb-eq-toolbar"):
                     yield Label("10-BAND STUDIO MASTERING EQUALIZER", id="wb-eq-title")
@@ -680,8 +837,128 @@ class WorkbenchWidget(Widget):
                     yield Button("+3dB AIR", id="wb-btn-eq-air", variant="default")
                     yield Button("TRIM: 0.0dB", id="wb-btn-eq-trim", variant="default")
 
+            with Vertical(id="wb-page-stems"):
+                yield Label(
+                    "STEM SEPARATION & BLEND STUDIO  [Dual-Model Architecture: BS-RoFormer (>300Hz) + HDEMUCS (<300Hz)]",
+                    classes="wb-section-title",
+                )
+                with Horizontal(id="wb-stem-actions-row"):
+                    yield Button("🎧  AUTO-DETECT", id="wb-btn-stem-auto-detect", classes="wb-stem-action-btn wb-action-detect")
+                    yield Button("⚡  RE-SEPARATE", id="wb-btn-stem-reseparate", classes="wb-stem-action-btn wb-action-resep")
+                    yield Button("🎤  AUDITION VOC", id="wb-btn-audition-voc", classes="wb-stem-action-btn")
+                    yield Button("🎸  AUDITION INST", id="wb-btn-audition-inst", classes="wb-stem-action-btn")
+                    yield Button("📦  AI MODELS", id="wb-btn-stem-models", classes="wb-stem-action-btn")
+                yield Label("", id="wb-acoustic-status", classes="wb-acoustic-status")
+
+                with Vertical(id="wb-blend-row"):
+                    with Horizontal(classes="wb-model-row"):
+                        yield Label("BS-RoFormer  (Vocals/Highs >300Hz):", classes="wb-model-title")
+                        with Horizontal(classes="wb-stepper-box"):
+                            yield Button("−", id="wb-blend-bsr-dn", classes="wb-step-btn")
+                            yield Label(
+                                f"{int(self.stem_bsr_blend * 100)}%",
+                                id="wb-blend-bsr-val",
+                                classes="wb-blend-val",
+                            )
+                            yield Button("+", id="wb-blend-bsr-up", classes="wb-step-btn")
+                        yield Label(self._get_blend_desc(self.stem_bsr_blend), id="wb-blend-bsr-desc", classes="wb-model-desc")
+
+                    with Horizontal(classes="wb-model-row"):
+                        yield Label("HDEMUCS      (Bass/Drums  <300Hz):", classes="wb-model-title")
+                        with Horizontal(classes="wb-stepper-box"):
+                            yield Button("−", id="wb-blend-hdemucs-dn", classes="wb-step-btn")
+                            yield Label(
+                                f"{int(self.stem_hdemucs_blend * 100)}%",
+                                id="wb-blend-hdemucs-val",
+                                classes="wb-blend-val",
+                            )
+                            yield Button("+", id="wb-blend-hdemucs-up", classes="wb-step-btn")
+                        yield Label(
+                            self._get_blend_desc(self.stem_hdemucs_blend),
+                            id="wb-blend-hdemucs-desc",
+                            classes="wb-model-desc",
+                        )
+
+                    with Horizontal(classes="wb-model-row"):
+                        yield Label(
+                            "LR4 Crossover (Phase-Aligned Split):", classes="wb-model-title"
+                        )
+                        with Horizontal(classes="wb-stepper-box"):
+                            yield Button("−", id="wb-crossover-dn", classes="wb-step-btn")
+                            yield Label(
+                                f"{int(self.stem_crossover_hz)} Hz",
+                                id="wb-crossover-val",
+                                classes="wb-blend-val",
+                            )
+                            yield Button("+", id="wb-crossover-up", classes="wb-step-btn")
+                        yield Label(
+                            "Zero-Phase Linkwitz-Riley 4th Order",
+                            id="wb-crossover-desc",
+                            classes="wb-model-desc",
+                        )
+
+                    with Horizontal(classes="wb-model-row"):
+                        yield Label(
+                            "De-Reverb     (Anechoic Vocal Strip):", classes="wb-model-title"
+                        )
+                        with Horizontal(classes="wb-stepper-box"):
+                            yield Button("−", id="wb-dereverb-dn", classes="wb-step-btn")
+                            yield Label(
+                                f"{int(self.stem_dereverb_intensity * 100)}%",
+                                id="wb-dereverb-val",
+                                classes="wb-blend-val",
+                            )
+                            yield Button("+", id="wb-dereverb-up", classes="wb-step-btn")
+                        yield Label(
+                            self._get_dereverb_desc(self.stem_dereverb_intensity),
+                            id="wb-dereverb-desc",
+                            classes="wb-model-desc",
+                        )
+
+                with Horizontal(id="wb-stems-racks-row"):
+                    with Vertical(id="wb-diagnostic-voc-panel", classes="wb-diagnostic-panel"):
+                        with Horizontal(classes="wb-diagnostic-toolbar"):
+                            yield Label(
+                                "Vocal Defect Remediations (Surgical):",
+                                classes="wb-diagnostic-label",
+                            )
+                            yield Button("STUDIO", id="wb-btn-voc-studio", classes="wb-diagnostic-btn")
+                            yield Button("ALL", id="wb-btn-voc-all", classes="wb-diagnostic-btn")
+                            yield Button(
+                                "CLEAR", id="wb-btn-voc-clear", classes="wb-diagnostic-btn"
+                            )
+                        yield DefectChecklist(
+                            [
+                                (label, key, key in self.vocal_flags)
+                                for key, label in VOCAL_REMEDIATIONS.items()
+                            ],
+                            id="wb-voc-flags-list",
+                            classes="wb-diagnostic-list",
+                        )
+                    with Vertical(id="wb-diagnostic-inst-panel", classes="wb-diagnostic-panel"):
+                        with Horizontal(classes="wb-diagnostic-toolbar"):
+                            yield Label(
+                                "Inst Defect Remediations (Surgical):",
+                                classes="wb-diagnostic-label",
+                            )
+                            yield Button(
+                                "STUDIO", id="wb-btn-inst-studio", classes="wb-diagnostic-btn"
+                            )
+                            yield Button("ALL", id="wb-btn-inst-all", classes="wb-diagnostic-btn")
+                            yield Button(
+                                "CLEAR", id="wb-btn-inst-clear", classes="wb-diagnostic-btn"
+                            )
+                        yield DefectChecklist(
+                            [
+                                (label, key, key in self.inst_flags)
+                                for key, label in INST_REMEDIATIONS.items()
+                            ],
+                            id="wb-inst-flags-list",
+                            classes="wb-diagnostic-list",
+                        )
+
         yield ProgressBar(id="wb-download-progress", total=100, show_eta=True)
-        yield Label("", id="wb-status")
+        yield StockTickerTape("", id="wb-status")
 
     def load_job(self, job: TrackJob) -> None:
         """Load a track job into the workbench, resolve streams, and pre-render ENH."""
@@ -727,7 +1004,7 @@ class WorkbenchWidget(Widget):
                     self.inst_flags = {self.inst_profile}
 
                 try:
-                    voc_list = self.query_one("#wb-voc-flags-list", SelectionList)
+                    voc_list = self.query_one("#wb-voc-flags-list", DefectChecklist)
                     voc_list.deselect_all()
                     for f in self.vocal_flags:
                         try:
@@ -735,7 +1012,7 @@ class WorkbenchWidget(Widget):
                         except Exception:
                             pass
 
-                    inst_list = self.query_one("#wb-inst-flags-list", SelectionList)
+                    inst_list = self.query_one("#wb-inst-flags-list", DefectChecklist)
                     inst_list.deselect_all()
                     for f in self.inst_flags:
                         try:
@@ -891,9 +1168,9 @@ class WorkbenchWidget(Widget):
             }
             engine_str = engine_names.get(provider_type, provider_type.upper())
             if not self.neural_enabled:
-                engine_display = f"🌱 Eco DSP ({engine_str} - Cool & Zero Heat)"
+                engine_display = f"🌱 Eco DSP ({engine_str})"
             else:
-                engine_display = f"⚡ Neural AI ({engine_str} - Accelerated)"
+                engine_display = f"⚡ Neural AI ({engine_str})"
             self.query_one("#wb-spec-engine", Label).update(
                 f"• Model Engine  : [bold]{engine_display}[/bold]"
             )
@@ -927,44 +1204,41 @@ class WorkbenchWidget(Widget):
                 f"  [dim italic]{desc2}[/dim italic]" if desc2 else ""
             )
 
-            # Signal Chain Pipeline
+            # Signal Chain Pipeline - concise 5 stages that fit on any terminal
             flow_str = (
-                f"[cyan]\\[1. Baseband 0..{cutoff_khz:.1f}k\\][/cyan] ──> "
-                f"[magenta]\\[2. FIR Split\\][/magenta] ──> "
-                f"[yellow]\\[3. {preset_name}\\][/yellow] ──> "
-                f"[blue]\\[4. Stereo ({stereo_pct}%)\\][/blue] ──> "
-                f"[green]\\[5. Limiter {ceiling:.1f}dBFS\\][/green]"
+                f"[cyan]\\[1. Baseband 0..{cutoff_khz:.1f}k\\][/cyan] ─> "
+                f"[magenta]\\[2. FIR Split\\][/magenta] ─> "
+                f"[yellow]\\[3. {preset_name}\\][/yellow] ─> "
+                f"[blue]\\[4. Stereo\\][/blue] ─> "
+                f"[green]\\[5. Limiter {ceiling:.1f}dB\\][/green]"
             )
             self.query_one("#wb-chain-flow", Label).update(f"  {flow_str}")
             active_flag = (
                 "[bold green]LIVE AUDITION RESTORED[/bold green]"
                 if is_enh
-                else "[bold cyan]LIVE AUDITION ORIGINAL BASEBAND[/bold cyan]"
+                else "[bold cyan]LIVE AUDITION BASEBAND[/bold cyan]"
             )
             self.query_one("#wb-chain-detail", Label).update(
                 f"  [dim]Engine: {engine_display} • Status: [/dim]{active_flag}"
             )
 
-            # Mastering & Provenance Telemetry
+            # Mastering & Provenance Telemetry - concise <=42 chars per col
             self.query_one("#wb-telem-nyquist", Label).update(
-                "• Nyquist Headroom : [bold green]22.05 kHz[/bold green] "
-                "[dim](Full-Band Restoration)[/dim]"
+                "• Nyquist Headroom : [bold green]22.05 kHz[/bold green] [dim](Full-Band)[/dim]"
             )
             self.query_one("#wb-telem-crossover", Label).update(
-                "• Crossover Filter : [bold cyan]384-tap FIR[/bold cyan] "
-                f"[dim](Phase Linear @ {cutoff_khz:.2f}k)[/dim]"
+                f"• Crossover Filter : [bold cyan]384-tap FIR[/bold cyan] "
+                f"[dim]({cutoff_khz:.1f}k Linear)[/dim]"
             )
             self.query_one("#wb-telem-passthrough", Label).update(
-                "• Sub-Cutoff Audio : [bold green]Bit-Exact Passthrough[/bold green] "
-                "[dim](100% Preserved)[/dim]"
+                "• Sub-Cutoff Audio : [bold green]Bit-Exact[/bold green] [dim](100% Pure)[/dim]"
             )
             self.query_one("#wb-telem-limiter", Label).update(
                 f"• Limiter Ceiling  : [bold yellow]{ceiling:.1f} dBFS[/bold yellow] "
-                "[dim](ITU-R BS.1770 Guard)[/dim]"
+                f"[dim](ITU-R Guard)[/dim]"
             )
             self.query_one("#wb-telem-format", Label).update(
-                "• Export Encoding  : [bold]320 kbps CBR MP3[/bold] "
-                "[dim](ID3v2 TXXX Provenance)[/dim]"
+                "• Export Encoding  : [bold]320 kbps CBR[/bold] [dim](ID3v2 TXXX)[/dim]"
             )
             dest_folder = "~/Music/Harvested"
             app_cfg = getattr(self.app, "config", None)
@@ -972,6 +1246,14 @@ class WorkbenchWidget(Widget):
                 dest_folder = str(app_cfg.general.output_dir)
             elif self.current_job and self.current_job.output_path:
                 dest_folder = str(self.current_job.output_path.parent)
+
+            # Contract home directory to ~ to prevent path clipping
+            home = str(Path.home())
+            if dest_folder.startswith(home):
+                dest_folder = "~" + dest_folder[len(home):]
+            if len(dest_folder) > 28:
+                dest_folder = "..." + dest_folder[-25:]
+
             self.query_one("#wb-telem-destination", Label).update(
                 f"• Target Directory : [cyan]{dest_folder}[/cyan]"
             )
@@ -1093,7 +1375,9 @@ class WorkbenchWidget(Widget):
 
         self._update_inspector()
 
-    def _trigger_stem_separation(self, target_stream: str = "VOC") -> None:
+    def _trigger_stem_separation(
+        self, target_stream: str = "VOC", force: bool = False
+    ) -> None:
         """Initiate background stem separation for current track."""
         if not self.path_mp3 or not self.path_mp3.exists():
             return
@@ -1104,9 +1388,11 @@ class WorkbenchWidget(Widget):
             return
         self._active_stem_tasks.add(self.path_mp3)
         self._is_generating_stems = True
-        asyncio.create_task(self._async_separate_stems(self.path_mp3, target_stream))
+        asyncio.create_task(self._async_separate_stems(self.path_mp3, target_stream, force=force))
 
-    async def _async_separate_stems(self, source_path: Path, target_stream: str) -> None:
+    async def _async_separate_stems(
+        self, source_path: Path, target_stream: str, force: bool = False
+    ) -> None:
         """Run stem separation asynchronously with live progress and route stream when ready."""
         pb = None
         try:
@@ -1138,10 +1424,11 @@ class WorkbenchWidget(Widget):
             )
 
             separator = StemSeparator()
+            sep_mode = "ensemble" if self.neural_enabled else "eco"
             res = await asyncio.to_thread(
                 separator.separate_file,
                 source_path,
-                mode="neural",
+                mode=sep_mode,
                 progress_callback=on_progress,
                 bs_roformer_weight=self.stem_bsr_blend,
                 hdemucs_weight=self.stem_hdemucs_blend,
@@ -1149,6 +1436,9 @@ class WorkbenchWidget(Widget):
                 inst_profile=self.inst_profile,
                 vocal_flags=self.vocal_flags or self.vocal_profile,
                 inst_flags=self.inst_flags or self.inst_profile,
+                force_reseparate=force,
+                crossover_hz=self.stem_crossover_hz,
+                dereverb_intensity=self.stem_dereverb_intensity,
             )
 
             if res.vocals_path and res.vocals_path.parent:
@@ -1249,29 +1539,35 @@ class WorkbenchWidget(Widget):
         return f"_eq_{hashlib.md5(key.encode()).hexdigest()[:6]}"
 
     def switch_page(self, page_id: str) -> None:
-        """Switch between 'deck' and 'eq' tabs inside the inspector container."""
+        """Switch between 'deck', 'eq', and 'stems' tabs inside the inspector container."""
         self.active_page = page_id
         try:
             btn_deck = self.query_one("#wb-btn-page-deck", Button)
             btn_eq = self.query_one("#wb-btn-page-eq", Button)
+            btn_stems = self.query_one("#wb-btn-page-stems", Button)
             page_deck = self.query_one("#wb-page-deck", Vertical)
             page_eq = self.query_one("#wb-page-eq", Vertical)
+            page_stems = self.query_one("#wb-page-stems", Vertical)
 
-            if page_id == "deck":
-                btn_deck.label = "DECK"
-                btn_deck.add_class("wb-page-btn-active")
-                btn_eq.label = "EQ"
-                btn_eq.remove_class("wb-page-btn-active")
-                page_deck.styles.display = "block"
-                page_eq.styles.display = "none"
-            else:
-                btn_deck.label = "DECK"
-                btn_deck.remove_class("wb-page-btn-active")
-                btn_eq.label = "EQ"
-                btn_eq.add_class("wb-page-btn-active")
-                page_deck.styles.display = "none"
-                page_eq.styles.display = "block"
+            # Update button active styles
+            for btn, pid in ((btn_deck, "deck"), (btn_eq, "eq"), (btn_stems, "stems")):
+                if page_id == pid:
+                    btn.add_class("wb-page-btn-active")
+                else:
+                    btn.remove_class("wb-page-btn-active")
+
+            # Update page containers display
+            page_deck.styles.display = "block" if page_id == "deck" else "none"
+            page_eq.styles.display = "block" if page_id == "eq" else "none"
+            page_stems.styles.display = "block" if page_id == "stems" else "none"
+
+            if page_id == "eq":
                 self._update_eq_ui()
+            elif page_id == "stems":
+                if self.active_stream not in ("VOC", "INST"):
+                    self.set_active_stream("VOC")
+                else:
+                    self._update_blend_ui()
         except Exception:
             pass
 
@@ -1526,11 +1822,11 @@ class WorkbenchWidget(Widget):
                 if self.path_mp3:
                     self._trigger_stem_separation("INST")
 
-    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged[str]) -> None:
+    def on_defect_checklist_selected_changed(self, event: DefectChecklist.SelectedChanged) -> None:
         """Handle multi-choice checkbox toggling for stem defect remediations."""
-        list_id = event.selection_list.id or ""
+        list_id = event.checklist.id or ""
         if list_id == "wb-voc-flags-list":
-            new_flags = set(event.selection_list.selected)
+            new_flags = set(event.checklist.selected)
             if new_flags != self.vocal_flags:
                 self.vocal_flags = new_flags
                 active_str = ", ".join(sorted(new_flags)) or "None"
@@ -1542,7 +1838,7 @@ class WorkbenchWidget(Widget):
                 if self.path_mp3:
                     self._trigger_stem_separation("VOC")
         elif list_id == "wb-inst-flags-list":
-            new_flags = set(event.selection_list.selected)
+            new_flags = set(event.checklist.selected)
             if new_flags != self.inst_flags:
                 self.inst_flags = new_flags
                 active_str = ", ".join(sorted(new_flags)) or "None"
@@ -1551,6 +1847,22 @@ class WorkbenchWidget(Widget):
                     title="OmniRip Stem Diagnostics",
                     timeout=2.5,
                 )
+                if self.path_mp3:
+                    self._trigger_stem_separation("INST")
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged[str]) -> None:
+        """Fallback compatibility handler for legacy SelectionList events."""
+        list_id = event.selection_list.id or ""
+        if list_id == "wb-voc-flags-list":
+            new_flags = set(event.selection_list.selected)
+            if new_flags != self.vocal_flags:
+                self.vocal_flags = new_flags
+                if self.path_mp3:
+                    self._trigger_stem_separation("VOC")
+        elif list_id == "wb-inst-flags-list":
+            new_flags = set(event.selection_list.selected)
+            if new_flags != self.inst_flags:
+                self.inst_flags = new_flags
                 if self.path_mp3:
                     self._trigger_stem_separation("INST")
 
@@ -1564,29 +1876,51 @@ class WorkbenchWidget(Widget):
             self.set_active_stream("VOC")
         elif btn_id == "btn-stream-inst":
             self.set_active_stream("INST")
+        elif btn_id == "wb-btn-voc-studio":
+            try:
+                sel = self.query_one("#wb-voc-flags-list", DefectChecklist)
+                sel.deselect_all()
+                sel.select("de_bleed")
+                sel.select("fix_pumping")
+            except Exception:
+                pass
         elif btn_id == "wb-btn-voc-all":
             try:
-                self.query_one("#wb-voc-flags-list", SelectionList).select_all()
+                self.query_one("#wb-voc-flags-list", DefectChecklist).select_all()
             except Exception:
                 pass
         elif btn_id == "wb-btn-voc-clear":
             try:
-                self.query_one("#wb-voc-flags-list", SelectionList).deselect_all()
+                self.query_one("#wb-voc-flags-list", DefectChecklist).deselect_all()
+            except Exception:
+                pass
+        elif btn_id == "wb-btn-inst-studio":
+            try:
+                sel = self.query_one("#wb-inst-flags-list", DefectChecklist)
+                sel.deselect_all()
+                sel.select("anti_bleed_synths")
+                sel.select("sub_bass_clean")
             except Exception:
                 pass
         elif btn_id == "wb-btn-inst-all":
             try:
-                self.query_one("#wb-inst-flags-list", SelectionList).select_all()
+                self.query_one("#wb-inst-flags-list", DefectChecklist).select_all()
             except Exception:
                 pass
         elif btn_id == "wb-btn-inst-clear":
             try:
-                self.query_one("#wb-inst-flags-list", SelectionList).deselect_all()
+                self.query_one("#wb-inst-flags-list", DefectChecklist).deselect_all()
             except Exception:
                 pass
+        elif btn_id == "wb-btn-stem-auto-detect":
+            self._trigger_acoustic_detection()
+        elif btn_id == "wb-btn-stem-reseparate":
+            target = self.active_stream if self.active_stream in ("VOC", "INST") else "VOC"
+            self.query_one("#wb-status", Label).update("Forcing fresh neural stem re-separation...")
+            self._trigger_stem_separation(target, force=True)
         elif btn_id == "wb-btn-neural-toggle":
             self.toggle_neural_engine()
-        elif btn_id == "wb-btn-models-download":
+        elif btn_id in ("wb-btn-models-download", "wb-btn-stem-models"):
             self.trigger_models_download()
         elif btn_id == "wb-btn-export":
             self._export_derivative()
@@ -1594,6 +1928,12 @@ class WorkbenchWidget(Widget):
             self.switch_page("deck")
         elif btn_id == "wb-btn-page-eq":
             self.switch_page("eq")
+        elif btn_id == "wb-btn-page-stems":
+            self.switch_page("stems")
+        elif btn_id == "wb-btn-audition-voc":
+            self.set_active_stream("VOC")
+        elif btn_id == "wb-btn-audition-inst":
+            self.set_active_stream("INST")
         elif btn_id.startswith("wb-eq-up-"):
             freq = int(btn_id.replace("wb-eq-up-", ""))
             curr = self.eq_settings.bands.get(freq, 0.0)
@@ -1642,31 +1982,173 @@ class WorkbenchWidget(Widget):
         elif btn_id == "wb-blend-hdemucs-dn":
             self.stem_hdemucs_blend = max(0.0, round(self.stem_hdemucs_blend - 0.05, 2))
             self._update_blend_ui()
+        elif btn_id == "wb-crossover-up":
+            self.stem_crossover_hz = min(600.0, self.stem_crossover_hz + 25.0)
+            self._update_blend_ui()
+        elif btn_id == "wb-crossover-dn":
+            self.stem_crossover_hz = max(150.0, self.stem_crossover_hz - 25.0)
+            self._update_blend_ui()
+        elif btn_id == "wb-dereverb-up":
+            self.stem_dereverb_intensity = min(1.0, round(self.stem_dereverb_intensity + 0.10, 2))
+            self._update_blend_ui()
+        elif btn_id == "wb-dereverb-dn":
+            self.stem_dereverb_intensity = max(0.0, round(self.stem_dereverb_intensity - 0.10, 2))
+            self._update_blend_ui()
+
+    @staticmethod
+    def _get_blend_desc(val: float) -> str:
+        """Human-readable descriptor for model blend weights."""
+        if val >= 0.8:
+            return "(Richest Texture)"
+        if val >= 0.4:
+            return "(Balanced Separation)"
+        return "(Cleanest Isolation)"
+
+    @staticmethod
+    def _get_dereverb_desc(intensity: float) -> str:
+        """Human-readable descriptor for de-reverb intensity."""
+        pct = int(round(intensity * 100))
+        if pct <= 5:
+            return "(Bypassed — natural room reflections preserved)"
+        if pct <= 25:
+            return "(Subtle — light room de-bleed)"
+        if pct <= 50:
+            return "(Balanced — dry studio vocal acapella)"
+        if pct <= 75:
+            return "(Aggressive — tight anechoic isolation)"
+        return "(Maximum — 100% dry clinical vocal)"
 
     def _update_blend_ui(self) -> None:
-        """Refresh blend weight value labels after a change."""
+        """Refresh blend weight value labels and descriptors after a change."""
         try:
             self.query_one("#wb-blend-bsr-val", Label).update(f"{int(self.stem_bsr_blend * 100)}%")
             self.query_one("#wb-blend-hdemucs-val", Label).update(
                 f"{int(self.stem_hdemucs_blend * 100)}%"
             )
-            bsr_desc = (
-                "Richest Texture"
-                if self.stem_bsr_blend >= 0.8
-                else ("Balanced" if self.stem_bsr_blend >= 0.4 else "Cleanest")
+            self.query_one("#wb-crossover-val", Label).update(f"{int(self.stem_crossover_hz)} Hz")
+            self.query_one("#wb-dereverb-val", Label).update(
+                f"{int(self.stem_dereverb_intensity * 100)}%"
             )
-            hd_desc = (
-                "Richest Texture"
-                if self.stem_hdemucs_blend >= 0.8
-                else ("Balanced" if self.stem_hdemucs_blend >= 0.4 else "Cleanest")
-            )
+            bsr_desc = self._get_blend_desc(self.stem_bsr_blend)
+            hd_desc = self._get_blend_desc(self.stem_hdemucs_blend)
+            drv_desc = self._get_dereverb_desc(self.stem_dereverb_intensity)
+
+            try:
+                self.query_one("#wb-blend-bsr-desc", Label).update(bsr_desc)
+                self.query_one("#wb-blend-hdemucs-desc", Label).update(hd_desc)
+                self.query_one("#wb-dereverb-desc", Label).update(drv_desc)
+            except Exception:
+                pass
+
             self.query_one("#wb-status", Label).update(
-                f"Blend — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% texture ({bsr_desc})  |  "
-                f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% texture ({hd_desc})"
-                f"  · 0%=Clean separation · 100%=Rich instruments"
+                f"Ensemble — BS-RoFormer: {int(self.stem_bsr_blend * 100)}% | "
+                f"HDEMUCS: {int(self.stem_hdemucs_blend * 100)}% | "
+                f"LR4: {int(self.stem_crossover_hz)}Hz | "
+                f"De-Reverb: {int(self.stem_dereverb_intensity * 100)}%"
             )
         except Exception:
             pass
+
+    def _trigger_acoustic_detection(self) -> None:
+        """Analyze track acoustics, vocal presence, and defects to auto-configure stems."""
+        if not self.path_mp3 or not self.path_mp3.exists():
+            self.notify("Load an audio track to run Acoustic Auto-Detect", severity="warning")
+            return
+
+        try:
+            self.query_one("#wb-status", Label).update(
+                "Listening to track acoustics & analyzing vocal distribution..."
+            )
+            self.query_one("#wb-acoustic-status", Label).update(
+                "Analyzing track acoustics..."
+            )
+        except Exception:
+            pass
+
+        self.run_worker(self._async_detect_acoustics(self.path_mp3), name="stem-acoustic-detect")
+
+    async def _async_detect_acoustics(self, source_path: Path) -> None:
+        """Run acoustic detector in background thread and apply recommended settings."""
+        try:
+            import soundfile as sf
+
+            def _load_and_analyze() -> AcousticAnalysisResult:
+                data, sr = sf.read(str(source_path), dtype="float32", always_2d=True)
+                # soundfile returns (samples, channels) -> transpose to (channels, samples)
+                audio = data.T
+                return analyze_track_acoustics(audio, sr=int(sr))
+
+            result = await asyncio.to_thread(_load_and_analyze)
+
+            if self.path_mp3 != source_path:
+                return
+
+            self.vocal_flags = set(result.recommended_vocal_flags)
+            self.inst_flags = set(result.recommended_inst_flags)
+            self.stem_bsr_blend = result.recommended_blend_weight
+
+            # Update UI SelectionLists
+            try:
+                voc_list = self.query_one("#wb-voc-flags-list", DefectChecklist)
+                voc_list.deselect_all()
+                for f in self.vocal_flags:
+                    try:
+                        voc_list.select(f)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                inst_list = self.query_one("#wb-inst-flags-list", DefectChecklist)
+                inst_list.deselect_all()
+                for f in self.inst_flags:
+                    try:
+                        inst_list.select(f)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            self._update_blend_ui()
+
+            if result.is_pure_instrumental:
+                status_text = (
+                    f"🎧 PURE INSTRUMENTAL ({int(result.vocal_confidence * 100)}% vocal conf) · "
+                    f"Vocal bleed suppression bypassed · Sub-bass punch preserved"
+                )
+                self.notify(
+                    "Acoustic analysis: Pure instrumental track detected.",
+                    severity="information",
+                )
+            else:
+                v_conf = int(result.vocal_confidence * 100)
+                n_voc = len(result.recommended_vocal_flags)
+                n_inst = len(result.recommended_inst_flags)
+                blend = int(result.recommended_blend_weight * 100)
+                status_text = (
+                    f"🎤 VOCALS DETECTED ({v_conf}% conf) · "
+                    f"Auto-tuned {n_voc} vocal & {n_inst} inst remediations · "
+                    f"Blend set to {blend}%"
+                )
+                self.notify(
+                    f"Acoustic analysis: {int(result.vocal_confidence * 100)}% vocal confidence.",
+                    severity="information",
+                )
+
+            try:
+                self.query_one("#wb-acoustic-status", Label).update(status_text)
+                self.query_one("#wb-status", Label).update(status_text)
+            except Exception:
+                pass
+
+        except Exception as exc:
+            logger.exception("Acoustic analysis failed: %s", exc)
+            try:
+                self.query_one("#wb-status", Label).update(f"Acoustic analysis failed: {exc}")
+                self.query_one("#wb-acoustic-status", Label).update("Acoustic analysis failed.")
+            except Exception:
+                pass
 
     def toggle_neural_engine(self) -> None:
         """Toggle between Eco DSP mode (cool, zero heat) and Neural AI mode."""
@@ -1755,21 +2237,28 @@ class WorkbenchWidget(Widget):
         import importlib
         import importlib.util
 
-        from harvester.services.model_manager import SUPPORTED_MODELS, ModelManager
+        from harvester.services.model_manager import ModelManager
 
         mm = ModelManager()
 
         # --- Stem separation model availability (self-managed) ---
-        bsr_ok = (
-            importlib.util.find_spec("demucs") is not None
-            or importlib.util.find_spec("transformers") is not None
-        )
+        bsr_installed = importlib.util.find_spec("transformers") is not None
+        bsr_cached = mm.is_cached("bs_roformer")
+        bsr_ok = bsr_installed and bsr_cached
+        if not bsr_installed:
+            bsr_status = "⚠ Needs: pip install transformers"
+        elif not bsr_cached:
+            bsr_status = "⬇ Not downloaded"
+        else:
+            bsr_status = "✅ Cached & Ready"
+
         hdemucs_ok = importlib.util.find_spec("demucs") is not None
-        bsr_status = "✅ Available" if bsr_ok else "⚠ Needs: pip install transformers"
         hdemucs_status = "✅ Available" if hdemucs_ok else "⚠ Needs: pip install demucs"
 
-        # --- Enhancement model cache status ---
-        missing = [m for m in SUPPORTED_MODELS if not mm.is_cached(m)]
+        # --- All 5 models cache status ---
+        all_models = ("bs_roformer", "hdemucs", "dereverb", "nvsr", "flashsr")
+        missing = [m for m in all_models if not mm.is_cached(m)]
+        dereverb_status = "✅ Cached & Ready" if mm.is_cached("dereverb") else "✅ DSP Engine"
         nvsr_status = "✅ Cached" if "nvsr" not in missing else "⬇ Not downloaded"
         fsr_status = "✅ Cached" if "flashsr" not in missing else "⬇ Not downloaded"
 
@@ -1777,6 +2266,7 @@ class WorkbenchWidget(Widget):
             f"AI Model Registry — "
             f"BS-RoFormer: {bsr_status}  |  "
             f"HDEMUCS: {hdemucs_status}  |  "
+            f"DeReverb: {dereverb_status}  |  "
             f"NVSR: {nvsr_status}  |  "
             f"FlashSR: {fsr_status}"
         )
@@ -1785,9 +2275,10 @@ class WorkbenchWidget(Widget):
         all_ready = bsr_ok and hdemucs_ok and not missing
         if all_ready:
             self.app.notify(
-                f"All 4 AI models ready:\n"
+                f"All 5 AI models ready:\n"
                 f"• BS-RoFormer (Stem): {bsr_status}\n"
                 f"• HDEMUCS (Stem): {hdemucs_status}\n"
+                f"• De-Reverb (Acoustic): {dereverb_status}\n"
                 f"• NVSR (Enhance): ✅ Cached\n"
                 f"• FlashSR (Enhance): ✅ Cached",
                 title="OmniRip AI Models",
@@ -1796,23 +2287,11 @@ class WorkbenchWidget(Widget):
             return
 
         install_demucs = not hdemucs_ok
-        if not missing and not install_demucs:
-            self.app.notify(
-                f"OmniRip AI Model Status:\n"
-                f"• BS-RoFormer (Stem): {bsr_status}\n"
-                f"• HDEMUCS (Stem): {hdemucs_status}\n"
-                f"• NVSR (Enhance): {nvsr_status}\n"
-                f"• FlashSR (Enhance): {fsr_status}",
-                title="OmniRip AI Models",
-                timeout=6.0,
-            )
-            return
-
         tasks_desc: list[str] = []
         if install_demucs:
             tasks_desc.append("Demucs stem engine")
         if missing:
-            tasks_desc.append(f"Enhancement weights ({', '.join(missing)})")
+            tasks_desc.append(f"AI weights ({', '.join(missing)})")
 
         self.app.notify(
             f"Setting up AI models: {', '.join(tasks_desc)}...",
@@ -1847,14 +2326,14 @@ class WorkbenchWidget(Widget):
 
             for model_name in models:
                 self.query_one("#wb-status", Label).update(
-                    f"Downloading {model_name.upper()} weights from Hugging Face..."
+                    f"Downloading {model_name.upper()} AI weights..."
                 )
                 await asyncio.to_thread(mm.download_model, model_name)
             self.query_one("#wb-status", Label).update(
                 "All neural models and weights configured successfully!"
             )
             self.app.notify(
-                "Model download complete! Neural weights are now cached.",
+                "Model download complete! All AI weights are cached and ready.",
                 title="OmniRip Models Downloaded",
                 timeout=5.0,
             )

@@ -174,12 +174,19 @@ class FlashSRProvider:
                     t_sub = torch.from_numpy(sub_cutoff).to(device)
                     norm = torch.max(torch.abs(t_sub)) + 1e-6
                     x = t_sub / norm
+                    # Harmonic confidence envelope gate (prevents ultrasonic noise excitation in silent/unvoiced sections)
+                    energy_env = torch.mean(x**2, dim=0, keepdim=True)
+                    noise_gate = torch.clamp((energy_env - 1e-5) / (2e-4 + 1e-6), 0.0, 1.0)
                     air_harmonics_t = (
-                        0.30 * (x**2)
-                        + 0.25 * (x**3)
-                        + 0.20 * (torch.abs(x) - torch.mean(torch.abs(x), dim=-1, keepdim=True))
-                        + 0.15 * (torch.tanh(2.0 * x) - x)
-                    ) * norm
+                        (
+                            0.30 * (x**2)
+                            + 0.25 * (x**3)
+                            + 0.20 * (torch.abs(x) - torch.mean(torch.abs(x), dim=-1, keepdim=True))
+                            + 0.15 * (torch.tanh(2.0 * x) - x)
+                        )
+                        * noise_gate
+                        * norm
+                    )
                     air_harmonics = air_harmonics_t.cpu().numpy().astype(np.float32)
                 del t_sub, air_harmonics_t
                 if device.type == "mps" and hasattr(torch, "mps"):
@@ -189,12 +196,18 @@ class FlashSRProvider:
             except Exception:
                 norm = float(np.max(np.abs(sub_cutoff))) + 1e-6
                 x = sub_cutoff / norm
+                energy_env_np = np.mean(x**2, axis=0, keepdims=True)
+                noise_gate_np = np.clip((energy_env_np - 1e-5) / (2e-4 + 1e-6), 0.0, 1.0)
                 air_harmonics = (
-                    0.30 * (x**2)
-                    + 0.25 * (x**3)
-                    + 0.20 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
-                    + 0.15 * (np.tanh(2.0 * x) - x)
-                ) * norm
+                    (
+                        0.30 * (x**2)
+                        + 0.25 * (x**3)
+                        + 0.20 * (np.abs(x) - np.mean(np.abs(x), axis=-1, keepdims=True))
+                        + 0.15 * (np.tanh(2.0 * x) - x)
+                    )
+                    * noise_gate_np
+                    * norm
+                )
 
             if progress_callback:
                 progress_callback(51.0, "⚡ [FlashSR Engine]: Filtering ultrasonic air passband...")

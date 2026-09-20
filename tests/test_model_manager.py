@@ -46,14 +46,30 @@ def test_model_manager_cache_lookup(tmp_path: Path):
     mm = ModelManager(cache_dir=tmp_path)
     assert not mm.is_cached("nvsr")
     assert mm.get_model_path("nvsr") is None
+    assert not mm.is_cached("dereverb")
+    assert mm.get_model_path("dereverb") is None
 
     # Simulate cached file
     nvsr_file = tmp_path / SUPPORTED_MODELS["nvsr"].filename
     nvsr_file.write_bytes(b"dummy_weights")
+    dereverb_file = tmp_path / SUPPORTED_MODELS["dereverb"].filename
+    dereverb_file.write_bytes(b"dummy_dereverb_weights")
 
     assert mm.is_cached("nvsr")
     assert mm.get_model_path("nvsr") == nvsr_file
+    assert mm.is_cached("dereverb")
+    assert mm.get_model_path("dereverb") == dereverb_file
     assert mm.get_model_path("nonexistent") is None
+
+
+def test_model_manager_all_five_models_registered():
+    """Verify all 5 models are properly registered in SUPPORTED_MODELS."""
+    expected = {"nvsr", "flashsr", "bs_roformer", "hdemucs", "dereverb"}
+    assert set(SUPPORTED_MODELS.keys()) == expected
+    for name, spec in SUPPORTED_MODELS.items():
+        assert spec.repo_id, f"{name} missing repo_id"
+        assert spec.filename, f"{name} missing filename"
+        assert spec.description, f"{name} missing description"
 
 
 def test_model_manager_checksum_verification(tmp_path: Path):
@@ -117,3 +133,25 @@ def test_model_manager_download_direct_http(tmp_path: Path):
         assert out.exists()
         assert out.read_bytes() == b"chunk_1_chunk_2"
         assert 1.0 in progress
+
+
+def test_model_manager_download_hdemucs_direct_url(tmp_path: Path):
+    """Test downloading hdemucs using fallback direct_url when torchaudio fails."""
+    import sys
+    from unittest.mock import MagicMock
+
+    mm = ModelManager(cache_dir=tmp_path)
+
+    mock_resp = MagicMock()
+    mock_resp.headers = {"content-length": "100"}
+    mock_resp.iter_bytes.return_value = [b"hdemucs_data"]
+    mock_resp.__enter__.return_value = mock_resp
+
+    with (
+        patch.dict(sys.modules, {"torchaudio": None}),
+        patch("httpx.stream", return_value=mock_resp),
+    ):
+        out = mm.download_model("hdemucs", force_download=True)
+        assert out.exists()
+        assert out.read_bytes() == b"hdemucs_data"
+

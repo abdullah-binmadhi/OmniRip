@@ -9,6 +9,8 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Label, ProgressBar, Select
 
+from harvester.analysis.enhancement.acoustic_detector import AcousticAnalysisResult
+from harvester.analysis.enhancement.stem_separator import VOCAL_REMEDIATIONS
 from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
 from harvester.ui.visualizer import AudioVisualizer
@@ -258,12 +260,22 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
         assert "ECO DSP" in str(btn_toggle.label)
         assert "Eco DSP" in str(engine_label.render())
 
-        # Models download button exists
+        # Models download button exists on Deck page
         assert "MODELS" in str(btn_download.label)
         with patch.object(wb, "trigger_models_download") as mock_dl:
             btn_download.press()
             await pilot.pause()
             mock_dl.assert_called_once()
+
+        # Stems page AI models button also exists and triggers trigger_models_download
+        wb.switch_page("stems")
+        await pilot.pause()
+        btn_stem_models = app.query_one("#wb-btn-stem-models", Button)
+        assert "AI MODELS" in str(btn_stem_models.label)
+        with patch.object(wb, "trigger_models_download") as mock_stem_dl:
+            btn_stem_models.press()
+            await pilot.pause()
+            mock_stem_dl.assert_called_once()
 
         # Test trigger_models_download when models are already cached — shows all 4 models
         with (
@@ -803,15 +815,17 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
     """Verify vocal and instrumental diagnostic multi-choice panels, buttons, and profile memory."""
     import json
 
-    from textual.widgets import Button, SelectionList
+    from textual.widgets import Button
+
+    from harvester.ui.workbench import DefectChecklist
 
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one(WorkbenchWidget)
         voc_panel = app.query_one("#wb-diagnostic-voc-panel")
         inst_panel = app.query_one("#wb-diagnostic-inst-panel")
-        voc_list = app.query_one("#wb-voc-flags-list", SelectionList)
-        inst_list = app.query_one("#wb-inst-flags-list", SelectionList)
+        voc_list = app.query_one("#wb-voc-flags-list", DefectChecklist)
+        inst_list = app.query_one("#wb-inst-flags-list", DefectChecklist)
 
         # 1. Initial state: stream is MP3, both diagnostic panels are hidden
         assert voc_panel.styles.display == "none"
@@ -842,18 +856,28 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
         assert "fix_pumping" in wb.vocal_flags
         assert "de_robot" in wb.vocal_flags
 
-        # 6. Test ALL and CLEAR buttons for Vocal
+        # 6. Test STUDIO, ALL, and CLEAR buttons for Vocal
+        btn_voc_studio = app.query_one("#wb-btn-voc-studio", Button)
+        btn_voc_studio.press()
+        await pilot.pause()
+        assert wb.vocal_flags == {"de_bleed", "fix_pumping"}
+
         btn_voc_all = app.query_one("#wb-btn-voc-all", Button)
         btn_voc_all.press()
         await pilot.pause()
-        assert len(wb.vocal_flags) == 10
+        assert len(wb.vocal_flags) == len(VOCAL_REMEDIATIONS)
 
         btn_voc_clear = app.query_one("#wb-btn-voc-clear", Button)
         btn_voc_clear.press()
         await pilot.pause()
         assert len(wb.vocal_flags) == 0
 
-        # 7. Test ALL and CLEAR buttons for Instrumental
+        # 7. Test STUDIO, ALL, and CLEAR buttons for Instrumental
+        btn_inst_studio = app.query_one("#wb-btn-inst-studio", Button)
+        btn_inst_studio.press()
+        await pilot.pause()
+        assert wb.inst_flags == {"anti_bleed_synths", "sub_bass_clean"}
+
         btn_inst_all = app.query_one("#wb-btn-inst-all", Button)
         btn_inst_all.press()
         await pilot.pause()
@@ -863,6 +887,46 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
         btn_inst_clear.press()
         await pilot.pause()
         assert len(wb.inst_flags) == 0
+
+        # 7b. Test RE-SEPARATE button
+        btn_resep = app.query_one("#wb-btn-stem-reseparate", Button)
+        with patch.object(wb, "_trigger_stem_separation") as mock_resep:
+            btn_resep.press()
+            await pilot.pause()
+            mock_resep.assert_called_once_with("VOC", force=True)
+
+        # 7c. Test AUTO-DETECT button
+        btn_autodetect = app.query_one("#wb-btn-stem-auto-detect", Button)
+        with patch.object(wb, "_trigger_acoustic_detection") as mock_autodetect:
+            btn_autodetect.press()
+            await pilot.pause()
+            mock_autodetect.assert_called_once()
+
+        # 7d. Test _async_detect_acoustics applying recommendations
+        mock_result = AcousticAnalysisResult(
+            has_vocals=True,
+            vocal_confidence=0.88,
+            is_pure_instrumental=False,
+            detected_issues=["synth_bleed"],
+            recommended_vocal_flags={"vad_gate", "fix_pumping"},
+            recommended_inst_flags={"anti_bleed_synths", "sub_bass_clean"},
+            recommended_blend_weight=0.75,
+            recommended_engine="ensemble",
+            summary="Vocal track detected",
+        )
+        fake_track = tmp_path / "fake_detect.wav"
+        fake_track.write_bytes(b"RIFF....WAVEfmt ")
+        wb.path_mp3 = fake_track
+
+        with patch("harvester.ui.workbench.analyze_track_acoustics", return_value=mock_result), \
+             patch("soundfile.read", return_value=(__import__("numpy").zeros((1000, 2)), 44100)):
+            await wb._async_detect_acoustics(fake_track)
+            await pilot.pause()
+
+            assert wb.vocal_flags == {"vad_gate", "fix_pumping"}
+            assert wb.inst_flags == {"anti_bleed_synths", "sub_bass_clean"}
+            assert wb.stem_bsr_blend == 0.75
+            assert "VOCALS DETECTED" in str(app.query_one("#wb-acoustic-status", Label).render())
 
         # 8. Test loading track with existing profile.json restores the saved multi-flags
         track_file = tmp_path / "test_track.mp3"
@@ -894,3 +958,106 @@ async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: 
         assert wb.inst_flags == {"preserve_drums", "kill_whispers"}
         assert set(voc_list.selected) == {"de_robot", "air_boost"}
         assert set(inst_list.selected) == {"preserve_drums", "kill_whispers"}
+
+
+async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> None:
+    """Verify Workbench 3-page system and dedicated STEMS studio page controls."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "test_track.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
+        job.output_path = dummy_mp3
+
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        page_deck = app.query_one("#wb-page-deck")
+        page_eq = app.query_one("#wb-page-eq")
+        page_stems = app.query_one("#wb-page-stems")
+        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
+        btn_page_eq = app.query_one("#wb-btn-page-eq", Button)
+        btn_page_stems = app.query_one("#wb-btn-page-stems", Button)
+
+        # 1. Initially on DECK page
+        assert wb.active_page == "deck"
+        assert page_deck.styles.display != "none"
+        assert page_eq.styles.display == "none"
+        assert page_stems.styles.display == "none"
+        assert "wb-page-btn-active" in btn_page_deck.classes
+        assert "wb-page-btn-active" not in btn_page_eq.classes
+        assert "wb-page-btn-active" not in btn_page_stems.classes
+
+        # 2. Switch to STEMS page
+        btn_page_stems.press()
+        await pilot.pause()
+
+        assert wb.active_page == "stems"
+        assert page_deck.styles.display == "none"
+        assert page_eq.styles.display == "none"
+        assert page_stems.styles.display != "none"
+        assert "wb-page-btn-active" in btn_page_stems.classes
+        assert "wb-page-btn-active" not in btn_page_deck.classes
+
+        # 3. Verify all controls on STEMS page exist
+        assert app.query_one("#wb-btn-stem-auto-detect", Button) is not None
+        assert app.query_one("#wb-btn-stem-reseparate", Button) is not None
+        assert app.query_one("#wb-btn-audition-voc", Button) is not None
+        assert app.query_one("#wb-btn-audition-inst", Button) is not None
+        assert app.query_one("#wb-blend-bsr-val", Label) is not None
+        assert app.query_one("#wb-blend-hdemucs-val", Label) is not None
+
+        # 4. Test BS-RoFormer stepper on STEMS page
+        btn_bsr_dn = app.query_one("#wb-blend-bsr-dn", Button)
+        btn_bsr_up = app.query_one("#wb-blend-bsr-up", Button)
+        init_bsr = wb.stem_bsr_blend
+        btn_bsr_dn.press()
+        await pilot.pause()
+        assert wb.stem_bsr_blend == round(init_bsr - 0.05, 2)
+
+        btn_bsr_up.press()
+        await pilot.pause()
+        assert wb.stem_bsr_blend == init_bsr
+
+        # Test LR4 Crossover stepper on STEMS page
+        btn_xo_dn = app.query_one("#wb-crossover-dn", Button)
+        btn_xo_up = app.query_one("#wb-crossover-up", Button)
+        init_xo = wb.stem_crossover_hz
+        btn_xo_up.press()
+        await pilot.pause()
+        assert wb.stem_crossover_hz == init_xo + 25.0
+        btn_xo_dn.press()
+        await pilot.pause()
+        assert wb.stem_crossover_hz == init_xo
+
+        # Test De-Reverb stepper on STEMS page
+        btn_drv_up = app.query_one("#wb-dereverb-up", Button)
+        btn_drv_dn = app.query_one("#wb-dereverb-dn", Button)
+        init_drv = wb.stem_dereverb_intensity
+        btn_drv_up.press()
+        await pilot.pause()
+        assert wb.stem_dereverb_intensity == round(init_drv + 0.10, 2)
+        btn_drv_dn.press()
+        await pilot.pause()
+        assert wb.stem_dereverb_intensity == init_drv
+
+        # 5. Test Audition buttons on STEMS page
+        btn_aud_inst = app.query_one("#wb-btn-audition-inst", Button)
+        btn_aud_inst.press()
+        await pilot.pause()
+        assert wb.active_stream == "INST"
+
+        btn_aud_voc = app.query_one("#wb-btn-audition-voc", Button)
+        btn_aud_voc.press()
+        await pilot.pause()
+        assert wb.active_stream == "VOC"
+
+        # 6. Switch back to DECK page
+        btn_page_deck.press()
+        await pilot.pause()
+        assert wb.active_page == "deck"
+        assert page_deck.styles.display != "none"
+        assert page_stems.styles.display == "none"
+

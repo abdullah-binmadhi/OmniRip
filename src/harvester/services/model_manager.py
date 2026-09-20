@@ -23,6 +23,7 @@ class ModelSpec:
     target_sample_rate: int
     expected_sha256: str | None = None
     description: str = ""
+    direct_url: str | None = None
 
 
 # Default registry of supported models
@@ -42,6 +43,31 @@ SUPPORTED_MODELS: dict[str, ModelSpec] = {
         target_sample_rate=48000,
         expected_sha256=None,
         description="FlashSR distilled diffusion air-band generator (>16kHz)",
+    ),
+    "bs_roformer": ModelSpec(
+        name="bs_roformer",
+        repo_id="HiDolen/Mini-BS-RoFormer-V2-46.8M",
+        filename="model.safetensors",
+        target_sample_rate=44100,
+        expected_sha256=None,
+        description="BS-RoFormer Rotary Transformer vocal separation (44.1kHz)",
+    ),
+    "hdemucs": ModelSpec(
+        name="hdemucs",
+        repo_id="facebookresearch/demucs",
+        filename="hdemucs_high_musdbhq_only.pt",
+        target_sample_rate=44100,
+        expected_sha256=None,
+        description="HDEMUCS deep multi-source rhythm & instrument separation (44.1kHz)",
+        direct_url="https://download.pytorch.org/torchaudio/models/hdemucs_high_musdbhq_only.pt",
+    ),
+    "dereverb": ModelSpec(
+        name="dereverb",
+        repo_id="anvuew/dereverb_bs_roformer",
+        filename="dereverb_bs_roformer_anvuew_sdr_22.5050.ckpt",
+        target_sample_rate=44100,
+        expected_sha256=None,
+        description="BS-RoFormer DeReverb anechoic vocal acoustic isolation (44.1kHz)",
     ),
 }
 
@@ -64,6 +90,20 @@ class ModelManager:
         candidate = self.cache_dir / spec.filename
         if candidate.exists() and candidate.is_file():
             return candidate
+        if model_name.lower() == "hdemucs":
+            try:
+                import torch
+
+                hub_p = Path(torch.hub.get_dir())
+                for cand in [
+                    hub_p / "torchaudio" / "models" / spec.filename,
+                    hub_p / "checkpoints" / spec.filename,
+                    hub_p / spec.filename,
+                ]:
+                    if cand.exists() and cand.is_file():
+                        return cand
+            except Exception:
+                pass
         return None
 
     def is_cached(self, model_name: str) -> bool:
@@ -92,7 +132,7 @@ class ModelManager:
         Download a model checkpoint to the local cache directory.
 
         Args:
-            model_name: Name of supported model ('nvsr' or 'flashsr').
+            model_name: Name of supported model ('nvsr', 'flashsr', 'bs_roformer', 'hdemucs', 'dereverb').
             progress_callback: Optional callback receiving float progress (0.0 to 1.0).
             force_download: Re-download even if file is already cached.
 
@@ -111,17 +151,43 @@ class ModelManager:
         spec = SUPPORTED_MODELS[key]
         dest_path = self.cache_dir / spec.filename
 
-        if dest_path.exists() and not force_download:
+        cached_existing = self.get_model_path(key)
+        if cached_existing and not force_download:
             if spec.expected_sha256:
-                if self.verify_checksum(dest_path, spec.expected_sha256):
+                if self.verify_checksum(cached_existing, spec.expected_sha256):
                     if progress_callback:
                         progress_callback(1.0)
-                    return dest_path
+                    return cached_existing
                 logger.warning("Cached model checksum failed; re-downloading %s", spec.name)
             else:
                 if progress_callback:
                     progress_callback(1.0)
-                return dest_path
+                return cached_existing
+
+        if key == "hdemucs":
+            try:
+                import torchaudio
+                import torchaudio.utils
+
+                logger.info("Downloading HDEMUCS pipeline weights via torchaudio...")
+                if progress_callback:
+                    progress_callback(0.2)
+                bundle = torchaudio.pipelines.HDEMUCS_HIGH_MUSDB
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                downloaded_file = torchaudio.utils._download_asset(
+                    bundle._model_path,
+                    path=dest_path,
+                )
+                if progress_callback:
+                    progress_callback(1.0)
+                return Path(downloaded_file)
+            except Exception as e:
+                logger.info(
+                    "Torchaudio bundle download failed (%s); falling back to direct HTTP...", e
+                )
+                if spec.direct_url:
+                    return self._download_direct_http(spec, progress_callback=progress_callback)
+                raise RuntimeError(f"Failed to download HDEMUCS via torchaudio: {e}") from e
 
         try:
             from huggingface_hub import hf_hub_download
@@ -133,7 +199,6 @@ class ModelManager:
                 repo_id=spec.repo_id,
                 filename=spec.filename,
                 local_dir=str(self.cache_dir),
-                local_dir_use_symlinks=False,
             )
             downloaded_path = Path(downloaded)
             if spec.expected_sha256:
@@ -158,7 +223,10 @@ class ModelManager:
         """Download model checkpoint directly via streaming HTTP GET."""
         import httpx
 
-        url = f"https://huggingface.co/{spec.repo_id}/resolve/main/{spec.filename}"
+        if spec.direct_url:
+            url = spec.direct_url
+        else:
+            url = f"https://huggingface.co/{spec.repo_id}/resolve/main/{spec.filename}"
         dest_path = self.cache_dir / spec.filename
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
