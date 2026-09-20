@@ -295,6 +295,8 @@ class AudioPlayerWidget(Widget):
         padding: 0 1;
         height: 3;
         margin-right: 1;
+        text-align: center;
+        content-align: center middle;
     }
     .btn-seek {
         min-width: 5;

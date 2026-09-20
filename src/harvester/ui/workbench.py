@@ -211,6 +211,8 @@ class WorkbenchWidget(Widget):
         min-width: 12;
         padding: 0 1;
         margin-right: 1;
+        text-align: center;
+        content-align: center middle;
     }
     #wb-controls-row {
         height: 3;
@@ -235,6 +237,8 @@ class WorkbenchWidget(Widget):
         height: 3;
         padding: 0 2;
         border-right: none;
+        text-align: center;
+        content-align: center middle;
     }
     #wb-btn-export-menu {
         width: 5;
@@ -242,6 +246,8 @@ class WorkbenchWidget(Widget):
         height: 3;
         padding: 0 1;
         border-left: tall $success-darken-2;
+        text-align: center;
+        content-align: center middle;
     }
     #wb-export-dropdown {
         display: none;
@@ -252,15 +258,17 @@ class WorkbenchWidget(Widget):
         offset: 0 3;
         layer: overlay;
     }
-    .wb-export-choice {
+    #wb-export-dropdown .wb-export-choice {
         width: 1fr;
         height: 1;
         margin: 0;
         padding: 0 1;
         background: $surface;
         border: none;
+        text-align: center;
+        content-align: center middle;
     }
-    .wb-export-choice:hover {
+    #wb-export-dropdown .wb-export-choice:hover {
         background: $success 30%;
         color: $success;
     }
@@ -308,7 +316,9 @@ class WorkbenchWidget(Widget):
         width: auto;
         align: right middle;
     }
-    .wb-page-btn {
+    /* Scoped by id: Textual's `Button.-style-default` tops out at specificity
+       (0, 1, 1), so unscoped class rules lose the skin below to the Button default. */
+    #wb-page-switch .wb-page-btn {
         height: 3;
         min-width: 10;
         margin-left: 1;
@@ -316,13 +326,15 @@ class WorkbenchWidget(Widget):
         border: solid $secondary;
         background: $surface;
         color: $secondary;
+        text-align: center;
+        content-align: center middle;
         text-style: bold;
     }
-    .wb-page-btn:hover {
+    #wb-page-switch .wb-page-btn:hover {
         background: $secondary;
         color: #000000;
     }
-    .wb-page-btn-active {
+    #wb-page-switch .wb-page-btn-active {
         border: solid $primary;
         background: $primary;
         color: #ffffff;
@@ -375,19 +387,22 @@ class WorkbenchWidget(Widget):
         align: center top;
         padding: 0;
     }
-    .wb-eq-btn-up, .wb-eq-btn-dn {
+    /* Borderless chips: a 1-row button cannot carry a border without eating its label. */
+    #wb-page-eq .wb-eq-btn-up, #wb-page-eq .wb-eq-btn-dn {
         height: 1;
         min-width: 4;
         width: 5;
         padding: 0;
         margin: 0;
-        border: solid $secondary;
-        background: $surface;
-        color: $secondary;
+        border: none;
+        background: $secondary;
+        color: #000000;
+        text-align: center;
+        content-align: center middle;
         text-style: bold;
     }
-    .wb-eq-btn-up:hover, .wb-eq-btn-dn:hover {
-        background: $secondary;
+    #wb-page-eq .wb-eq-btn-up:hover, #wb-page-eq .wb-eq-btn-dn:hover {
+        background: $accent;
         color: #000000;
     }
     .wb-eq-track {
@@ -421,6 +436,8 @@ class WorkbenchWidget(Widget):
         min-width: 11;
         margin-right: 1;
         padding: 0 1;
+        text-align: center;
+        content-align: center middle;
     }
     #wb-inspector-body {
         height: auto;
@@ -525,7 +542,9 @@ class WorkbenchWidget(Widget):
         width: auto;
         align: left middle;
     }
-    .wb-step-btn {
+    /* Borderless chips: the default `tall` border would consume the single row
+       and hide the `−` / `+` glyph; colours give 15:1 contrast. */
+    #wb-page-stems .wb-step-btn {
         height: 1;
         min-width: 5;
         width: 5;
@@ -534,9 +553,11 @@ class WorkbenchWidget(Widget):
         border: none;
         background: $secondary;
         color: #000000;
+        text-align: center;
+        content-align: center middle;
         text-style: bold;
     }
-    .wb-step-btn:hover {
+    #wb-page-stems .wb-step-btn:hover {
         background: $accent;
         color: #000000;
     }
@@ -558,27 +579,29 @@ class WorkbenchWidget(Widget):
         margin-top: 1;
         align: left middle;
     }
-    .wb-stem-action-btn {
+    #wb-stem-actions-row .wb-stem-action-btn {
         height: 1;
         min-width: 15;
         padding: 0 1;
         margin-right: 1;
         border: none;
+        text-align: center;
+        content-align: center middle;
         text-style: bold;
     }
-    .wb-action-detect {
+    #wb-stem-actions-row .wb-action-detect {
         background: $accent;
         color: #000000;
     }
-    .wb-action-detect:hover {
+    #wb-stem-actions-row .wb-action-detect:hover {
         background: $secondary;
         color: #000000;
     }
-    .wb-action-resep {
+    #wb-stem-actions-row .wb-action-resep {
         background: $panel;
         color: $warning;
     }
-    .wb-action-resep:hover {
+    #wb-stem-actions-row .wb-action-resep:hover {
         background: $warning;
         color: #000000;
     }
@@ -626,11 +649,13 @@ class WorkbenchWidget(Widget):
         color: $accent;
         text-style: bold;
     }
-    .wb-diagnostic-btn {
+    #wb-stems-racks-row .wb-diagnostic-btn {
         min-width: 7;
         height: 1;
         margin-left: 1;
         border: none;
+        text-align: center;
+        content-align: center middle;
     }
     DefectChecklist {
         height: auto;
@@ -808,7 +833,7 @@ class WorkbenchWidget(Widget):
             )
             with Horizontal(id="wb-export-split"):
                 yield Button("💾 SAVE ENHANCED", id="wb-btn-export", variant="success")
-                yield Button(" ↓ ", id="wb-btn-export-menu", variant="success")
+                yield Button("↓", id="wb-btn-export-menu", variant="success")
             with Vertical(id="wb-export-dropdown"):
                 yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
                 yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")

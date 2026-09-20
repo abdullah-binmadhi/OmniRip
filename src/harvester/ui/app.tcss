@@ -24,7 +24,7 @@ Header {
 }
 
 #input-area {
-    height: 4;
+    height: 5;
     padding: 0 1;
     margin: 1 1 0 1;
     border: round $primary;
@@ -48,7 +48,8 @@ Header {
 }
 
 #mp3-quality {
-    width: 14;
+    width: 16;
+    min-width: 16;
     margin-right: 1;
 }
 
