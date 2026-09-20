@@ -488,22 +488,16 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
         assert page_deck.styles.display != "none"
         assert page_eq.styles.display == "none"
 
-        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
-        btn_page_eq = app.query_one("#wb-btn-page-eq", Button)
-        assert "DECK" in str(btn_page_deck.label)
-        assert "EQ" in str(btn_page_eq.label)
-        assert "wb-page-btn-active" in btn_page_deck.classes
+        # Inner page-switch buttons removed; navigation is via top nav bar.
+        # Verify page visibility state only.
 
         # 2. Switch to 10-Band EQ page
-        btn_page_eq.press()
+        wb.switch_page("eq")
         await pilot.pause()
 
         assert wb.active_page == "eq"
         assert page_deck.styles.display == "none"
         assert page_eq.styles.display != "none"
-        assert "DECK" in str(btn_page_deck.label)
-        assert "EQ" in str(btn_page_eq.label)
-        assert "wb-page-btn-active" in btn_page_eq.classes
 
         # 3. Test EQ Band adjustments (+/-)
         val_16k = app.query_one("#wb-eq-val-16000", Label)
@@ -586,7 +580,7 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
             assert "+5.0dB" in str(val_16k.render())
 
         # 10. Switch back to Deck page
-        btn_page_deck.press()
+        wb.switch_page("deck")
         await pilot.pause()
         assert wb.active_page == "deck"
         assert page_deck.styles.display != "none"
@@ -977,29 +971,22 @@ async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> N
         page_deck = app.query_one("#wb-page-deck")
         page_eq = app.query_one("#wb-page-eq")
         page_stems = app.query_one("#wb-page-stems")
-        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
-        btn_page_eq = app.query_one("#wb-btn-page-eq", Button)
-        btn_page_stems = app.query_one("#wb-btn-page-stems", Button)
-
+        btn_page_deck = None  # inner page-switch buttons removed; nav via top bar
+        # Inner page-switch buttons removed; navigation is via top nav bar.
         # 1. Initially on DECK page
         assert wb.active_page == "deck"
         assert page_deck.styles.display != "none"
         assert page_eq.styles.display == "none"
         assert page_stems.styles.display == "none"
-        assert "wb-page-btn-active" in btn_page_deck.classes
-        assert "wb-page-btn-active" not in btn_page_eq.classes
-        assert "wb-page-btn-active" not in btn_page_stems.classes
 
         # 2. Switch to STEMS page
-        btn_page_stems.press()
+        wb.switch_page("stems")
         await pilot.pause()
 
         assert wb.active_page == "stems"
         assert page_deck.styles.display == "none"
         assert page_eq.styles.display == "none"
         assert page_stems.styles.display != "none"
-        assert "wb-page-btn-active" in btn_page_stems.classes
-        assert "wb-page-btn-active" not in btn_page_deck.classes
 
         # 3. Verify all controls on STEMS page exist
         assert app.query_one("#wb-btn-stem-auto-detect", Button) is not None
@@ -1055,7 +1042,7 @@ async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> N
         assert wb.active_stream == "VOC"
 
         # 6. Switch back to DECK page
-        btn_page_deck.press()
+        wb.switch_page("deck")
         await pilot.pause()
         assert wb.active_page == "deck"
         assert page_deck.styles.display != "none"
@@ -1077,21 +1064,19 @@ async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Pat
         wb = app.query_one(WorkbenchWidget)
         page_vis = app.query_one("#wb-page-vis")
         page_deck = app.query_one("#wb-page-deck")
-        btn_page_vis = app.query_one("#wb-btn-page-vis", Button)
-        btn_page_deck = app.query_one("#wb-btn-page-deck", Button)
+        # Inner page-switch buttons removed; navigation is via top nav bar.
 
         # 1. Initially on DECK page, VISUALS page is hidden
         assert wb.active_page == "deck"
         assert page_deck.styles.display != "none"
         assert page_vis.styles.display == "none"
 
-        # 2. Switch to VISUALS page in workbench
-        btn_page_vis.press()
+        # 2. Switch to VISUALS page via switch_page
+        wb.switch_page("vis")
         await pilot.pause()
         assert wb.active_page == "vis"
         assert page_vis.styles.display != "none"
         assert page_deck.styles.display == "none"
-        assert "wb-page-btn-active" in btn_page_vis.classes
 
         # 3. Verify all 5 visualizer engines exist inside wb-page-vis
         assert app.query_one("#wb-visualizer", AudioVisualizer) is not None

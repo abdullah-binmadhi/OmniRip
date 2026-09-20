@@ -253,20 +253,27 @@ class WorkbenchWidget(Widget):
     }
     #wb-export-dropdown {
         display: none;
-        width: 30;
-        background: $surface;
+        height: 3;
+        width: 1fr;
+        align: left middle;
+        background: $surface-darken-1;
         border: round $success;
-        padding: 0;
-        offset: 0 3;
-        layer: overlay;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    #wb-export-dropdown-title {
+        width: auto;
+        color: $success;
+        text-style: bold;
+        margin-right: 2;
     }
     #wb-export-dropdown .wb-export-choice {
-        width: 1fr;
-        height: 1;
-        margin: 0;
-        padding: 0 1;
+        width: auto;
+        height: 3;
+        margin-right: 1;
+        padding: 0 2;
         background: $surface;
-        border: none;
+        border: solid $success-darken-2;
         text-align: center;
         content-align: center middle;
     }
@@ -300,47 +307,6 @@ class WorkbenchWidget(Widget):
         background: $surface;
         padding: 0;
         overflow-y: auto;
-    }
-    #wb-deck-header-row {
-        height: 3;
-        width: 1fr;
-        align: left middle;
-        padding: 0 1;
-        background: $surface;
-        border-bottom: solid $primary;
-    }
-    #wb-cutoff-badge {
-        width: 1fr;
-        color: $warning;
-        text-style: bold;
-    }
-    #wb-page-switch {
-        width: auto;
-        align: right middle;
-    }
-    /* Scoped by id: Textual's `Button.-style-default` tops out at specificity
-       (0, 1, 1), so unscoped class rules lose the skin below to the Button default. */
-    #wb-page-switch .wb-page-btn {
-        height: 3;
-        min-width: 10;
-        margin-left: 1;
-        padding: 0 1;
-        border: solid $secondary;
-        background: $surface;
-        color: $secondary;
-        text-align: center;
-        content-align: center middle;
-        text-style: bold;
-    }
-    #wb-page-switch .wb-page-btn:hover {
-        background: $secondary;
-        color: #000000;
-    }
-    #wb-page-switch .wb-page-btn-active {
-        border: solid $primary;
-        background: $primary;
-        color: #ffffff;
-        text-style: bold;
     }
     #wb-page-deck {
         height: auto;
@@ -914,22 +880,15 @@ class WorkbenchWidget(Widget):
             with Horizontal(id="wb-export-split"):
                 yield Button("💾 SAVE ENHANCED", id="wb-btn-export", variant="success")
                 yield Button("↓", id="wb-btn-export-menu", variant="success")
-            with Vertical(id="wb-export-dropdown"):
-                yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
-                yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
-                yield Button("🎸  Instrumental (WAV)", id="wb-export-choose-inst", classes="wb-export-choice")
+
+        with Horizontal(id="wb-export-dropdown"):
+            yield Label("FORMAT:", id="wb-export-dropdown-title")
+            yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
+            yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
+            yield Button("🎸  Instrumental (WAV)", id="wb-export-choose-inst", classes="wb-export-choice")
+            yield Button("✕  Close",               id="wb-export-choose-close", classes="wb-export-choice")
 
         with Vertical(id="wb-inspector-container"):
-            with Horizontal(id="wb-deck-header-row"):
-                yield Label(f"fc: {self.cutoff_hz / 1000.0:.1f} kHz (Cutoff)", id="wb-cutoff-badge")
-                with Horizontal(id="wb-page-switch"):
-                    yield Button(
-                        "DECK", id="wb-btn-page-deck", classes="wb-page-btn wb-page-btn-active"
-                    )
-                    yield Button("EQ", id="wb-btn-page-eq", classes="wb-page-btn")
-                    yield Button("STEMS", id="wb-btn-page-stems", classes="wb-page-btn")
-                    yield Button("LAYERS", id="wb-btn-page-layers", classes="wb-page-btn")
-                    yield Button("VISUALS", id="wb-btn-page-vis", classes="wb-page-btn")
             with Vertical(id="wb-page-deck"):
                 yield Label("RESTORATION MASTERING DECK", id="wb-inspector-title")
                 yield Label("", id="wb-gauge-orig")
@@ -1769,29 +1728,11 @@ class WorkbenchWidget(Widget):
         """Switch between 'deck', 'eq', 'stems', 'layers', and 'vis' tabs inside the inspector container."""
         self.active_page = page_id
         try:
-            btn_deck = self.query_one("#wb-btn-page-deck", Button)
-            btn_eq = self.query_one("#wb-btn-page-eq", Button)
-            btn_stems = self.query_one("#wb-btn-page-stems", Button)
-            btn_layers = self.query_one("#wb-btn-page-layers", Button)
-            btn_vis = self.query_one("#wb-btn-page-vis", Button)
             page_deck = self.query_one("#wb-page-deck", Vertical)
             page_eq = self.query_one("#wb-page-eq", Vertical)
             page_stems = self.query_one("#wb-page-stems", Vertical)
             page_layers = self.query_one("#wb-page-layers", Vertical)
             page_vis = self.query_one("#wb-page-vis", Vertical)
-
-            # Update button active styles
-            for btn, pid in (
-                (btn_deck, "deck"),
-                (btn_eq, "eq"),
-                (btn_stems, "stems"),
-                (btn_layers, "layers"),
-                (btn_vis, "vis"),
-            ):
-                if page_id == pid:
-                    btn.add_class("wb-page-btn-active")
-                else:
-                    btn.remove_class("wb-page-btn-active")
 
             # Update page containers display
             page_deck.styles.display = "block" if page_id == "deck" else "none"
@@ -1799,6 +1740,7 @@ class WorkbenchWidget(Widget):
             page_stems.styles.display = "block" if page_id == "stems" else "none"
             page_layers.styles.display = "block" if page_id == "layers" else "none"
             page_vis.styles.display = "block" if page_id == "vis" else "none"
+
 
             if page_id == "eq":
                 self._update_eq_ui()
@@ -2186,13 +2128,9 @@ class WorkbenchWidget(Widget):
             self._set_export_mode(mode_map[btn_id])
             self._toggle_export_dropdown(force_close=True)
             self._export_derivative()
-        elif btn_id == "wb-btn-page-deck":
-            self.switch_page("deck")
-        elif btn_id == "wb-btn-page-eq":
-            self.switch_page("eq")
-        elif btn_id == "wb-btn-page-stems":
-            self.switch_page("stems")
-        elif btn_id in ("wb-btn-page-layers", "wb-btn-open-layers"):
+        elif btn_id == "wb-export-choose-close":
+            self._toggle_export_dropdown(force_close=True)
+        elif btn_id == "wb-btn-open-layers":
             self.switch_page("layers")
         elif btn_id == "wb-btn-build-layers":
             target = self.path_mp3
@@ -2204,8 +2142,7 @@ class WorkbenchWidget(Widget):
                     self.query_one("#wb-layer-status", Label).update("No active track loaded to separate.")
                 except Exception:
                     pass
-        elif btn_id == "wb-btn-page-vis":
-            self.switch_page("vis")
+
         elif btn_id == "wb-btn-save-layers":
             self._commit_layers_async()
         elif btn_id == "wb-btn-clear-layers":
@@ -2908,7 +2845,7 @@ class WorkbenchWidget(Widget):
     def _toggle_export_dropdown(self, force_close: bool = False) -> None:
         """Show or hide the export-type dropdown menu."""
         try:
-            dd = self.query_one("#wb-export-dropdown", Vertical)
+            dd = self.query_one("#wb-export-dropdown", Horizontal)
             if force_close or dd.styles.display != "none":
                 dd.styles.display = "none"
             else:
