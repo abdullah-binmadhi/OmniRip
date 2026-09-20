@@ -15,10 +15,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/actions/workflows/ci.yml"><img src="https://github.com/abdullah-binmadhi/OmniRip/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20Watch%20Full%20Demo-1080p%20MP4-e02424?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Quickstart-Ready-ff007f?style=for-the-badge&logo=terminal&logoColor=white" alt="Quickstart"></a>
   <a href="#the-curation-workbench--10-band-studio-equalizer"><img src="https://img.shields.io/badge/10--Band%20EQ-Realtime%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
-  <a href="#5-neural-stem-separation-bs-roformer--hdemucs-isolation"><img src="https://img.shields.io/badge/Neural%20Stems-BS--RoFormer%20%2B%20HDEMUCS-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
+  <a href="#5-5-stage-neural-ensemble-separation-bs-roformer--hdemucs--lr4-studio"><img src="https://img.shields.io/badge/Neural%20Stems-5--Stage%20Ensemble%20%2B%20LR4-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
   <a href="#spectral-anti-fraud-intelligence"><img src="https://img.shields.io/badge/Anti--Fraud-FFT%20Verified-ffaa00?style=for-the-badge&logo=shield&logoColor=white" alt="Spectral Anti-Fraud"></a>
   <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/Powered%20By-Python%203.11%2B%20%7C%20Textual-23193d?style=for-the-badge" alt="Python / Textual"></a>
 </p>
@@ -48,9 +49,9 @@ You do not need to be an audio engineer or a command-line expert to use it. If y
                                              │
       ┌──────────────────────┬───────────────┼───────────────┬──────────────────────┐
       ▼                      ▼               ▼               ▼                      ▼
-[ 1. P2P HUNT ]      [ 2. ANTI-FRAUD ] [ 3. REALTIME EQ ] [ 4. RESTORATION ] [ 5. STEM SEPARATION ]
+[ 1. P2P HUNT ]      [ 2. ANTI-FRAUD ] [ 3. REALTIME EQ ] [ 4. RESTORATION ] [ 5. STEM ENSEMBLE ]
 Soulseek Lossless     Spectral FFT      10-Band Mastering  Sub-fc Invariant   BS-RoFormer + HDEMUCS
- + Stream Fallback    Verification      Quad-Stream DSP    Harmonic Exciter   Zero-Bleed De-Bleeding
+ + Stream Fallback    Verification      Quad-Stream DSP    Harmonic Exciter   LR4 + DeReverb + 20 FX
 ```
 
 ### 1. Soulseek Lossless Hunt & Opus Stream Fallback
@@ -77,18 +78,20 @@ What about rare live concert recordings, underground mixtapes, and vintage vinyl
 - **Synthesizing High-Frequency Air (>15.5 kHz):** OmniRip analyzes the musical harmonies of the original track and mathematically generates natural overtone shimmer above the cutoff. It uses a **384-tap linear-phase crossover filter** so no phase cancellation occurs, stabilizes the sub-bass below 100 Hz into solid mono, and protects against distortion with an **ITU-R BS.1770 True-Peak Limiter** set at $-0.1\text{ dBFS}$.
 - **Two Restoration Engines to Choose From:**
   - **Eco DSP Mode:** Pure mathematical signal processing using vectorized NumPy algorithms. It runs instantaneously, consumes almost no battery, generates zero computer heat, and works on any laptop without needing a graphics card.
-  - **Neural AI Mode:** Uses deep learning residual neural networks (FlashSR and NVSR) to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors.
+  - **Neural AI Mode:** Uses deep learning residual neural networks (FlashSR with harmonic envelope gating and NVSR) to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors.
 
-### 5. Neural Stem Separation: BS-RoFormer & HDEMUCS Isolation
-Want to extract clean acapellas for sampling or generate a pristine backing track for DJ sets and karaoke? OmniRip features a deep neural stem separation studio built right into the workstation:
-- **Dual Neural Architecture (BS-RoFormer + HDEMUCS v4):** OmniRip's primary separation transformer is **BS-RoFormer** (Band-Split Rotary Position Attention). It runs multi-band spectrogram attention with 50% overlap-add chunking, float32 precision, and -1.0 dBFS true-peak normalization. If running in lightweight environments without transformer weights, OmniRip automatically cascades to **HDEMUCS v4** (Hybrid Demucs 4-Source) to ensure neural stem isolation never leaves you stranded.
-- **Forensic DSP De-Bleeding & De-Robotizing Pipeline:** Off-the-shelf AI stem extractors frequently suffer from phase flutter, metallic frame chirps, and lyric bleed leaking into the instrumental. OmniRip eliminates these artifacts through a four-stage forensic DSP pipeline:
-  - **Adaptive Spectral Gate:** Uses a softened 8th percentile noise floor with an extended 80ms release tail to eliminate unnatural gating flutter and pumping while preserving delicate vocal decay tails.
-  - **Vocal Harmonic Polish:** Applies a 3-frame STFT magnitude smoothing filter to eliminate metallic frame boundaries, paired with a calibrated +1.5 dB breathiness shelf at 8 kHz to restore natural vocal air attenuated by gating.
-  - **Mid/Side Vocal Suppression:** Encodes the instrumental into Mid/Side components and applies a soft -6 dB notch on the Mid channel across the 300 Hz – 3 kHz vocal fundamental band, leaving Side channels (wide stereo instruments, synth pads, and room ambience) completely untouched.
-  - **Wiener Vocal Masking:** Employs the vocal STFT as a dynamic Wiener reference to attenuate instrumental frequency bins where vocal energy dominates (>0.6 ratio) by -6 dB.
-- **Residual-Additive Blend Semantics ($0\% = \text{Cleanest} \leftrightarrow 100\% = \text{Richest}$):** Rather than a destructive linear fade, OmniRip implements residual-additive blending: $\text{final} = \text{inversion} + w \cdot (\text{model} - \text{inversion})$. Setting the blend to $0\%$ guarantees pure phase-inverted separation (cleanest mathematical isolation with zero vocal bleed). Increasing to $100\%$ layers the full neural instrumental texture over the inversion base. You can fine-tune this weight in real time directly in the DECK panel using the `+` and `-` buttons in 5% increments.
-- **One-Click 4-Model AI Registry:** Press the **`MODELS`** button in the workbench to inspect and verify all four on-device neural engines (**BS-RoFormer**, **HDEMUCS**, **NVSR**, and **FlashSR**). OmniRip checks local caches, verifies installed packages, and automatically downloads and configures missing weights on demand.
+### 5. 5-Stage Neural Ensemble Separation, De-Reverb & Surgical Remediation Studio
+Extract clean acapellas for sampling or generate pristine backing tracks for DJ sets and karaoke. OmniRip features an end-to-end SOTA stem separation and forensic restoration studio built right into the workstation:
+- **Dual-Model Ensemble Architecture (BS-RoFormer + HDEMUCS v4):** OmniRip pairs **BS-RoFormer** (Band-Split Rotary Position Attention transformer) for vocal and harmonic isolation (>300 Hz) with **HDEMUCS v4** (Hybrid Demucs) for low-end bass and sub precision (<300 Hz).
+- **Phase-Aligned 4th-Order Linkwitz-Riley (LR4) Crossover Recombination:** Combines the two neural models using a zero-phase 24 dB/octave Linkwitz-Riley crossover (`filtfilt`). This achieves a 0 dB completely flat summed magnitude response with no phase distortion, preserving kick drum punch and bass clarity. The crossover frequency can be adjusted in real time in the Workbench (250–500 Hz).
+- **Anechoic De-Reverb Isolation Engine:** Uses the dedicated `dereverb_bs_roformer` neural engine to perform dry/reverb STFT spectral decomposition. It strips room reflections, hall acoustics, and artificial reverb tails from vocals, yielding dry acapellas ready for studio re-mixing. De-reverb intensity is continuously adjustable (0%–100%).
+- **Residual Inversion 2.0 & Continuous Blend Math:** Rather than a destructive linear fade, OmniRip implements continuous residual-additive blending: $\text{final} = \text{inversion} + w \cdot (\text{model} - \text{inversion})$. Setting the blend to $0\%$ guarantees pure phase-inverted separation (cleanest mathematical isolation with zero vocal bleed). Increasing to $100\%$ layers the full neural instrumental texture over the inversion base.
+- **20 Multi-Choice Surgical Stem Remediations (10 Vocal + 10 Instrumental):**
+  - **10 Vocal Remediations:** Volume Pumping Fix, De-Robotize (Phase Polish & Anti-Flange), Acoustic Bleed Shield (Synth/Guitar Rejection), Room Reverb Stripper (Tail Decay Suppression), Dynamic De-Esser (5.5k-8.5k Sibilance Tamer), Sub-Plosive Cut (80Hz High-Pass Pop Filter), Silk & Air Exciter (+2.5dB >10kHz Sheen), Chest Warmth & Body (280Hz Fundamental), Phantom Center Pin (Stereo Bleed Collapse), and Presence & Articulation (+2dB 3.2kHz) / Adaptive VAD Gate.
+  - **10 Instrumental Remediations:** Kill Ghost Whispers (Side-Vocal Attenuation), Transient Drum Preserver (Snare/Kick Punch), Kick & Bass Center Punch (Mono Sub <120Hz), Pure Phase Inversion (Bit-Exact Subtraction), Formant Bleed Notch (1k-2.8k Vocal Masking), Low-Mid De-Mud (300Hz Boxiness Cut), Sub-Bass Tightener (30Hz Subsonic Cut), Spatial Stereo Widener (Immersion Boost), Cymbal & Air Sparkle (+2.5dB >12kHz), and RMS Leveler & Dip Fix.
+  - One-click profile buttons: **`STUDIO`** (calibrated mastering defaults), **`ALL`** (full defense suite), and **`CLEAR`** (bypass).
+- **Automated Acoustic Defect Detector:** Built-in acoustic analyzer that measures mid/side dominance, spectral flatness, and vocal core frequency energy. It automatically identifies **Pure Instrumental** tracks to bypass vocal bleed gating and preserves sub-bass punch, or detects vocals and auto-tunes recommended remediation flags and blend weights.
+- **5-Model On-Device AI Registry:** Press the **`MODELS`** button in the workbench to inspect and verify all five on-device neural engines (**BS-RoFormer**, **HDEMUCS**, **De-Reverb**, **FlashSR**, and **NVSR**). OmniRip checks local caches, verifies dependencies, reclaims PyTorch Metal memory pools, and automatically downloads missing weights on demand.
 
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
@@ -113,8 +116,9 @@ graph TD
     P4 -->|"Counterfeit Detected"| S2
     P5 --> WB["Curation Workbench"]
     WB -->|"Quad-Stream [1] MP3 / [2] ENH / [3] VOC / [4] INST"| PL["Studio Audio Player & 10-Band EQ"]
-    WB -->|"BS-RoFormer / HDEMUCS"| STM["Neural Stem Separation & De-Bleed"]
-    STM --> PL
+    WB -->|"Acoustic Detector"| DET["Acoustic Music & Vocal Scan"]
+    DET -->|"Auto-Tune Flags"| STM["5-Stage Ensemble Separation<br>(BS-RoFormer + HDEMUCS + LR4 + DeReverb)"]
+    STM -->|"20 Surgical Remediations"| PL
     WB -->|"Export Master"| OUT["320kbps Mastered Library"]
 ```
 
@@ -201,8 +205,10 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | **Stream Engine** | `yt-dlp` | Adaptive format prioritization (`bestaudio[ext=webm]`) |
 | **Forensic DSP** | NumPy + SciPy | 2048-point STFT, Hanning window, -60 dBFS noise floor |
 | **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`) |
-| **Neural Stems** | BS-RoFormer + HDEMUCS | Rotary attention transformer + M/S suppression & Wiener mask |
+| **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, de-reverb, 20 surgical FX |
+| **Acoustic Detector**| Spectral Analysis | Real-time mid/side dominance, tonality, vocal presence auto-tuning |
 | **Restoration** | FlashSR + NVSR + Eco | Sub-cutoff bit-exact invariance, 384-tap linear-phase crossover |
+| **AI Model Registry**| ModelManager (5 Models) | Automatic download & verification: `bs_roformer`, `hdemucs`, `dereverb`, `flashsr`, `nvsr` |
 | **Fingerprinting**| Chromaprint (`fpcalc`) | AcoustID audio fingerprinting + MusicBrainz API |
 | **Tagging** | Mutagen | Complete ID3v2.4 unicode provenance tagging + album art |
 
