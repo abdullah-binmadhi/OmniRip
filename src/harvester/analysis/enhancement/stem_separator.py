@@ -254,7 +254,6 @@ def apply_adaptive_vad_gate(
     hop = frame_len // 2
 
     # Calculate frame RMS energy across channels
-    n_frames = max(1, (n_samples - frame_len) // hop + 1)
     frames = np.lib.stride_tricks.sliding_window_view(voc, frame_len, axis=-1)[:, ::hop]
     rms = np.sqrt(np.mean(frames**2, axis=-1) + 1e-12)
     max_rms = np.max(rms, axis=0)

@@ -1,7 +1,6 @@
 """Tests for Acoustic Music & Vocal Presence Detector."""
 
 import numpy as np
-import pytest
 
 from harvester.analysis.enhancement.acoustic_detector import (
     AcousticAnalysisResult,
