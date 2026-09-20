@@ -225,17 +225,23 @@ class WorkbenchWidget(Widget):
     }
     #wb-export-split {
         width: auto;
-        height: auto;
+        min-width: 26;
+        height: 3;
+        align: left middle;
     }
     #wb-btn-export {
         width: auto;
         min-width: 18;
-        padding: 0 1;
+        height: 3;
+        padding: 0 2;
+        border-right: none;
     }
     #wb-btn-export-menu {
         width: 5;
         min-width: 5;
+        height: 3;
         padding: 0 1;
+        border-left: tall $success-darken-2;
     }
     #wb-export-dropdown {
         display: none;
@@ -257,6 +263,20 @@ class WorkbenchWidget(Widget):
     .wb-export-choice:hover {
         background: $success 30%;
         color: $success;
+    }
+    .wb-defect-checkbox {
+        height: auto;
+        background: transparent;
+    }
+    .wb-defect-checkbox:focus-within {
+        background: transparent;
+        color: $text;
+    }
+    .wb-defect-checkbox > .toggle--label {
+        color: $text;
+    }
+    .wb-defect-checkbox:focus-within > .toggle--label {
+        color: $text;
     }
     #wb-visualizer {
         height: 8;
@@ -788,7 +808,7 @@ class WorkbenchWidget(Widget):
             )
             with Horizontal(id="wb-export-split"):
                 yield Button("💾 SAVE ENHANCED", id="wb-btn-export", variant="success")
-                yield Button(" v ", id="wb-btn-export-menu", variant="success")
+                yield Button(" ↓ ", id="wb-btn-export-menu", variant="success")
             with Vertical(id="wb-export-dropdown"):
                 yield Button("🎵  Enhanced MP3",       id="wb-export-choose-enh",  classes="wb-export-choice")
                 yield Button("🎤  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
@@ -1919,16 +1939,21 @@ class WorkbenchWidget(Widget):
                 sel.deselect_all()
                 sel.select("de_bleed")
                 sel.select("fix_pumping")
+                self.vocal_flags = set(sel.selected)
             except Exception:
                 pass
         elif btn_id == "wb-btn-voc-all":
             try:
-                self.query_one("#wb-voc-flags-list", DefectChecklist).select_all()
+                sel = self.query_one("#wb-voc-flags-list", DefectChecklist)
+                sel.select_all()
+                self.vocal_flags = set(sel.selected)
             except Exception:
                 pass
         elif btn_id == "wb-btn-voc-clear":
             try:
-                self.query_one("#wb-voc-flags-list", DefectChecklist).deselect_all()
+                sel = self.query_one("#wb-voc-flags-list", DefectChecklist)
+                sel.deselect_all()
+                self.vocal_flags = set()
             except Exception:
                 pass
         elif btn_id == "wb-btn-inst-studio":
@@ -1937,16 +1962,21 @@ class WorkbenchWidget(Widget):
                 sel.deselect_all()
                 sel.select("anti_bleed_synths")
                 sel.select("sub_bass_clean")
+                self.inst_flags = set(sel.selected)
             except Exception:
                 pass
         elif btn_id == "wb-btn-inst-all":
             try:
-                self.query_one("#wb-inst-flags-list", DefectChecklist).select_all()
+                sel = self.query_one("#wb-inst-flags-list", DefectChecklist)
+                sel.select_all()
+                self.inst_flags = set(sel.selected)
             except Exception:
                 pass
         elif btn_id == "wb-btn-inst-clear":
             try:
-                self.query_one("#wb-inst-flags-list", DefectChecklist).deselect_all()
+                sel = self.query_one("#wb-inst-flags-list", DefectChecklist)
+                sel.deselect_all()
+                self.inst_flags = set()
             except Exception:
                 pass
         elif btn_id == "wb-btn-stem-auto-detect":
