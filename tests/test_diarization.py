@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,14 @@ import pytest
 
 from harvester.services import diarization as dia
 from harvester.services.diarization import DiarizationResult, Diarizer, SpeakerTurn
+
+# The optional `diarize`/`restore` extras bring torch; CI runs the base + dev
+# extras only, so the tensor-dependent paths skip there and run fully on a
+# machine with the extras installed.
+_TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
+requires_torch = pytest.mark.skipif(
+    not _TORCH_AVAILABLE, reason="torch (restore/diarize extra) not installed"
+)
 
 
 class _Segment:
@@ -100,6 +109,7 @@ def test_missing_file_raises(tmp_path: Path) -> None:
         Diarizer().diarize(tmp_path / "nope.mp3")
 
 
+@requires_torch
 def test_diarize_reports_turns_and_speakers(tmp_path: Path, monkeypatch, fake_audio) -> None:
     source = tmp_path / "song.mp3"
     source.write_bytes(b"ID3")
@@ -121,6 +131,7 @@ def test_diarize_reports_turns_and_speakers(tmp_path: Path, monkeypatch, fake_au
     assert "advisory" in result.describe()
 
 
+@requires_torch
 def test_num_speakers_hint_is_forwarded(tmp_path: Path, monkeypatch, fake_audio) -> None:
     source = tmp_path / "song.mp3"
     source.write_bytes(b"ID3")
@@ -131,6 +142,7 @@ def test_num_speakers_hint_is_forwarded(tmp_path: Path, monkeypatch, fake_audio)
     assert pipeline.calls[0]["num_speakers"] == 3
 
 
+@requires_torch
 def test_max_seconds_truncates_the_measurement(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "song.mp3"
     source.write_bytes(b"ID3")
@@ -152,6 +164,7 @@ def test_max_seconds_truncates_the_measurement(tmp_path: Path, monkeypatch) -> N
     assert waveform.shape[-1] == 44100 * 3
 
 
+@requires_torch
 def test_component_fallback_when_the_pipeline_repo_is_gated(monkeypatch) -> None:
     """A gated pipeline repo must not disable the feature (docs/13 §8)."""
     import pyannote.audio
@@ -173,6 +186,7 @@ def test_component_fallback_when_the_pipeline_repo_is_gated(monkeypatch) -> None
     assert loaded.endswith("+embedding")
 
 
+@requires_torch
 def test_component_fallback_can_be_disabled(monkeypatch) -> None:
     import pyannote.audio
 

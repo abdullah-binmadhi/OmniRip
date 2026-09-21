@@ -65,8 +65,18 @@ _AGGLOMERATIVE = {
 
 
 def pyannote_available() -> bool:
-    """True when the optional ``diarize`` extra is installed (no import cost)."""
-    return importlib.util.find_spec("pyannote.audio") is not None
+    """True when the optional ``diarize`` extra is installed (no import cost).
+
+    ``find_spec("pyannote.audio")`` re-raises ModuleNotFoundError when even the
+    parent ``pyannote`` package is absent (importlib quirk), so probe the
+    parent first and let any residual import error mean "not installed".
+    """
+    try:
+        if importlib.util.find_spec("pyannote") is None:
+            return False
+        return importlib.util.find_spec("pyannote.audio") is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
 
 @dataclass(frozen=True, slots=True)

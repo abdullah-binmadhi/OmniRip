@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -18,6 +19,13 @@ from harvester.analysis.enhancement.tags import (
     store_tags,
     tagged_labels,
     window_bounds,
+)
+
+# The optional `restore` extra brings torch; CI runs the base + dev extras only,
+# so the scoring paths skip there and run fully on a machine with torch installed.
+_TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
+requires_torch = pytest.mark.skipif(
+    not _TORCH_AVAILABLE, reason="torch (restore extra) not installed"
 )
 
 # ---------------------------------------------------------------- windows
@@ -136,6 +144,7 @@ def _tagger(**kwargs: object) -> ClapTagger:
     return ClapTagger(**kwargs)  # type: ignore[arg-type]
 
 
+@requires_torch
 def test_score_windows_maps_logits_to_per_label_probabilities(monkeypatch) -> None:
     labels = [label for label, _ in LABEL_PROMPTS]
     logits = [0.0] * len(labels)
@@ -150,6 +159,7 @@ def test_score_windows_maps_logits_to_per_label_probabilities(monkeypatch) -> No
     assert set(rows[0]) == set(labels)
 
 
+@requires_torch
 def test_tag_file_reports_only_labels_above_threshold(tmp_path: Path, monkeypatch) -> None:
     audio = (np.random.default_rng(3).standard_normal(48000 * 12) * 0.1).astype(np.float32)
     src = tmp_path / "song.wav"
@@ -174,6 +184,7 @@ def test_tag_file_reports_only_labels_above_threshold(tmp_path: Path, monkeypatc
     assert result.score_map["piano"] < 0.3  # scored but not reported
 
 
+@requires_torch
 def test_uninformative_logits_report_no_labels(tmp_path: Path, monkeypatch) -> None:
     """An even label spread (the model has no opinion) must not invent tags."""
     audio = (np.random.default_rng(9).standard_normal(48000 * 6) * 0.1).astype(np.float32)
@@ -192,6 +203,7 @@ def test_uninformative_logits_report_no_labels(tmp_path: Path, monkeypatch) -> N
     assert "no extra instrumentation" in result.describe()
 
 
+@requires_torch
 def test_tag_and_store_writes_tags_beside_the_stems(tmp_path: Path, monkeypatch) -> None:
     audio = (np.random.default_rng(4).standard_normal(48000 * 6) * 0.1).astype(np.float32)
     src = tmp_path / "song.wav"
@@ -222,6 +234,7 @@ def test_tag_file_returns_none_without_a_model(tmp_path: Path, monkeypatch) -> N
     assert tagger.tag_file(tmp_path / "missing.wav") is None
 
 
+@requires_torch
 def test_tag_file_retries_on_cpu_when_the_device_fails(tmp_path: Path, monkeypatch) -> None:
     audio = (np.random.default_rng(5).standard_normal(48000 * 6) * 0.1).astype(np.float32)
     src = tmp_path / "song.wav"
