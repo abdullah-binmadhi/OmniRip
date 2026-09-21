@@ -50,6 +50,10 @@ async def test_rebuild_layers_forces_a_new_timeline(
         )
         wb.switch_page("layers")
         await pilot.pause()
+        for _ in range(20):
+            await pilot.pause(0.05)
+            if not wb._is_building_layers:
+                break
 
         built: list[str] = []
 
