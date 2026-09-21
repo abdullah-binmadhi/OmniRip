@@ -1,6 +1,6 @@
 # 14 — UI Hardening & Product Polish
 
-Status: **in progress**. This is the durable execution ledger for the UI-hardening
+Status: **done** (shipped in `fbe4929`). This is the durable execution ledger for the UI-hardening
 milestones that follow the shipped lane-expansion work (docs/13, D21–D27).
 
 The goal is not to add another model. The goal is to make the existing acquisition,
@@ -302,7 +302,7 @@ Expected additions/changes include:
 - [x] M3 safe operations UX and diagnostics.
 - [x] M4 cache repair and result reuse.
 - [x] M5 terminal/lane/accessibility polish.
-- [ ] M6 tests, docs, graph, review, commit and remote verification.
+- [x] M6 tests, docs, graph, review, commit and remote verification.
 
 Last verified baseline: `405 passed, 1 skipped; ruff clean` at commit `2657415`.
 Independent review (docs/14 M6): two critical bugs found and fixed before ship —
@@ -311,3 +311,5 @@ mapping), and the diarization staleness guard compared the vocals-stem path
 against the track path, discarding every speaker count; plus `_swap_hosted_run`
 backup moved outside the rollback block (split old set on mid-move failure).
 Regression tests added for all three.
+Shipped: `fbe4929` on origin/main — `443 passed, 1 skipped`; Ruff clean;
+graphify 3485 nodes / 7866 edges / 212 communities; local and remote SHA equal.
