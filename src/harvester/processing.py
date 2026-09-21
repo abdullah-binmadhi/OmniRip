@@ -28,16 +28,29 @@ from dataclasses import dataclass
 
 __all__ = [
     "DEFAULT_PRESET",
+    "DEFAULT_SEP_TYPE",
     "ENGINE_NOTES",
+    "HOSTED_RAW_TOKEN",
     "PRESETS",
     "TAG_THRESHOLD",
     "ProcessingPreset",
+    "degraded",
     "engine_note",
     "get_preset",
     "next_preset",
     "normalize_preset",
     "preset_names",
 ]
+
+# Filename token that marks a hosted (MVSEP) raw stem: a hosted run writes
+# ``{input_stem}_{mode}_hosted_raw_{lane_key}.wav`` next to the local stems, so
+# lane discovery can tell cloud stems from local ones (docs/13 D26).
+HOSTED_RAW_TOKEN = "_hosted_raw_"
+
+# Default hosted separation model (docs/13 D26). The value is a key of
+# ``services.mvsep.SEP_TYPES`` — the lead/back-vocal karaoke split, which is the
+# hosted output nothing local can produce.
+DEFAULT_SEP_TYPE = "karaoke_lead_back"
 
 # Mean per-window CLAP label share a label needs before it is reported as a tag
 # (``[processing] tag_threshold``). The share is the softmax mass across the

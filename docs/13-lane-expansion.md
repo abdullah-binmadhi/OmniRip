@@ -1,12 +1,12 @@
 # 13 — Lane Expansion: Presets, Provenance, Credits & 6-Source Extras
 
-Status: **implemented (M11.5)**. Decisions D21–D24 in
+Status: **implemented (M11.5 + M11.6)**. Decisions D21–D27 in
 [`docs/01-requirements.md`](01-requirements.md) §5 are the normative summary; this document
 holds the detail, the budgets and the acceptance criteria.
 
 ## 1. What this milestone answers
 
-Four questions, each with a mechanism rather than a guess:
+Six questions, each with a mechanism rather than a guess:
 
 | Question | Mechanism | Authoritative? |
 | --- | --- | --- |
@@ -15,9 +15,17 @@ Four questions, each with a mechanism rather than a guess:
 | Which instruments/voices are on the recording? | MusicBrainz credits (instruments, vocals, singer count) | documented data |
 | What is audible that no stem renders? | CLAP tagging (12 label prompts, `tags.json`) | advisory model output |
 | Can we show more than four rows? | 6-source extras (HTDemucs-6s → guitar/piano) + dynamic family splits | model output |
+| What if the local models are not enough? | hosted separation (MVSEP), **opt-in per track** | model output, off-machine |
+| How many voices are actually in the mix? | pyannote diarization, **advisory only** | model output, never overrides credits |
 
-Explicitly out of scope here: hosted separators (MVSEP) and singer *diarization* (pyannote) —
-their credentials are now verified (§8), but neither is wired into the app yet.
+Two of these are deliberately *not* part of any preset:
+
+- **Hosted separation (MVSEP, D26)** is the only path that sends audio off this machine. Nothing
+  hosted runs unless the user presses `☁ HOSTED SEPARATE` on the LAYERS page for a specific
+  track, and the preset axis never touches the network.
+- **Diarization (pyannote, D27)** measures how many voices the audio contains and reports the
+  number **next to** the MusicBrainz credit count. It never overwrites it: measured speaker
+  counts are demonstrably noisy (§7.1), while credits are documented data.
 
 ## 2. Processing presets (D21)
 
@@ -188,6 +196,45 @@ content that is audible but that no separator renders as a stem.
   grid is never blocked by the tagger, and tags never touch the spectral verdict, the mix or
   the file metadata.
 
+## 5c. Hosted separation (D26)
+
+`src/harvester/services/mvsep.py` — the opt-in cloud engine. It is **not** a preset and **not**
+part of any stage chain: the only entry point is the `☁ HOSTED SEPARATE` button on the LAYERS
+page, per track.
+
+| aspect | behaviour |
+| --- | --- |
+| trigger | `☁ HOSTED SEPARATE` (workbench LAYERS) — nothing hosted runs from a preset, a job, or startup |
+| key | `MVSEP_API_KEY` from the environment (`.env` fallback, NFR-6); missing key → a status line, no upload |
+| request | `POST {base}/separation/create` (multipart: `api_token`, `audiofile`, `sep_type`, `output_format`) → `data.hash` |
+| poll | `GET {base}/separation/get?hash=…` every 4 s until the **top-level** `status` is `done`/`error` (`waiting` → `processing` → `done`), budget `max_wait_s` (default 1800 s — the queue took ~2 min for a 20 s clip) |
+| download | each returned file's `url` → `{input_stem}_{mode}_hosted_raw_{lane_key}.wav` in the same stem dir the local run uses |
+| `sep_type` | the **`render_id`** field of `GET /api/app/algorithms`, *not* its `id` (using `id` silently runs a different model). `SEP_TYPES` maps friendly names → ids (`karaoke_lead_back` 49, `mega_53_stem` 126, …); `[processing] hosted_sep_type` picks one |
+| excerpt | `[processing] hosted_max_seconds` (0 = whole track) trims the upload; credits are the user's money |
+| lane naming | the filename token *is* the lane key: `vocals-lead` → `lead_vocals`, `vocals-back` → `back_vocals`, `instrum-only`/`back-instrum` are sums and are downloaded but never become rows, any other token becomes its own lane — so a 4-, 21- or 53-stem model needs **no per-model table** |
+| provenance | `hosted` origin, confidence `high`, note "hosted MVSEP separation"; the row renders audio like any local lane |
+| failure policy | HTTP error / queue timeout / `error` status → a status line with the server's message, no stems, no crash. **The API key is never logged and is scrubbed from every message** (a hostile server that echoes the token back in an error body cannot leak it into the log) |
+
+## 5d. Measured speakers (D27)
+
+`src/harvester/services/diarization.py` — pyannote, optional (`uv pip install -e '.[diarize]'`).
+
+- **Advisory, always.** `LanePlan.measured_speakers` rides *next to* `singer_count`: the plan
+  summary reads `2 singers · 3 speakers measured`, and the workbench says so explicitly when the
+  two disagree ("MusicBrainz credits say 2 — credits stay authoritative"). Diarization never
+  rewrites credits, never creates or removes a lane, and never gates a stage.
+- **Device:** CPU. Apple MPS fails on the pooling layer (`invalid low watermark ratio 1.4`).
+- **Pipeline:** `pyannote/speaker-diarization-community-1` when the token may read it; otherwise
+  the pipeline is assembled from components that are openly readable
+  (`segmentation-3.0` + `wespeaker-voxceleb-resnet34-LM` + agglomerative clustering) and
+  `get_plda` is patched out, because the PLDA step lives in a gated repo. Either way the
+  feature works with the token the user has.
+- **Input:** the separated vocals stem when the track has one, else the source file;
+  `[processing] diarize_max_seconds` (0 = whole track) caps the measurement.
+- **Accuracy is the caveat, not the plumbing:** on the *Headlock* vocals stem the model reports
+  **1** speaker while the credits document 2, and a controlled two-singer splice reports **3**
+  at every threshold from 0.70 to 0.90. That is why the number is advisory (§7.1).
+
 ## 6. Engine reporting (the anti-confusion rule)
 
 `engine_note(engine)` renders the engine that actually ran:
@@ -226,10 +273,22 @@ fallback must see it.
     unrenderable tags become `tag-only` rows with no audio.
 12. Every tagging failure mode (no `transformers`, no cached model, unreadable file, unsupported
     device op) returns "no tags" and leaves the lane grid untouched.
+13. No preset, job or startup path ever calls MVSEP: the hosted client is reachable only from
+    `☁ HOSTED SEPARATE`, and a missing `MVSEP_API_KEY` produces a status line instead of an
+    upload.
+14. A hosted run writes `{suffix}_hosted_raw_{lane_key}.wav` per returned stem and rebuilds the
+    grid so those files appear as `hosted` rows; sum stems (`instrum-only`, `back-instrum`) are
+    skipped, and an unknown token still becomes a lane.
+15. No MVSEP failure (HTTP error, queue timeout, `error` status, hostile error body) can put the
+    API key into a message or a log line.
+16. `measured_speakers` is recorded beside `singer_count` and changes neither the credits nor the
+    lane set; with no credits the plan still shows the measured count as advisory, and the
+    workbench names the credit count as authoritative when the two differ.
 
 Test map: `tests/test_processing.py`, `tests/test_lane_plan.py`, `tests/test_musicbrainz.py`,
 `tests/test_six_source_lanes.py`, `tests/test_layer_sidecar.py`, `tests/test_ui_workbench.py`,
-`tests/test_model_manager.py`, `tests/test_tags.py`.
+`tests/test_model_manager.py`, `tests/test_tags.py`, `tests/test_mvsep.py`,
+`tests/test_diarization.py`, `tests/test_config.py`, `tests/test_dynamic_layers.py`.
 
 ### 7.1 Measured end-to-end evidence (real weights, real songs, Apple M2)
 
@@ -239,17 +298,19 @@ Test map: `tests/test_processing.py`, `tests/test_lane_plan.py`, `tests/test_mus
 | cover with guitar, 20 s mid-song excerpt | **8 lanes**: `vocals, kick, snare, hats, sub_bass, bass, other, guitar`; plan `2 separator · 5 DSP split · 1 6-source model`; `GUITAR [6-source model, low]`; sidecar v2 round trip preserved every lane + origin (32,816 B) |
 | live credits chain (full file → fpcalc → AcoustID → MBID → MusicBrainz) | `Headlock / Imogen Heap / d871b5ab-… / 0.984`; credits `double bass — Mich Gerber`, `lead vocals — Imogen Heap`, `vocal — Richie Mills`, `producer — Imogen Heap`; **2 singers**; plan `4 separator · 1 credits only · 2 singers`; rows annotated (`VOCALS … lead vocals — Imogen Heap`, `BASS … credit: double bass — Mich Gerber`) and one `VOCAL [credits only, none]` row listed **without** audio |
 | CLAP tagging (real weights, full-length tracks, CPU) | *Headlock*: 24 windows × 5 s in **4.9 s** → `lead vocals 0.66` (next best 0.07), i.e. the tagger agrees the track is vocal-led; cover of the same song: `lead vocals 0.44`, `brass 0.19`, `guitar 0.11`; `tags.json` written and read back identically both times. White-noise sanity probe → `synth 0.87`, nothing else reported |
+| hosted separation (real key, real API, `karaoke_lead_back`) | the shipped client uploaded a 20 s excerpt, polled the queue (`waiting` → `processing` → `done`, ~2 min wait, cost coefficient 1) and filed the returned stems as `excerpt20s_eco_hosted_raw_lead_vocals.wav` / `…_back_vocals.wav` (44.1 kHz stereo, 20.000 s, ffprobe-verified) in **222 s** total. Lane discovery picked them up with no lane-code changes: `lead_vocals` became a `hosted (MVSEP)` / high-confidence row, while the back-vocal stem was correctly **dropped by the presence gate** (this excerpt has no audible backing vocal — the gate working, not a bug). Sum stems (`instrum-only`, `back-instrum`) were downloaded-then-skipped. Two earlier raw jobs (`sep_type=49` → 4 WAVs, `sep_type=126` → 23 FLACs) were ffprobe-verified |
+| speaker measurement (real pipeline, real vocals stem) | *Headlock* vocals stem, first 60 s: `speaker-diarization-community-1` on CPU in **34.9 s** (51.8 s wall incl. model load), 6 turns / 29.4 s speech → **1 speaker measured** vs **2 credited**; the plan reads `2 separator · 1 DSP split · 2 singers · 1 speakers measured`, i.e. credits stayed authoritative. Controlled two-singer splice → 3 speakers at 0.70/0.80/0.90 alike |
 
 Reproduce with the scratch probes (`lane_expansion_e2e.py`, `lane_expansion_e2e2.py`,
-`credits_chain_probe.py`, `clap_e2e.py`).
+`credits_chain_probe.py`, `clap_e2e.py`, `hosted_lane_e2e.py`, `speakers_e2e.py`).
 
 ## 8. Deliberately not built (and why)
 
 | Idea | Status | Reason |
 | --- | --- | --- |
 | CLAP instrument tagging (`laion/clap-htsat-unfused`) | **shipped** (D25) | See §5b: 614 MB, `neural_full` only, advisory rows, `tags.json`. |
-| MVSEP hosted (lead/back vocals, 53-stem detector) | **credentials verified — integration pending** | The supplied key authenticates (`GET /api/app/user` → the account, `premium_enabled=1`) and two real jobs ran end to end on a 20 s excerpt: `sep_type=49` (MVSep Karaoke) returned `vocals-lead` / `vocals-back` / `instrum-only` / `back-instrum` WAVs and `sep_type=126` (Mega 53-stem) returned 23 FLAC stems — all downloaded and ffprobe-verified. The API's `sep_type` is the `render_id` field of `GET /api/app/algorithms` (not its `id`), and the result JSON carries `status` at the top level (`waiting` → `processing` → `done`). What is still missing is the *transport* inside OmniRip: a hosted engine that uploads an excerpt, polls and files the stems as lanes (with a `hosted` origin in the plan). Until then nothing in the app touches the network. |
-| pyannote diarization (singer counting from audio) | **credentials verified — integration pending** | `pyannote.audio 4.0.7` installs cleanly on this Python 3.14 venv (58 additive packages, no upgrades) and is now the optional `diarize` extra. The supplied token is valid, and the *component* models it needs are readable (`pyannote/segmentation-3.0`, `pyannote/wespeaker-voxceleb-resnet34-LM`); the two *pipeline* repos (`speaker-diarization-3.1`, `speaker-diarization-community-1`) are gated and return 403 until the account accepts their terms, which also hides the VBx/PLDA calibration — so the verified pipeline is segmentation-3.0 + wespeaker + `AgglomerativeClustering` (the 3.1-era config: centroid, `min_cluster_size=12`, `threshold≈0.7046`). Measured: 215 s of audio diarized in 82.5 s on CPU; Apple MPS is unusable for this pipeline (`invalid low watermark ratio 1.4`). **Accuracy is the caveat, not the plumbing:** on *Headlock* it reports 1 speaker (MusicBrainz credits list 2 — the backing vocal is buried in the mix) and on a controlled two-singer splice (two different singers' isolated vocals, alternating every 10 s) it reports 3 speakers at thresholds 0.70/0.80/0.90 alike. So a measured count is advisory at best and must never overwrite the credit-based count. |
+| MVSEP hosted (lead/back vocals, 53-stem detector) | **shipped** (D26, §5c) | The key authenticates (`GET /api/app/user` → the account, `premium_enabled=1`) and the app now has the transport: `harvester/services/mvsep.py` uploads, polls (`sep_type` is the `render_id` of `GET /api/app/algorithms`, **not** its `id`; the result's `status` is top-level), downloads and files every returned stem as `{suffix}_hosted_raw_{lane_key}.wav`. It is deliberately **not** a preset and runs only from `☁ HOSTED SEPARATE`, because it is the only path that sends audio off the machine. Sum stems are skipped; unknown tokens still become lanes, so a 4-, 21- or 53-stem model needs no per-model table. |
+| pyannote diarization (singer counting from audio) | **shipped, advisory only** (D27, §5d) | `pyannote.audio 4.0.7` is the optional `diarize` extra; the token now reads both pipeline repos (terms accepted) so `speaker-diarization-community-1` loads directly, with a component-built fallback (`segmentation-3.0` + wespeaker + agglomerative clustering, `get_plda` patched out) for a token that cannot. `👥 SPEAKERS` measures the vocals stem and records `measured_speakers` **beside** `singer_count`. Measured: 60 s in 34.9 s on CPU; Apple MPS is unusable (`invalid low watermark ratio 1.4`). **Accuracy is the caveat:** *Headlock* → 1 measured vs 2 credited, and a controlled two-singer splice → 3 speakers at thresholds 0.70/0.80/0.90 alike. So a measured count never overwrites the credit count. |
 | Audio-LLM / BYOK inference in the pipeline | **rejected** | LLMs cannot separate sources, and they must never touch the spectral verdict (docs/01) or metadata authority (AcoustID/MusicBrainz). A spectrogram-image round trip is possible but advisory-only; it adds a network dependency and an unverifiable failure mode for zero lane capability. |
 | Rewriting `eco` into "no separation" | **rejected** | Inverts a spec'd decision (D14). `fetch_only` covers the intent without breaking the fallback contract. |
 
@@ -266,9 +327,14 @@ Reproduce with the scratch probes (`lane_expansion_e2e.py`, `lane_expansion_e2e2
 - The 12-label prompt set is deliberately coarse. Adding finer labels (sax vs brass, cello vs
   strings, "spoken word") is a data change in `tags.py`, but each addition dilutes the softmax
   share, so `tag_threshold` should be re-tuned with real tracks when the set grows.
-- MVSEP (hosted lead/back-vocal separation) and pyannote (audio diarization) both authenticate
-  now; wiring them in is a transport + UX question, not a design one (§8). For pyannote, the
-  open question is where a *measured* speaker count lands: it must never overwrite the
-  MusicBrainz credit count, so it would appear as a separate, advisory number.
-- MVSEP costs real credits and uploads audio off-machine: which preset (if any) may spend them
-  is a product decision, not a technical one.
+- MVSEP (hosted lead/back-vocal separation) and pyannote (audio diarization) are both wired in
+  now (§5c/§5d). Remaining open questions: for pyannote, whether a *measured* count should ever
+  be allowed to **suggest** a credit correction (today it is a second number and nothing more);
+  for MVSEP, which `sep_type` should be the default (`karaoke_lead_back` splits vocals, the
+  53-stem model is far richer but slower and more expensive).
+- MVSEP costs real credits and uploads audio off-machine: today it is strictly per-track and
+  opt-in (D26). A batch or queue-level hosted run is a product decision, not a technical one —
+  and it would have to stay an explicit, per-job choice.
+- The hosted queue took ~2 min for a 20 s clip at peak. `max_wait_s` defaults to 1800 s; if
+  real-world waits get longer, the honest fix is a visible queue position in the status line
+  (the client already receives `current_order` / `eta_seconds`) rather than a bigger timeout.

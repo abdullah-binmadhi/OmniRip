@@ -33,6 +33,7 @@ __all__ = [
     "LanePlanEntry",
     "ORIGIN_CREDIT",
     "ORIGIN_EXTRA",
+    "ORIGIN_HOSTED",
     "ORIGIN_MIX",
     "ORIGIN_SEPARATOR",
     "ORIGIN_SPLIT",
@@ -47,6 +48,7 @@ __all__ = [
 ORIGIN_SEPARATOR = "separator"
 ORIGIN_SPLIT = "dsp-split"
 ORIGIN_EXTRA = "extra-source"
+ORIGIN_HOSTED = "hosted"
 ORIGIN_MIX = "mix"
 ORIGIN_CREDIT = "credit-only"
 ORIGIN_TAG = "tag-only"
@@ -55,6 +57,7 @@ ORIGIN_LABELS: dict[str, str] = {
     ORIGIN_SEPARATOR: "separator",
     ORIGIN_SPLIT: "DSP split",
     ORIGIN_EXTRA: "6-source model",
+    ORIGIN_HOSTED: "hosted (MVSEP)",
     ORIGIN_MIX: "mix bus",
     ORIGIN_CREDIT: "credits only",
     ORIGIN_TAG: "tags only",
@@ -63,10 +66,12 @@ ORIGIN_LABELS: dict[str, str] = {
 # Confidence is about *how the row was made*, not how good the song is: a
 # separator stem is a model output, a DSP split is exact but narrower, an extra
 # 6-source lane is a low-SDR model output (guitar ≈ 2.6 dB SDR in public
-# benchmarks), and a credit-only row has no audio at all.
+# benchmarks), a hosted lane is a top-tier cloud model output, and a
+# credit-only row has no audio at all.
 CONFIDENCE_BY_ORIGIN: dict[str, str] = {
     ORIGIN_SEPARATOR: "high",
     ORIGIN_MIX: "high",
+    ORIGIN_HOSTED: "high",
     ORIGIN_SPLIT: "medium",
     ORIGIN_EXTRA: "low",
     ORIGIN_TAG: "low",
@@ -162,6 +167,7 @@ class LanePlan:
     singer_count: int | None = None
     credit_instruments: tuple[str, ...] = ()
     tag_labels: tuple[str, ...] = ()
+    measured_speakers: int | None = None
 
     def entry(self, name: str) -> LanePlanEntry | None:
         for item in self.entries:
@@ -200,6 +206,7 @@ class LanePlan:
             ORIGIN_SEPARATOR,
             ORIGIN_SPLIT,
             ORIGIN_EXTRA,
+            ORIGIN_HOSTED,
             ORIGIN_MIX,
             ORIGIN_TAG,
             ORIGIN_CREDIT,
@@ -209,6 +216,8 @@ class LanePlan:
         text = " · ".join(parts)
         if self.singer_count:
             text += f" · {self.singer_count} singers"
+        if self.measured_speakers:
+            text += f" · {self.measured_speakers} speakers measured"
         return text
 
 
@@ -217,24 +226,27 @@ def plan_lanes(
     *,
     splits: dict[str, tuple[str, ...]] | None = None,
     extras: Iterable[str] = (),
+    hosted: Iterable[str] = (),
     kept_whole: Iterable[str] = (),
     credit_instruments: Sequence[object] = (),
     singer_count: int | None = None,
     tag_labels: Sequence[str] = (),
+    measured_speakers: int | None = None,
 ) -> LanePlan:
     """Build the provenance plan for one track's lane set.
 
     ``lane_names`` is the lane order the grid will render (from
-    ``LayerTrack.active_layers``); ``splits`` / ``extras`` / ``kept_whole`` come
-    from ``dynamic_layers.LaneReport``; ``credit_instruments`` is the
-    MusicBrainz instrument inventory (objects with ``name``/``artist`` or plain
-    strings).
+    ``LayerTrack.active_layers``); ``splits`` / ``extras`` / ``hosted`` /
+    ``kept_whole`` come from ``dynamic_layers.LaneReport``;
+    ``credit_instruments`` is the MusicBrainz instrument inventory (objects with
+    ``name``/``artist`` or plain strings).
     """
     split_children: dict[str, str] = {}
     for family, children in (splits or {}).items():
         for child in children:
             split_children[child] = family
     extra_set = {str(name) for name in extras}
+    hosted_set = {str(name) for name in hosted}
     whole_set = {str(name) for name in kept_whole}
 
     entries: list[LanePlanEntry] = []
@@ -243,7 +255,10 @@ def plan_lanes(
 
     for name in lane_names:
         note = ""
-        if name in extra_set:
+        if name in hosted_set:
+            origin = ORIGIN_HOSTED
+            note = "uploaded to MVSEP — hosted separation stem"
+        elif name in extra_set:
             origin = ORIGIN_EXTRA
         elif name in split_children:
             origin = ORIGIN_SPLIT
@@ -316,6 +331,7 @@ def plan_lanes(
         singer_count=singer_count,
         credit_instruments=tuple(_credit_name(c) for c in credits if _credit_name(c)),
         tag_labels=tuple(str(label) for label in tag_labels),
+        measured_speakers=measured_speakers,
     )
 
 
@@ -340,6 +356,7 @@ def decode_plan(
     singer_count: int | None = None,
     credit_instruments: Sequence[str] = (),
     tag_labels: Sequence[str] = (),
+    measured_speakers: int | None = None,
 ) -> LanePlan:
     """Rehydrate a plan from sidecar rows (unknown/missing data → empty plan)."""
     entries: list[LanePlanEntry] = []
@@ -363,8 +380,15 @@ def decode_plan(
         singer_count=singer_count,
         credit_instruments=tuple(str(c) for c in credit_instruments),
         tag_labels=tuple(str(label) for label in tag_labels),
+        measured_speakers=measured_speakers,
     )
 
 
 # Kept for symmetry with other modules that expose a default empty plan.
-EMPTY_PLAN: LanePlan = LanePlan(entries=(), singer_count=None, credit_instruments=(), tag_labels=())
+EMPTY_PLAN: LanePlan = LanePlan(
+    entries=(),
+    singer_count=None,
+    credit_instruments=(),
+    tag_labels=(),
+    measured_speakers=None,
+)

@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from harvester.analysis.enhancement.dsp import split_bands
+from harvester.processing import HOSTED_RAW_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,11 @@ EXTRA_LANE_SOURCES: dict[str, str] = {
     "piano": "_raw_piano.wav",
 }
 
+# Hosted (MVSEP) stems land as ``{suffix}_hosted_raw_{lane_key}.wav`` — the
+# token in the filename *is* the lane key, so any model's output (4, 21 or 53
+# stems) becomes lanes with no per-model table.
+HOSTED_LANE_GLOB = f"{HOSTED_RAW_TOKEN}*.wav"
+
 
 @dataclass(slots=True)
 class LaneReport:
@@ -122,6 +128,7 @@ class LaneReport:
     lanes: tuple[str, ...] = ()
     splits: dict[str, tuple[str, ...]] = field(default_factory=dict)
     extras: tuple[str, ...] = ()
+    hosted: tuple[str, ...] = ()
     kept_whole: tuple[str, ...] = ()
 
     def summary(self) -> str:
@@ -129,6 +136,7 @@ class LaneReport:
         for family, children in self.splits.items():
             parts.append(f"{family} → {'/'.join(children)}")
         parts.extend(f"+{name}" for name in self.extras)
+        parts.extend(f"+{name} (hosted)" for name in self.hosted)
         parts.extend(f"{family} (whole)" for family in self.kept_whole)
         return " · ".join(parts)
 
@@ -311,8 +319,15 @@ def expand_dynamic_lanes(
     if extras:
         lanes.update(extras)
 
+    hosted = _collect_hosted_lanes(
+        stem_dir, suffix, lanes, sample_rate=sample_rate, segment_size_s=segment_size_s
+    )
+    if hosted:
+        lanes.update(hosted)
+
     report.splits = splits
     report.extras = tuple(extras)
+    report.hosted = tuple(hosted)
     report.kept_whole = tuple(kept_whole)
     report.lanes = tuple(lanes)
     if progress_callback:
@@ -356,9 +371,52 @@ def _collect_extra_lanes(
     return found
 
 
+def _collect_hosted_lanes(
+    stem_dir: Path | None,
+    suffix: str | None,
+    lanes: dict[str, Path],
+    *,
+    sample_rate: int,
+    segment_size_s: float,
+) -> dict[str, Path]:
+    """Pick up hosted (MVSEP) stems already on disk, one lane per stem file.
+
+    The filename token *is* the lane key, so a 4-stem, 21-stem or 53-stem hosted
+    run needs no per-model table. Stems that are sums of other stems
+    (``instrum-only``, ``back-instrum``) are never written by the client, and a
+    stem that fails the presence gate is skipped like any other lane.
+    """
+    if stem_dir is None or not suffix:
+        return {}
+    prefix = f"{suffix}{HOSTED_RAW_TOKEN}"
+    found: dict[str, Path] = {}
+    for raw in sorted(stem_dir.glob(f"{prefix}*.wav")):
+        name = raw.name[len(prefix) : -len(".wav")]
+        if not name or name in lanes or name in found:
+            continue
+        layer_path = stem_dir / f"{suffix}_layer_{name}.wav"
+        try:
+            if not (layer_path.exists() and layer_path.stat().st_size > 44):
+                audio, sr = _load_lane(raw, sample_rate)
+                if not is_present(audio, sr, segment_size_s):
+                    logger.debug("hosted lane %s has no content in this song", name)
+                    continue
+                _save_lane(audio, layer_path, sr)
+            else:
+                audio, sr = _load_lane(layer_path, sample_rate)
+                if not is_present(audio, sr, segment_size_s):
+                    continue
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("hosted lane %s skipped: %s", name, exc)
+            continue
+        found[name] = layer_path
+    return found
+
+
 __all__ = [
     "EXTRA_LANE_SOURCES",
     "FAMILY_SPLITS",
+    "HOSTED_LANE_GLOB",
     "LaneReport",
     "LaneSpec",
     "PRESENCE_ACTIVE_DB",

@@ -107,3 +107,44 @@ def test_load_env_file_tops_up_from_less_specific_candidates(
     assert environ["ACOUSTID_API_KEY"] == "from-data-dir"  # topped up from the next file
     assert sorted(loaded) == ["ACOUSTID_API_KEY", "ONLY_HERE"]
 
+
+def test_processing_defaults_keep_hosted_and_diarize_off(tmp_path: Path) -> None:
+    """The hosted path is opt-in: nothing in the config turns it on (D26)."""
+    from harvester.processing import DEFAULT_SEP_TYPE
+
+    config = load_config(environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+
+    assert config.processing.hosted_sep_type == DEFAULT_SEP_TYPE
+    assert config.processing.hosted_max_seconds == 0.0
+    assert config.processing.diarize_max_seconds == 0.0
+
+
+def test_processing_hosted_and_diarize_limits_are_read_from_the_file(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[processing]\n"
+        'hosted_sep_type = "mega_53_stem"\n'
+        "hosted_max_seconds = 45\n"
+        "diarize_max_seconds = 90\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+
+    assert config.processing.hosted_sep_type == "mega_53_stem"
+    assert config.processing.hosted_max_seconds == 45.0
+    assert config.processing.diarize_max_seconds == 90.0
+
+
+def test_negative_processing_limits_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="hosted_max_seconds"):
+        load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.hosted_max_seconds": -5},
+        )
+    with pytest.raises(ConfigError, match="diarize_max_seconds"):
+        load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.diarize_max_seconds": -1},
+        )
+

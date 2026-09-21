@@ -5,6 +5,7 @@ from __future__ import annotations
 from harvester.analysis.enhancement.lane_plan import (
     ORIGIN_CREDIT,
     ORIGIN_EXTRA,
+    ORIGIN_HOSTED,
     ORIGIN_MIX,
     ORIGIN_SEPARATOR,
     ORIGIN_SPLIT,
@@ -141,3 +142,49 @@ def test_encode_decode_tolerates_missing_or_broken_plan() -> None:
     assert encode_plan(None) == []
     assert decode_plan(None).entries == ()
     assert decode_plan([{"nope": 1}, "junk", {"name": "vocals"}]).entries[0].name == "vocals"
+
+
+# ----------------------------------------------------------------------
+# Hosted lanes + measured speakers (docs/13 D26/D27)
+# ----------------------------------------------------------------------
+
+
+def test_hosted_lanes_carry_hosted_provenance() -> None:
+    plan = plan_lanes(
+        ["vocals", "lead_vocals", "back_vocals", "guitar"],
+        hosted=("lead_vocals", "back_vocals"),
+        extras=("guitar",),
+    )
+
+    assert plan.origin_of("lead_vocals") == ORIGIN_HOSTED
+    assert plan.confidence_of("lead_vocals") == "high"
+    assert "MVSEP" in plan.note_of("lead_vocals")
+    # Hosted rows render audio (unlike credit-only / tag-only rows).
+    assert "lead_vocals" in plan.rendered_lanes
+    assert plan.missing == ()
+    # The local extras keep their own origin.
+    assert plan.origin_of("guitar") == ORIGIN_EXTRA
+    assert "2 hosted (MVSEP)" in plan.summary()
+
+
+def test_measured_speakers_stay_separate_from_credit_count() -> None:
+    plan = plan_lanes(
+        ["vocals"],
+        credit_instruments=[Credit(name="lead vocals", artist="A")],
+        singer_count=2,
+        measured_speakers=3,
+    )
+
+    assert plan.singer_count == 2
+    assert plan.measured_speakers == 3
+    summary = plan.summary()
+    assert "2 singers" in summary and "3 speakers measured" in summary
+    # The credit count is untouched by the measurement.
+    assert plan.origin_of("vocals") == ORIGIN_SEPARATOR
+
+
+def test_measured_speakers_survive_encode_decode() -> None:
+    plan = plan_lanes(["vocals"], measured_speakers=4)
+    restored = decode_plan(encode_plan(plan), measured_speakers=plan.measured_speakers)
+    assert restored.measured_speakers == 4
+    assert "4 speakers measured" in restored.summary()

@@ -45,6 +45,21 @@ use_credits = true
 # calibrated probability); an even spread is ~8 %, so 0.15 ≈ "twice the even share".
 # Raise it for fewer, safer tags. Only used by presets with tags = true.
 tag_threshold = 0.15
+# Hosted separation (MVSEP, docs/13 D26). Opt-in PER TRACK: nothing here runs from a
+# preset, a job or startup — the ☁ HOSTED SEPARATE button on the LAYERS page is the only
+# trigger, because it is the only path that uploads audio off this machine.
+# Needs MVSEP_API_KEY in the environment (or a local .env). Names come from SEP_TYPES:
+#   karaoke_lead_back = MVSep Karaoke (lead/back vocals, 4 stems, cheap — the default)
+#   mega_53_stem      = Mega 53-stem model (richest, slowest, most credits)
+#   bs_roformer_sw / demucs4_ht / ensemble_all_in also exist; a raw numeric id works too.
+hosted_sep_type = "karaoke_lead_back"
+# Seconds to upload (0 = whole track). The queue is shared, so a short excerpt is often
+# the honest choice while auditioning; hosted runs cost account credits.
+hosted_max_seconds = 0.0
+# Speaker measurement (pyannote, docs/13 D27) — advisory only, never overwrites the
+# MusicBrainz credit count. Needs the optional extra: uv pip install -e '.[diarize]'.
+# Seconds to measure (0 = whole track). Runs on CPU by design (Apple MPS fails here).
+diarize_max_seconds = 0.0
 
 [ytdlp]
 binary = "yt-dlp"

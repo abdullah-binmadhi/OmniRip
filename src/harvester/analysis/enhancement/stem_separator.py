@@ -36,6 +36,25 @@ os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 _neural_inference_lock = threading.Lock()
 
 
+def default_stem_cache_dir() -> Path:
+    """Where separated stems live: ``~/.cache/omnirip/stems`` (docs/13)."""
+    return Path.home() / ".cache" / "omnirip" / "stems"
+
+
+def stem_dir_for(input_path: Path, cache_dir: Path | None = None) -> Path:
+    """Stem directory for one input file (``{stem}_{size}`` under the cache).
+
+    Single source of truth for the naming scheme the separator writes and the
+    workbench (hosted separation, lane rebuilds) reads.
+    """
+    path = Path(input_path)
+    try:
+        size = path.stat().st_size
+    except OSError:  # pragma: no cover - unreadable file
+        size = 0
+    return (cache_dir or default_stem_cache_dir()) / f"{path.stem}_{size}"
+
+
 def get_safe_neural_device() -> Any:
     """Return the safest and most stable PyTorch device for neural audio separation."""
     import torch
@@ -1003,7 +1022,7 @@ class StemSeparator:
 
     def __init__(self, cache_dir: Path | None = None) -> None:
         if cache_dir is None:
-            cache_dir = Path.home() / ".cache" / "omnirip" / "stems"
+            cache_dir = default_stem_cache_dir()
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1043,7 +1062,7 @@ class StemSeparator:
         if not input_path.exists():
             raise FileNotFoundError(f"Input file does not exist: {input_path}")
 
-        stem_dir = output_dir or (self.cache_dir / f"{input_path.stem}_{input_path.stat().st_size}")
+        stem_dir = output_dir or stem_dir_for(input_path, self.cache_dir)
         stem_dir.mkdir(parents=True, exist_ok=True)
 
         if vocal_flags is None:
@@ -1873,9 +1892,7 @@ class StemSeparator:
         if not input_path.exists():
             raise FileNotFoundError(f"Input file does not exist: {input_path}")
 
-        stem_dir = output_dir or (
-            self.cache_dir / f"{input_path.stem}_{input_path.stat().st_size}"
-        )
+        stem_dir = output_dir or stem_dir_for(input_path, self.cache_dir)
         stem_dir.mkdir(parents=True, exist_ok=True)
 
         targets = {

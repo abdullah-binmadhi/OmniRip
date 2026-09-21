@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from harvester.appdirs import AppPaths
-from harvester.processing import DEFAULT_PRESET, TAG_THRESHOLD
+from harvester.processing import DEFAULT_PRESET, DEFAULT_SEP_TYPE, TAG_THRESHOLD
 from harvester.processing import PRESETS as PROCESSING_PRESETS
 from harvester.util.errors import ConfigError
 
@@ -114,11 +114,19 @@ class TimeoutConfig:
 
 @dataclass(frozen=True, slots=True)
 class ProcessingSettings:
-    """Which pipeline stages run (docs/13): fetch_only | standard | neural_full."""
+    """Which pipeline stages run (docs/13): fetch_only | standard | neural_full.
+
+    The two hosted fields are the opt-in cloud path (D26): they only matter when
+    the user presses ``☁ HOSTED SEPARATE``, and ``hosted_max_seconds`` bounds how
+    much audio is uploaded (0 = the whole track).
+    """
 
     preset: str = DEFAULT_PRESET
     use_credits: bool = True
     tag_threshold: float = TAG_THRESHOLD
+    hosted_sep_type: str = DEFAULT_SEP_TYPE
+    hosted_max_seconds: float = 0.0
+    diarize_max_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +196,10 @@ class AppConfig:
             )
         if not 0.0 < self.processing.tag_threshold <= 1.0:
             raise ConfigError("processing.tag_threshold must be greater than 0 and at most 1")
+        if self.processing.hosted_max_seconds < 0:
+            raise ConfigError("processing.hosted_max_seconds cannot be negative")
+        if self.processing.diarize_max_seconds < 0:
+            raise ConfigError("processing.diarize_max_seconds cannot be negative")
         if self.batch.skip_bitrate_kbps < 1:
             raise ConfigError("batch.skip_bitrate_kbps must be at least 1")
         if self.batch.playlist_cap < 1:
@@ -312,7 +324,14 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "trash_retention_days": 7,
         "auto_purge_trash": False,
     },
-    "processing": {"preset": DEFAULT_PRESET, "use_credits": True, "tag_threshold": TAG_THRESHOLD},
+    "processing": {
+        "preset": DEFAULT_PRESET,
+        "use_credits": True,
+        "tag_threshold": TAG_THRESHOLD,
+        "hosted_sep_type": DEFAULT_SEP_TYPE,
+        "hosted_max_seconds": 0.0,
+        "diarize_max_seconds": 0.0,
+    },
     "timeouts": {
         "probe_s": 30.0,
         "fpcalc_s": 60.0,
@@ -533,6 +552,13 @@ def _build_config(
             use_credits=_bool(processing.get("use_credits", True), name="processing.use_credits"),
             tag_threshold=_float(
                 processing.get("tag_threshold", TAG_THRESHOLD), name="processing.tag_threshold"
+            ),
+            hosted_sep_type=str(processing.get("hosted_sep_type", DEFAULT_SEP_TYPE)),
+            hosted_max_seconds=_float(
+                processing.get("hosted_max_seconds", 0.0), name="processing.hosted_max_seconds"
+            ),
+            diarize_max_seconds=_float(
+                processing.get("diarize_max_seconds", 0.0), name="processing.diarize_max_seconds"
             ),
         ),
         timeouts=TimeoutConfig(

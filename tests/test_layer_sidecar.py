@@ -167,6 +167,29 @@ def test_sidecar_carries_lane_provenance(tmp_path) -> None:
     assert "double bass" in restored.lane_plan.note_of("bass")
 
 
+def test_sidecar_carries_hosted_lanes_and_measured_speakers(tmp_path) -> None:
+    """Hosted provenance + the advisory speaker count survive the sidecar hop."""
+    from harvester.analysis.enhancement.lane_plan import plan_lanes
+
+    sidecar = tmp_path / "layer_sidecar.json"
+    track = _build_track(tmp_path)
+    track.lane_plan = plan_lanes(
+        ["vocals", "lead_vocals", "back_vocals"],
+        hosted=("lead_vocals", "back_vocals"),
+        singer_count=2,
+        measured_speakers=3,
+    )
+    write_sidecar(track, EditPlan(), sidecar)
+
+    restored, _plan = read_sidecar(sidecar)
+
+    assert restored.lane_plan is not None
+    assert restored.lane_plan.origin_of("lead_vocals") == "hosted"
+    assert restored.lane_plan.measured_speakers == 3
+    # The credit count is untouched by the measurement.
+    assert restored.lane_plan.singer_count == 2
+
+
 def test_sidecar_without_a_plan_reads_back_empty(tmp_path) -> None:
     """Older/plainer tracks still load: no plan means an empty plan, not an error."""
     sidecar = tmp_path / "layer_sidecar.json"

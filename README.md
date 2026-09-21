@@ -131,6 +131,8 @@ The lane grid stops being anonymous — and you stop guessing which stages ran:
 - **Song-Driven Lanes (more than 4 rows when the song supports it):** the drum bus splits into `KICK / SNARE / HATS`, the bass bus into `SUB_BASS / BASS`, and the 6-source model adds `GUITAR` / `PIANO` lanes — each gated by a presence test (≥5 % active seconds above −45 dBFS and mean RMS ≥ −50 dBFS), so bleed does not invent rows. A full-band track renders up to 8 lanes.
 - **MusicBrainz Credit Inventory (`🏷 CREDITS`):** fingerprints the loaded track (AcoustID → recording MBID) and pulls the documented instrument/vocal credits and singer count — the *authoritative* inventory, cached locally, annotated straight onto the matching lanes.
 - **CLAP Instrument/Vocal Tagging:** a zero-shot audio tagger (`laion/clap-htsat-unfused`) scores evenly spaced windows against 12 instrument/vocal prompts and reports what no stem renders (strings, sax, choir, a second voice). Advisory by design: tags only add provenance rows — they never touch the spectral verdict or your file metadata.
+- **Hosted Separation, Opt-In Per Track (`☁ HOSTED SEPARATE`):** when the local models are not enough, one button uploads an excerpt to MVSEP, polls the job and files every returned stem as a real lane (`hosted (MVSEP)` provenance). It is deliberately **not** a preset and nothing hosted ever runs on its own — it is the only path that sends audio off your machine, and it only happens when you press the button for a specific track. The returned filename *is* the lane key, so a 4-, 21- or 53-stem model needs no per-model table; sum stems are skipped and unknown names still become lanes.
+- **Measured Speakers, Advisory (`👥 SPEAKERS`):** pyannote diarization measures how many voices the audio actually contains and reports `N speakers measured` **next to** the MusicBrainz credit count (`2 singers · 1 speakers measured`), naming credits as authoritative whenever they disagree. It never rewrites credits, never adds or removes a lane, and runs on CPU (Apple MPS fails on this pipeline). Optional: `uv pip install -e '.[diarize]'`.
 
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
@@ -279,7 +281,7 @@ For engineers and contributors exploring the internal mechanics:
 | 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M10 |
 | 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 7-Model on-device AI registry, weights management, PyTorch MPS |
 | 🎛️ [**12. Layer Studio & Surgical Edits**](docs/12-layers-studio.md) | FL Studio arrangement timeline, 10 per-second surgical DSP edits |
-| 🧬 [**13. Lane Expansion**](docs/13-lane-expansion.md) | Processing presets, lane provenance, MusicBrainz credits, 6-source guitar/piano lanes, CLAP tags |
+| 🧬 [**13. Lane Expansion**](docs/13-lane-expansion.md) | Processing presets, lane provenance, MusicBrainz credits, 6-source guitar/piano lanes, CLAP tags, opt-in hosted MVSEP separation, advisory speaker measurement |
 
 ---
 

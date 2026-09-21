@@ -40,7 +40,14 @@ from harvester.analysis.enhancement.stem_separator import (
     VOCAL_REMEDIATIONS,
 )
 from harvester.models import TrackJob
-from harvester.processing import DEFAULT_PRESET, degraded, engine_note, get_preset, next_preset
+from harvester.processing import (
+    DEFAULT_PRESET,
+    DEFAULT_SEP_TYPE,
+    degraded,
+    engine_note,
+    get_preset,
+    next_preset,
+)
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
 from harvester.ui.visualizer import AudioVisualizer
@@ -798,6 +805,11 @@ class WorkbenchWidget(Widget):
         )
         self.recording_credits: object | None = None
         self._credits_task_running: bool = False
+        # Measured speaker count (docs/13 D27) — advisory, never overwrites the
+        # MusicBrainz credit count.
+        self.measured_speakers: int | None = None
+        self._hosted_task_running: bool = False
+        self._diarize_task_running: bool = False
 
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
@@ -1115,6 +1127,10 @@ class WorkbenchWidget(Widget):
                         classes="wb-layers-btn",
                     )
                     yield Button("🏷 CREDITS", id="wb-btn-credits", classes="wb-layers-btn")
+                    yield Button(
+                        "☁ HOSTED SEPARATE", id="wb-btn-hosted-separate", classes="wb-layers-btn"
+                    )
+                    yield Button("👥 SPEAKERS", id="wb-btn-detect-speakers", classes="wb-layers-btn")
                 yield Label("", id="wb-preset-status", classes="wb-acoustic-status")
                 yield Label(
                     "Lanes are detected from the song and drawn in the detached layer terminal "
@@ -2203,6 +2219,12 @@ class WorkbenchWidget(Widget):
         elif btn_id == "wb-btn-credits":
             self._start_credits_lookup()
 
+        elif btn_id == "wb-btn-hosted-separate":
+            self._start_hosted_separation()
+
+        elif btn_id == "wb-btn-detect-speakers":
+            self._start_diarization()
+
         elif btn_id == "wb-btn-save-layers":
             self._commit_layers_async()
         elif btn_id == "wb-btn-clear-layers":
@@ -2505,6 +2527,186 @@ class WorkbenchWidget(Widget):
                 )
             else:
                 self.query_one("#wb-layer-status", Label).update(result.describe())
+
+    def _layer_work_target(self) -> tuple[Path, Path, str] | None:
+        """(source, stem_dir, mode) for the loaded track, or None (status set).
+
+        Hosted separation and speaker measurement both work on a track that was
+        never separated locally, so the stem directory is derived from the same
+        helper the separator uses instead of requiring a prior local run.
+        """
+        source = self.path_mp3
+        if source is None or not source.exists():
+            self._layer_status("No active track loaded.")
+            return None
+        mode = "ensemble" if self.neural_enabled else "eco"
+        stem_dir = self.layer_stem_dir
+        if stem_dir is None:
+            try:
+                from harvester.analysis.enhancement.stem_separator import stem_dir_for
+
+                stem_dir = stem_dir_for(source)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.info("could not resolve a stem directory: %s", exc)
+                self._layer_status("Could not resolve a stem directory for this track.")
+                return None
+        return source, stem_dir, mode
+
+    def _layer_status(self, text: str) -> None:
+        """Write the LAYERS status line (never raises on a stale widget)."""
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-layer-status", Label).update(text)
+
+    def _start_hosted_separation(self) -> None:
+        """☁ HOSTED SEPARATE — the opt-in cloud run (docs/13 D26).
+
+        Nothing is uploaded unless this is pressed: the preset never touches the
+        network, and a missing key is reported instead of queued.
+        """
+        if self._hosted_task_running:
+            self._layer_status("Hosted separation is already running for this track…")
+            return
+        target = self._layer_work_target()
+        if target is None:
+            return
+        source, stem_dir, mode = target
+        from harvester.services.mvsep import SEP_TYPE_LABELS
+
+        processing = getattr(getattr(self.app, "config", None), "processing", None)
+        sep_type = str(getattr(processing, "hosted_sep_type", DEFAULT_SEP_TYPE) or DEFAULT_SEP_TYPE)
+        max_seconds = float(getattr(processing, "hosted_max_seconds", 0.0) or 0.0)
+        self._hosted_task_running = True
+        scope = f"up to {max_seconds:.0f}s" if max_seconds > 0 else "the whole track"
+        self._layer_status(
+            f"☁ Hosted separation: uploading {scope} to MVSEP "
+            f"({SEP_TYPE_LABELS.get(sep_type, sep_type)})…"
+        )
+        self.run_worker(
+            self._async_hosted_separation(source, stem_dir, mode, sep_type, max_seconds),
+            name="hosted-separation",
+        )
+
+    async def _async_hosted_separation(
+        self,
+        source: Path,
+        stem_dir: Path,
+        mode: str,
+        sep_type: str,
+        max_seconds: float,
+    ) -> None:
+        """Upload → poll → download hosted stems, then rebuild the lane grid."""
+        try:
+            from harvester.services.mvsep import MvsepClient
+
+            client = MvsepClient()
+            if not client.available:
+                self._layer_status(
+                    "Hosted separation needs an MVSEP key — add MVSEP_API_KEY to .env."
+                )
+                return
+
+            def _on_progress(pct: float, step: str) -> None:
+                def _ui() -> None:
+                    self._layer_status(f"☁ Hosted [{int(pct)}%]: {step}")
+
+                self.app.call_from_thread(_ui)
+
+            try:
+                result = await client.separate(
+                    source,
+                    stem_dir,
+                    output_prefix=f"{source.stem}_{mode}",
+                    sep_type=sep_type,
+                    max_seconds=max_seconds,
+                    progress=_on_progress,
+                )
+            finally:
+                await client.close()
+        except Exception as exc:
+            logger.info("hosted separation failed: %s", exc)
+            self._layer_status(f"Hosted separation failed: {exc}")
+            return
+        finally:
+            self._hosted_task_running = False
+
+        if not result.stems:
+            self._layer_status(result.message or "Hosted separation produced no usable stems.")
+            return
+
+        note = result.describe()
+        if result.skipped:
+            note += f" · skipped {', '.join(result.skipped)}"
+        self._layer_status(note)
+        # The hosted stems are on disk now: rebuild the grid so they appear as
+        # rows with `hosted (MVSEP)` provenance.
+        self.layer_track = None
+        self._is_building_layers = False
+        self._ensure_layers_built()
+
+    def _start_diarization(self) -> None:
+        """👥 SPEAKERS — measure voices in the track (advisory, docs/13 D27)."""
+        if self._diarize_task_running:
+            self._layer_status("Speaker measurement is already running…")
+            return
+        target = self._layer_work_target()
+        if target is None:
+            return
+        source, _stem_dir, _mode = target
+        audio = self.path_voc if self.path_voc and self.path_voc.exists() else source
+        processing = getattr(getattr(self.app, "config", None), "processing", None)
+        max_seconds = float(getattr(processing, "diarize_max_seconds", 0.0) or 0.0)
+        self._diarize_task_running = True
+        self._layer_status(
+            f"👥 Measuring speakers in {audio.name} (pyannote, CPU — this takes a while)…"
+        )
+        self.run_worker(self._async_diarize(audio, max_seconds), name="speaker-measure")
+
+    async def _async_diarize(self, audio: Path, max_seconds: float) -> None:
+        """Diarize in a worker thread and fold the count into the plan (advisory)."""
+        try:
+            from harvester.services.diarization import Diarizer, pyannote_available
+
+            if not pyannote_available():
+                self._layer_status(
+                    "Speaker measurement needs the optional extra: "
+                    "uv pip install -e '.[diarize]'"
+                )
+                return
+
+            def _on_progress(pct: float, step: str) -> None:
+                def _ui() -> None:
+                    self._layer_status(f"👥 Speakers [{int(pct)}%]: {step}")
+
+                self.app.call_from_thread(_ui)
+
+            diarizer = Diarizer()
+            result = await asyncio.to_thread(
+                diarizer.diarize, audio, max_seconds=max_seconds, progress=_on_progress
+            )
+        except Exception as exc:
+            logger.info("speaker measurement failed: %s", exc)
+            self._layer_status(f"Speaker measurement failed: {exc}")
+            return
+        finally:
+            self._diarize_task_running = False
+
+        self.measured_speakers = result.speaker_count
+        track = self.layer_track
+        if track is not None and hasattr(track, "replan"):
+            try:
+                track.replan(measured_speakers=result.speaker_count)
+                self._render_lane_plan(track)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.info("lane replan after diarization failed: %s", exc)
+
+        note = result.describe()
+        credits = self.recording_credits
+        credited = getattr(credits, "singer_count", None) if credits is not None else None
+        if credited and result.speaker_count and credited != result.speaker_count:
+            note += (
+                f" · MusicBrainz credits say {credited} — credits stay authoritative"
+            )
+        self._layer_status(note)
 
     def _set_preset(self, name: str) -> None:
         """Apply a processing preset and report what it changes."""
@@ -2906,6 +3108,7 @@ class WorkbenchWidget(Widget):
                     credit_instruments=credit_instruments,
                     singer_count=singer_count,
                     tag_labels=tag_labels,
+                    measured_speakers=self.measured_speakers,
                 )
 
             try:

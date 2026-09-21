@@ -210,6 +210,9 @@ def write_sidecar(
             [] if track.lane_plan is None else list(track.lane_plan.credit_instruments)
         ),
         "tag_labels": [] if track.lane_plan is None else list(track.lane_plan.tag_labels),
+        "measured_speakers": (
+            None if track.lane_plan is None else track.lane_plan.measured_speakers
+        ),
         "segments": [_encode_segment(seg) for seg in track.segments],
         "edit_plan": _encode_plan(edit_plan),
     }
@@ -273,6 +276,7 @@ def read_sidecar(path: Path) -> tuple[LayerTrack, dict[tuple[str, int], str]]:
         singer_count=data.get("singer_count"),
         credit_instruments=data.get("credit_instruments") or (),
         tag_labels=data.get("tag_labels") or (),
+        measured_speakers=data.get("measured_speakers"),
     )
     track = LayerTrack(
         duration_s=float(data.get("duration_s", 0.0)),

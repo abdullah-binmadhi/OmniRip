@@ -27,12 +27,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from harvester.analysis.enhancement.lane_plan import LanePlan, plan_lanes
+from harvester.analysis.enhancement.lane_plan import EMPTY_PLAN, LanePlan, plan_lanes
 
 if TYPE_CHECKING:
     from harvester.analysis.enhancement.dynamic_layers import LaneReport
 
 logger = logging.getLogger(__name__)
+
+# Sentinel for "argument not provided" in ``LayerTrack.replan`` — ``None`` is a
+# meaningful value for the two counters (unknown), so it cannot double as one.
+_UNSET: object = object()
 
 SEGMENT_SIZE_S: float = 1.0
 
@@ -169,20 +173,37 @@ class LayerTrack:
     def replan(
         self,
         *,
-        credit_instruments: tuple[object, ...] | list[object] = (),
-        singer_count: int | None = None,
-        tag_labels: tuple[str, ...] | list[str] = (),
+        credit_instruments: tuple[object, ...] | list[object] | None = None,
+        singer_count: int | None | object = _UNSET,
+        tag_labels: tuple[str, ...] | list[str] | None = None,
+        measured_speakers: int | None | object = _UNSET,
     ) -> LanePlan:
-        """Rebuild lane provenance (e.g. once credits arrive) — no re-analysis."""
+        """Rebuild lane provenance (e.g. once credits arrive) — no re-analysis.
+
+        Anything the caller does not pass is carried over from the current plan,
+        so adding credits cannot silently drop the tags or the measured speaker
+        count (and vice versa).
+        """
+        current = self.lane_plan or EMPTY_PLAN
         report = self.lane_report
         self.lane_plan = plan_lanes(
             self.active_layers,
             splits=report.splits if report is not None else {},
             extras=report.extras if report is not None else (),
+            hosted=report.hosted if report is not None else (),
             kept_whole=report.kept_whole if report is not None else (),
-            credit_instruments=credit_instruments,
-            singer_count=singer_count,
-            tag_labels=tag_labels,
+            credit_instruments=(
+                current.credit_instruments if credit_instruments is None else credit_instruments
+            ),
+            singer_count=(
+                current.singer_count if singer_count is _UNSET else singer_count  # type: ignore[arg-type]
+            ),
+            tag_labels=current.tag_labels if tag_labels is None else tag_labels,
+            measured_speakers=(
+                current.measured_speakers
+                if measured_speakers is _UNSET
+                else measured_speakers  # type: ignore[arg-type]
+            ),
         )
         return self.lane_plan
 
@@ -662,6 +683,7 @@ def build_layer_track(
     credit_instruments: tuple[object, ...] | list[object] = (),
     singer_count: int | None = None,
     tag_labels: tuple[str, ...] | list[str] = (),
+    measured_speakers: int | None = None,
 ) -> LayerTrack:
     """Build a complete LayerTrack (with lane provenance) from a stem directory."""
     sources, report = build_layer_sources_with_report(
@@ -683,10 +705,12 @@ def build_layer_track(
         ordered_lanes(sources),
         splits=report.splits,
         extras=report.extras,
+        hosted=report.hosted,
         kept_whole=report.kept_whole,
         credit_instruments=credit_instruments,
         singer_count=singer_count,
         tag_labels=tag_labels,
+        measured_speakers=measured_speakers,
     )
     return LayerTrack(
         duration_s=duration_s,

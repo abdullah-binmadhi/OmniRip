@@ -51,6 +51,8 @@ harvester/
 │   │   ├── ffmpeg.py                # binary detection, decode pipe, transcode, probe
 │   │   ├── acoustid.py              # lookup client, rate limiter, SQLite cache
 │   │   ├── musicbrainz.py           # Cover Art Archive + recording credits (docs/13 D23)
+│   │   ├── mvsep.py                 # hosted separation, opt-in per track (docs/13 D26)
+│   │   ├── diarization.py           # pyannote speaker measurement, advisory (docs/13 D27)
 │   │   ├── model_manager.py         # model registry: download, cache, checksum (docs/11)
 │   │   └── tagging.py               # mutagen write ops (MP3/FLAC/MP4/Opus)
 │   ├── analysis/

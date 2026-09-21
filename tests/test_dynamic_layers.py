@@ -161,3 +161,50 @@ def test_lane_envelope_reports_per_second_levels() -> None:
     env = lane_envelope(audio, SR, segment_size_s=1.0)
     assert env.shape == (2,)
     assert env[0] > env[1]
+
+
+# ----------------------------------------------------------------------
+# Hosted (MVSEP) lanes — docs/13 D26
+# ----------------------------------------------------------------------
+
+
+def test_hosted_stems_become_lanes(tmp_path) -> None:
+    """``{suffix}_hosted_raw_{lane_key}.wav`` files become first-class lanes."""
+    from harvester.processing import HOSTED_RAW_TOKEN
+
+    stem_dir = tmp_path / "stems"
+    stem_dir.mkdir()
+    suffix = "song_ensemble"
+    _write(stem_dir / f"{suffix}_layer_vocals.wav", _tone({800.0: 0.3}))
+    _write(stem_dir / f"{suffix}{HOSTED_RAW_TOKEN}lead_vocals.wav", _tone({900.0: 0.3}))
+    _write(stem_dir / f"{suffix}{HOSTED_RAW_TOKEN}back_vocals.wav", _tone({1200.0: 0.2}))
+    sources = {"vocals": stem_dir / f"{suffix}_layer_vocals.wav"}
+
+    lanes, report = expand_dynamic_lanes(sources, sample_rate=SR, stem_dir=stem_dir, suffix=suffix)
+
+    assert "lead_vocals" in lanes and "back_vocals" in lanes
+    assert report.hosted == ("back_vocals", "lead_vocals")
+    assert "+lead_vocals (hosted)" in report.summary()
+    # The layer cache is written next to the hosted raw stem.
+    assert (stem_dir / f"{suffix}_layer_lead_vocals.wav").exists()
+
+
+def test_hosted_lane_that_is_silent_is_skipped(tmp_path) -> None:
+    """A hosted stem with no content in this song never becomes a row."""
+    from harvester.processing import HOSTED_RAW_TOKEN
+
+    stem_dir = tmp_path / "stems"
+    stem_dir.mkdir()
+    suffix = "song_ensemble"
+    _write(stem_dir / f"{suffix}_layer_vocals.wav", _tone({800.0: 0.3}))
+    _write(
+        stem_dir / f"{suffix}{HOSTED_RAW_TOKEN}back_vocals.wav",
+        np.zeros((2, SR * 2), dtype=np.float32),
+    )
+    sources = {"vocals": stem_dir / f"{suffix}_layer_vocals.wav"}
+
+    lanes, report = expand_dynamic_lanes(sources, sample_rate=SR, stem_dir=stem_dir, suffix=suffix)
+
+    assert "back_vocals" not in lanes
+    assert report.hosted == ()
+    assert not (stem_dir / f"{suffix}_layer_back_vocals.wav").exists()

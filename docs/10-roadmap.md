@@ -224,7 +224,7 @@ docs/12 §5.
 user-visible choice, and the instrument inventory comes from documented data plus an
 advisory tagger — never from an LLM.
 
-**Status:** ✅ implemented (docs/13, decisions D21–D24). Shipped:
+**Status:** ✅ implemented (docs/13, decisions D21–D27). Shipped:
 
 1. **Processing presets** (`[processing] preset`, `processing.py`): `fetch_only` /
    `standard` (default) / `neural_full`. The preset decides *which* stages run; the
@@ -246,15 +246,24 @@ advisory tagger — never from an LLM.
    over evenly spaced windows, stored as `tags.json` beside the stems and folded into the
    lane plan as annotations or `tags only` rows. Advisory only — it never touches the
    spectral verdict or file metadata.
+6. **Hosted separation** (`services/mvsep.py`, D26): the `☁ HOSTED SEPARATE` button uploads
+   an excerpt to MVSEP, polls the job and files every returned stem as a lane. Opt-in per
+   track and deliberately **not** a preset — it is the only path that sends audio off the
+   machine. The filename token is the lane key, so a 4-, 21- or 53-stem model needs no
+   per-model table.
+7. **Measured speakers** (`services/diarization.py`, D27): `👥 SPEAKERS` measures the vocals
+   stem with pyannote and reports `N speakers measured` **beside** the MusicBrainz credit
+   count. Advisory only — measured counts are noisy, so they never overwrite credits.
 
 **Verification:** full suite green + ruff clean; real-weight end-to-end runs on real songs
 (8 lanes including `GUITAR [6-source model, low]`, live AcoustID → MusicBrainz credit chain
-with `2 singers`, sidecar v2 round trip). Measurements, gates and the exact commands live in
-docs/13 §7.1.
+with `2 singers`, a real hosted MVSEP job filed as `hosted (MVSEP)` lanes, a real pyannote
+measurement reported beside the credit count, sidecar v2 round trip). Measurements, gates and
+the exact commands live in docs/13 §7.1.
 
-**Out of scope (documented, not built):** hosted separators (MVSEP — needs an account/key)
-and audio diarization for singer counting (pyannote — gated weights need a HF token, plus a
-new dependency). See docs/13 §8.
+**Out of scope (documented, not built):** audio-LLM/BYOK inference in the pipeline (rejected:
+an LLM must never touch the spectral verdict or the metadata authority) and any *batch* hosted
+run (a hosted job is per-track and opt-in by design, D26). See docs/13 §8.
 
 ---
 

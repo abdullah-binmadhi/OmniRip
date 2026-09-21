@@ -1699,3 +1699,205 @@ async def test_workbench_stops_publishing_when_idle_off_the_layers_page(
 
 
 
+
+
+@pytest.mark.asyncio
+async def test_workbench_layers_page_has_hosted_and_speaker_buttons(tmp_path: Path):
+    """The opt-in cloud button and the advisory speaker button live on LAYERS."""
+    dummy_mp3 = tmp_path / "hosted_buttons.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        assert wb.query_one("#wb-btn-hosted-separate", Button) is not None
+        assert wb.query_one("#wb-btn-detect-speakers", Button) is not None
+
+
+@pytest.mark.asyncio
+async def test_workbench_hosted_separation_reports_a_missing_key(tmp_path: Path, monkeypatch):
+    """HOSTED SEPARATE is opt-in per track: no key → a message, no upload (D26)."""
+    from harvester.services.mvsep import MvsepClient
+
+    dummy_mp3 = tmp_path / "hosted_nokey.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+    monkeypatch.setattr(MvsepClient, "available", property(lambda self: False))
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        wb._start_hosted_separation()
+        await pilot.pause(0.2)
+
+        status = str(wb.query_one("#wb-layer-status", Label).render())
+        assert "MVSEP_API_KEY" in status
+        assert wb._hosted_task_running is False
+
+
+@pytest.mark.asyncio
+async def test_workbench_hosted_separation_rebuilds_the_lane_grid(tmp_path: Path, monkeypatch):
+    """A successful hosted run writes stems and rebuilds the grid as hosted rows."""
+    from harvester.services import mvsep as mvsep_mod
+
+    dummy_mp3 = tmp_path / "hosted_run.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+    calls: dict[str, object] = {}
+
+    class _FakeResult:
+        sep_type = 49
+        algorithm = "MVSep Karaoke"
+        stems = (
+            mvsep_mod.HostedStem(
+                "vocals-lead", "lead_vocals", "lead.wav", "https://mvsep.com/files/lead.wav"
+            ),
+            mvsep_mod.HostedStem(
+                "vocals-back", "back_vocals", "back.wav", "https://mvsep.com/files/back.wav"
+            ),
+        )
+        skipped = ("instrum-only",)
+
+        def describe(self) -> str:
+            return "☁ Hosted MVSEP · MVSep Karaoke · 2 lanes"
+
+    class _FakeClient:
+        available = True
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            calls["init"] = True
+
+        async def separate(self, source, dest_dir, **kwargs):
+            calls["separate"] = {"source": source, "dest_dir": dest_dir, **kwargs}
+            return _FakeResult()
+
+        async def close(self) -> None:
+            calls["closed"] = True
+
+    monkeypatch.setattr(mvsep_mod, "MvsepClient", _FakeClient)
+    rebuilt: list[str] = []
+    monkeypatch.setattr(
+        WorkbenchWidget, "_ensure_layers_built", lambda self: rebuilt.append("rebuild")
+    )
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        wb._start_hosted_separation()
+        await pilot.pause(0.2)
+
+        assert calls.get("closed") is True
+        sent = calls["separate"]
+        assert sent["output_prefix"] == "hosted_run_eco"
+        assert sent["dest_dir"].name.startswith("hosted_run_")
+        # The cached grid is dropped so the hosted stems are discovered again.
+        assert "rebuild" in rebuilt
+        assert wb.layer_track is None
+        status = str(wb.query_one("#wb-layer-status", Label).render())
+        assert "Hosted" in status and "instrum-only" in status
+        assert wb._hosted_task_running is False
+
+
+@pytest.mark.asyncio
+async def test_workbench_speakers_are_advisory_and_credits_win(tmp_path: Path, monkeypatch):
+    """👥 SPEAKERS records the measured count but never overwrites credits (D27)."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.lane_plan import plan_lanes
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    from harvester.services import diarization as dia_mod
+    from harvester.services.musicbrainz import Credit, RecordingCredits
+
+    dummy_mp3 = tmp_path / "speakers.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+    calls: dict[str, object] = {}
+
+    class _FakeDiarizer:
+        def diarize(self, audio, *, max_seconds=0.0, progress=None, num_speakers=None):
+            calls["audio"] = audio
+            calls["max_seconds"] = max_seconds
+            if progress is not None:
+                progress(100.0, "done")
+            return dia_mod.DiarizationResult(
+                speakers=("SPEAKER_00", "SPEAKER_01", "SPEAKER_02"),
+                turns=(
+                    dia_mod.SpeakerTurn(0.0, 1.0, "SPEAKER_00"),
+                    dia_mod.SpeakerTurn(1.0, 2.0, "SPEAKER_01"),
+                ),
+                model="pyannote/fake",
+                elapsed_s=1.0,
+            )
+
+    monkeypatch.setattr(dia_mod, "Diarizer", _FakeDiarizer)
+    monkeypatch.setattr(dia_mod, "pyannote_available", lambda: True)
+
+    sources = {
+        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
+    }
+    track = LayerTrack(
+        duration_s=1.0,
+        sample_rate=44100,
+        sources=sources,
+        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+    )
+    track.lane_plan = plan_lanes(["vocals"], singer_count=2)
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        wb.layer_track = track
+        wb.recording_credits = RecordingCredits(
+            recording_id="mbid",
+            title="Headlock",
+            vocals=(Credit(name="lead vocals", artist="Imogen Heap"),),
+            instruments=(Credit(name="double bass", artist="Mich Gerber"),),
+        )
+        await pilot.pause()
+
+        wb._start_diarization()
+        await pilot.pause(0.3)
+
+        assert wb.measured_speakers == 3
+        plan = wb.layer_track.lane_plan
+        assert plan is not None
+        assert plan.measured_speakers == 3
+        assert plan.singer_count == 2  # credits stay authoritative
+        status = str(wb.query_one("#wb-layer-status", Label).render())
+        assert "3" in status and "authoritative" in status
+        assert wb._diarize_task_running is False
