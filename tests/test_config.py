@@ -148,3 +148,29 @@ def test_negative_processing_limits_are_rejected(tmp_path: Path) -> None:
             cli_overrides={"processing.diarize_max_seconds": -1},
         )
 
+
+def test_obsidian_defaults_to_disabled(tmp_path: Path) -> None:
+    config = load_config(environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+
+    assert config.obsidian.enabled is False
+    assert config.obsidian.vault_dir == Path("~/OmniRip-Vault").expanduser()
+    assert config.public_dict()["obsidian"]["enabled"] is False
+
+
+def test_obsidian_section_is_read_from_file(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[obsidian]\n"
+        "enabled = true\n"
+        'vault_dir = "~/My-Vault"\n'
+        'library = "Albums"\n',
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+
+    assert config.obsidian.enabled is True
+    assert config.obsidian.vault_dir == Path("~/My-Vault").expanduser()
+    assert config.obsidian.library == "Albums"
+    assert config.obsidian.wants == "Wants"
+

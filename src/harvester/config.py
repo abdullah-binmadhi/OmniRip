@@ -137,6 +137,23 @@ class UiConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ObsidianConfig:
+    """Obsidian second-brain bridge (docs/15).
+
+    Opt-in: nothing is ever written or read unless ``enabled`` is true. ``vault_dir``
+    points at a local Obsidian vault folder on disk; subfolder names default to the
+    standard layout and may be left at their defaults.
+    """
+
+    enabled: bool = False
+    vault_dir: Path = Path("~/OmniRip-Vault")
+    library: str = "Library"
+    sessions: str = "Sessions"
+    studio: str = "Studio"
+    wants: str = "Wants"
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     general: GeneralConfig
     slskd: SlskdConfig
@@ -149,6 +166,7 @@ class AppConfig:
     processing: ProcessingSettings
     timeouts: TimeoutConfig
     ui: UiConfig
+    obsidian: ObsidianConfig
     paths: AppPaths
 
     def validate(self) -> AppConfig:
@@ -218,6 +236,8 @@ class AppConfig:
         ):
             if not _SECRET_NAME.fullmatch(value):
                 raise ConfigError(f"{label} must be an uppercase environment variable name")
+        if self.obsidian.enabled and not str(self.obsidian.vault_dir):
+            raise ConfigError("obsidian.vault_dir must be set when obsidian is enabled")
         return self
 
     def public_dict(self) -> dict[str, Any]:
@@ -282,6 +302,14 @@ class AppConfig:
                 "data_dir": str(self.paths.data_dir),
                 "config_file": str(self.paths.config_file),
             },
+            "obsidian": {
+                "enabled": self.obsidian.enabled,
+                "vault_dir": str(self.obsidian.vault_dir),
+                "library": self.obsidian.library,
+                "sessions": self.obsidian.sessions,
+                "studio": self.obsidian.studio,
+                "wants": self.obsidian.wants,
+            },
         }
 
 
@@ -344,6 +372,14 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "kill_grace_s": 5.0,
     },
     "ui": {"refresh_hz": 8, "max_log_lines": 2000, "status_interval_s": 10.0},
+    "obsidian": {
+        "enabled": False,
+        "vault_dir": "~/OmniRip-Vault",
+        "library": "Library",
+        "sessions": "Sessions",
+        "studio": "Studio",
+        "wants": "Wants",
+    },
 }
 
 
@@ -466,6 +502,7 @@ def _build_config(
     processing = section("processing")
     timeouts = section("timeouts")
     ui = section("ui")
+    obsidian = section("obsidian")
 
     config = AppConfig(
         general=GeneralConfig(
@@ -578,6 +615,14 @@ def _build_config(
             status_interval_s=_float(
                 ui.get("status_interval_s", 10.0), name="ui.status_interval_s"
             ),
+        ),
+        obsidian=ObsidianConfig(
+            enabled=_bool(obsidian.get("enabled", False), name="obsidian.enabled"),
+            vault_dir=Path(str(obsidian.get("vault_dir", "~/OmniRip-Vault"))).expanduser(),
+            library=str(obsidian.get("library", "Library")),
+            sessions=str(obsidian.get("sessions", "Sessions")),
+            studio=str(obsidian.get("studio", "Studio")),
+            wants=str(obsidian.get("wants", "Wants")),
         ),
         paths=AppPaths.from_base(paths.data_dir, config_file=config_file),
     )
@@ -729,6 +774,7 @@ __all__ = [
     "BatchConfig",
     "FfmpegConfig",
     "GeneralConfig",
+    "ObsidianConfig",
     "SlskdConfig",
     "SpectralConfig",
     "TimeoutConfig",

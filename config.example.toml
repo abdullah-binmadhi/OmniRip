@@ -100,3 +100,14 @@ kill_grace_s = 5
 refresh_hz = 8
 max_log_lines = 2000
 status_interval_s = 10
+
+[obsidian]
+# Optional: treat a local Obsidian vault as the second brain / database (docs/15).
+# Opt-in — nothing is read or written until this is enabled. Folders default to the
+# standard layout and can stay unset.
+enabled = false
+vault_dir = "~/OmniRip-Vault"
+# library = "Library"
+# sessions = "Sessions"
+# studio = "Studio"
+# wants = "Wants"
