@@ -17,7 +17,7 @@ Four questions, each with a mechanism rather than a guess:
 | Can we show more than four rows? | 6-source extras (HTDemucs-6s → guitar/piano) + dynamic family splits | model output |
 
 Explicitly out of scope here: hosted separators (MVSEP) and singer *diarization* (pyannote) —
-both blocked on credentials, see §8 for exactly what they would need.
+their credentials are now verified (§8), but neither is wired into the app yet.
 
 ## 2. Processing presets (D21)
 
@@ -248,8 +248,8 @@ Reproduce with the scratch probes (`lane_expansion_e2e.py`, `lane_expansion_e2e2
 | Idea | Status | Reason |
 | --- | --- | --- |
 | CLAP instrument tagging (`laion/clap-htsat-unfused`) | **shipped** (D25) | See §5b: 614 MB, `neural_full` only, advisory rows, `tags.json`. |
-| MVSEP hosted (lead/back vocals, 53-stem detector) | **deferred — blocked on credentials** | Needs an MVSEP account and API key plus a per-track upload; there is no key on this machine, so the integration cannot be verified end to end. Everything else it would feed (provenance rows, lead/back-vocal lanes) already exists, so it is a transport problem, not a design one. |
-| pyannote diarization (singer counting from audio) | **deferred — blocked on credentials + dependency** | `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` are gated on the Hub: a HF token is required (none on this machine) and `pyannote.audio` is not installed (Python 3.14 wheels unverified). Diarization on *singing* also degrades with doubles and heavy processing. The credit-based singer count ships first because it is free, documented and deterministic. |
+| MVSEP hosted (lead/back vocals, 53-stem detector) | **credentials verified — integration pending** | The supplied key authenticates (`GET /api/app/user` → the account, `premium_enabled=1`) and two real jobs ran end to end on a 20 s excerpt: `sep_type=49` (MVSep Karaoke) returned `vocals-lead` / `vocals-back` / `instrum-only` / `back-instrum` WAVs and `sep_type=126` (Mega 53-stem) returned 23 FLAC stems — all downloaded and ffprobe-verified. The API's `sep_type` is the `render_id` field of `GET /api/app/algorithms` (not its `id`), and the result JSON carries `status` at the top level (`waiting` → `processing` → `done`). What is still missing is the *transport* inside OmniRip: a hosted engine that uploads an excerpt, polls and files the stems as lanes (with a `hosted` origin in the plan). Until then nothing in the app touches the network. |
+| pyannote diarization (singer counting from audio) | **credentials verified — integration pending** | `pyannote.audio 4.0.7` installs cleanly on this Python 3.14 venv (58 additive packages, no upgrades) and is now the optional `diarize` extra. The supplied token is valid, and the *component* models it needs are readable (`pyannote/segmentation-3.0`, `pyannote/wespeaker-voxceleb-resnet34-LM`); the two *pipeline* repos (`speaker-diarization-3.1`, `speaker-diarization-community-1`) are gated and return 403 until the account accepts their terms, which also hides the VBx/PLDA calibration — so the verified pipeline is segmentation-3.0 + wespeaker + `AgglomerativeClustering` (the 3.1-era config: centroid, `min_cluster_size=12`, `threshold≈0.7046`). Measured: 215 s of audio diarized in 82.5 s on CPU; Apple MPS is unusable for this pipeline (`invalid low watermark ratio 1.4`). **Accuracy is the caveat, not the plumbing:** on *Headlock* it reports 1 speaker (MusicBrainz credits list 2 — the backing vocal is buried in the mix) and on a controlled two-singer splice (two different singers' isolated vocals, alternating every 10 s) it reports 3 speakers at thresholds 0.70/0.80/0.90 alike. So a measured count is advisory at best and must never overwrite the credit-based count. |
 | Audio-LLM / BYOK inference in the pipeline | **rejected** | LLMs cannot separate sources, and they must never touch the spectral verdict (docs/01) or metadata authority (AcoustID/MusicBrainz). A spectrogram-image round trip is possible but advisory-only; it adds a network dependency and an unverifiable failure mode for zero lane capability. |
 | Rewriting `eco` into "no separation" | **rejected** | Inverts a spec'd decision (D14). `fetch_only` covers the intent without breaking the fallback contract. |
 
@@ -266,5 +266,9 @@ Reproduce with the scratch probes (`lane_expansion_e2e.py`, `lane_expansion_e2e2
 - The 12-label prompt set is deliberately coarse. Adding finer labels (sax vs brass, cello vs
   strings, "spoken word") is a data change in `tags.py`, but each addition dilutes the softmax
   share, so `tag_threshold` should be re-tuned with real tracks when the set grows.
-- MVSEP (hosted lead/back-vocal separation) and pyannote (audio diarization) stay out until
-  credentials exist; both would slot into the same provenance model without a redesign (§8).
+- MVSEP (hosted lead/back-vocal separation) and pyannote (audio diarization) both authenticate
+  now; wiring them in is a transport + UX question, not a design one (§8). For pyannote, the
+  open question is where a *measured* speaker count lands: it must never overwrite the
+  MusicBrainz credit count, so it would appear as a separate, advisory number.
+- MVSEP costs real credits and uploads audio off-machine: which preset (if any) may spend them
+  is a product decision, not a technical one.
