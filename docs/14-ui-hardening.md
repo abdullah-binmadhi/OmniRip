@@ -313,3 +313,14 @@ backup moved outside the rollback block (split old set on mid-move failure).
 Regression tests added for all three.
 Shipped: `fbe4929` on origin/main — `443 passed, 1 skipped`; Ruff clean;
 graphify 3485 nodes / 7866 edges / 212 communities; local and remote SHA equal.
+
+M6 follow-up (independent review round 2, all findings closed): the diarization
+stage-meta restore now verifies the recorded file's fingerprint (the vocals
+stem, not the mp3); the tagging/extra-lane status tails are generation-guarded;
+a stale diarize worker can no longer stop the new track's heartbeat timer; the
+hosted confirm captures its source track and refuses to upload if the track
+changed while the dialog was open; "retag-pass" joins the track-worker cancel
+set; the algorithm fetch never refills a dismissed screen; successful hosted
+swaps sweep `.staging-*`/`.old-*` crash litter. Remaining deferred minors
+(recorded, not dropped): sync `_clear_track_cache` rmtree + in-flight guard,
+same-basename sidecar collision naming, app-side `clear_dirty()` accessor.

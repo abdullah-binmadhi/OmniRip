@@ -806,6 +806,7 @@ class WorkbenchWidget(Widget):
         self._diarize_started: float = 0.0
         self._diarizer: object | None = None
         self._terminal_stale_reported: bool = False
+        self._hosted_pending: tuple[Path, int] | None = None
 
         # Processing preset (docs/13): which stages run for this session. The
         # engine fallback chain (neural → hdemucs → eco) is separate and always
@@ -865,6 +866,7 @@ class WorkbenchWidget(Widget):
             "layer-studio-build",
             "layer-studio-commit",
             "layer-terminal-launch",
+            "retag-pass",
         }
         for worker in list(self.workers):
             if worker.name in track_worker_names:
@@ -1321,9 +1323,28 @@ class WorkbenchWidget(Widget):
                     # only when they belong to this exact source.
                     restored: list[str] = []
                     dia_meta = read_stage_meta(stem_dir, "diarization")
-                    if dia_meta and self.path_mp3.stat().st_size == int(
-                        dia_meta.get("source_size", -1)
-                    ):
+                    # The production writer records the file actually diarized
+                    # (the vocals stem when one exists), so verify THAT file's
+                    # identity instead of the mp3's (docs/14 M2, review finding).
+                    # The stem dir itself already matched this source above.
+                    dia_ok = False
+                    if dia_meta:
+                        try:
+                            from harvester.analysis.enhancement.stem_cache import (
+                                source_fingerprint,
+                            )
+
+                            recorded_fp = str(dia_meta.get("source_fingerprint") or "")
+                            recorded_path = Path(str(dia_meta.get("source_path") or ""))
+                            if recorded_fp and recorded_path.exists():
+                                dia_ok = recorded_fp == source_fingerprint(recorded_path)
+                            elif recorded_path.exists():
+                                dia_ok = recorded_path.stat().st_size == int(
+                                    dia_meta.get("source_size", -1)
+                                )
+                        except (OSError, TypeError, ValueError):
+                            dia_ok = False
+                    if dia_ok and dia_meta:
                         try:
                             self.measured_speakers = int(dia_meta["speaker_count"])
                             restored.append(
@@ -2699,11 +2720,12 @@ class WorkbenchWidget(Widget):
             logger.info("extra lane pass skipped: %s", exc)
             return
         with contextlib.suppress(Exception):
-            self.query_one("#wb-layer-status", Label).update(
-                "Extra lanes ready: " + ", ".join(sorted(extra))
-                if extra
-                else "Extra lanes unavailable (6-source model missing) — 4-source lanes only."
-            )
+            if self._is_current_track(source_path, generation):
+                self.query_one("#wb-layer-status", Label).update(
+                    "Extra lanes ready: " + ", ".join(sorted(extra))
+                    if extra
+                    else "Extra lanes unavailable (6-source model missing) — 4-source lanes only."
+                )
 
     async def _run_tagging_pass(
         self,
@@ -2743,6 +2765,8 @@ class WorkbenchWidget(Widget):
             logger.info("tagging pass skipped: %s", exc)
             return
         with contextlib.suppress(Exception):
+            if not self._is_current_track(source_path, generation):
+                return
             if result is None:
                 self.query_one("#wb-layer-status", Label).update(
                     "Tags unavailable (CLAP model not cached) — lanes stay as detected."
@@ -2875,6 +2899,10 @@ class WorkbenchWidget(Widget):
         if target is None:
             return
         source, _stem_dir, _mode = target
+        # Capture the track this dialog belongs to (docs/14 M6 review): if the
+        # user switches tracks while the modal is open, the confirm must NOT
+        # upload the new track's audio under the old dialog.
+        self._hosted_pending = (source, self.track_generation)
         app = self.app
         if app is None:
             return
@@ -2892,8 +2920,16 @@ class WorkbenchWidget(Widget):
 
     def _hosted_screen_done(self, choice: str | None) -> None:
         """Callback from HostedSeparationScreen: None = cancelled."""
-        if choice:
-            self._launch_hosted_run(choice)
+        if not choice:
+            return
+        pending = self._hosted_pending
+        self._hosted_pending = None
+        if pending is not None and not self._is_current_track(*pending):
+            self._layer_status(
+                "Hosted run skipped — the track changed while the dialog was open."
+            )
+            return
+        self._launch_hosted_run(choice)
 
     def _launch_hosted_run(self, sep_type: str) -> None:
         """Start the MVSEP job with an explicitly chosen sep_type."""
@@ -3095,9 +3131,9 @@ class WorkbenchWidget(Widget):
         finally:
             if self._is_current_operation(token):
                 self._diarize_task_running = False
-            if self._diarize_timer is not None:
-                self._diarize_timer.stop()
-                self._diarize_timer = None
+                if self._diarize_timer is not None:
+                    self._diarize_timer.stop()
+                    self._diarize_timer = None
             self._finish_operation(token)
 
         if not self._is_current_track(source, token.generation):

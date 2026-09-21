@@ -89,7 +89,14 @@ class HostedSeparationScreen(ModalScreen[str | None]):
                 await client.close()
         except Exception as exc:  # no network / bad key → fall back to default
             logger.info("hosted algorithm list unavailable: %s", exc)
-        self.call_after_refresh(self._fill, algorithms)
+
+        def _safe_fill(algorithms: list[dict[str, object]]) -> None:
+            # The user may cancel while the fetch is in flight; never refill a
+            # dismissed (unmounted) screen (docs/14 M6 review).
+            if self.is_mounted:
+                self._fill(algorithms)
+
+        self.call_after_refresh(_safe_fill, algorithms)
 
     def _fill(self, algorithms: list[dict[str, object]]) -> None:
         radio = self.query_one("#hosted-models", RadioSet)

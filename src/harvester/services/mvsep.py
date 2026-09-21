@@ -578,3 +578,12 @@ def _swap_hosted_run(
         for _path, backup in backups:
             with contextlib.suppress(Exception):
                 backup.unlink()
+        # Sweep crash litter from runs that died mid-swap (docs/14 M6 review):
+        # staging temps and old backups never match the lane globs, so without
+        # this they would pile up until a manual clean.
+        for litter in dest_dir.glob(f"{output_prefix}{HOSTED_RAW_TOKEN}*.wav.staging-*"):
+            with contextlib.suppress(Exception):
+                litter.unlink()
+        for litter in dest_dir.glob(f"{output_prefix}{HOSTED_RAW_TOKEN}*.wav.old-*"):
+            with contextlib.suppress(Exception):
+                litter.unlink()

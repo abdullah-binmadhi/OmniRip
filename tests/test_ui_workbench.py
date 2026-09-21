@@ -1507,6 +1507,10 @@ async def test_workbench_tagging_pass_reports_tags(tmp_path: Path, monkeypatch):
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
+        # The pass only reports for the loaded track (generation guard).
+        wb.load_job(
+            TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        )
         wb.switch_page("layers")
         await wb._run_tagging_pass(dummy_mp3, tmp_path / "stems")
         await pilot.pause()
@@ -1527,13 +1531,19 @@ async def test_workbench_tagging_pass_degrades_without_the_model(tmp_path: Path,
         def tag_and_store(self, *args: object, **kwargs: object) -> None:
             return None
 
+    dummy_mp3 = tmp_path / "tagged.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
     monkeypatch.setattr(tags_mod, "ClapTagger", _MissingTagger)
 
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
+        # The pass only reports for the loaded track (generation guard).
+        wb.load_job(
+            TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        )
         wb.switch_page("layers")
-        await wb._run_tagging_pass(tmp_path / "tagged.mp3", tmp_path / "stems")
+        await wb._run_tagging_pass(dummy_mp3, tmp_path / "stems")
         await pilot.pause()
         assert "Tags unavailable" in str(wb.query_one("#wb-layer-status", Label).render())
 

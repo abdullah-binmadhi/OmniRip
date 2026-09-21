@@ -114,8 +114,14 @@ async def test_load_job_rejects_stale_cross_track_cache(
 async def test_load_job_restores_measured_speakers_from_meta(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A matching diarization.json restores the advisory count on reload."""
+    """A matching diarization.json restores the advisory count on reload.
+
+    The production writer records the file that was actually diarized — the
+    vocals stem when one exists (docs/13 D27) — so the restore must check
+    that file, not the mp3 (docs/14 M2, review finding).
+    """
     from harvester.analysis.enhancement.stem_cache import (
+        source_fingerprint,
         write_cache_manifest,
         write_stage_meta,
     )
@@ -129,7 +135,8 @@ async def test_load_job_restores_measured_speakers_from_meta(
     source.write_bytes(b"audio-bytes-here")
     stem_dir = cache_root / f"song_{source.stat().st_size}"
     stem_dir.mkdir(parents=True)
-    (stem_dir / f"{source.stem}_neural_vocals.wav").write_bytes(b"vocal")
+    vocals = stem_dir / f"{source.stem}_neural_vocals.wav"
+    vocals.write_bytes(b"vocal")
     (stem_dir / f"{source.stem}_neural_instrumental.wav").write_bytes(b"inst")
     write_cache_manifest(stem_dir, source)
     write_stage_meta(
@@ -139,8 +146,9 @@ async def test_load_job_restores_measured_speakers_from_meta(
             "speaker_count": 2,
             "model": "speaker-diarization-community-1",
             "device": "cpu",
-            "source_path": str(source),
-            "source_size": source.stat().st_size,
+            "source_path": str(vocals),
+            "source_size": vocals.stat().st_size,
+            "source_fingerprint": source_fingerprint(vocals),
         },
     )
 
