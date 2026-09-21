@@ -125,17 +125,46 @@ cover the stereo decode, the gated native decode, and the best-effort failure.
 
 ## 8. Live verification (2026-09-22)
 
-* Full suite green after the change; ruff clean.
+* Full suite green after the change (507 passed, 1 skipped); ruff clean.
 * `tests/test_spectral_v2.py::test_fake_24bit_detected_through_a_real_ffmpeg_decode`
   decodes a real FLAC through the production `FfmpegService` (not a mock) and
   confirms the padding survives the FLAC → s32le path.
-* Fixture table (unit, 44.1/96 kHz PCM) verified locally with the diagnostics
-  printed during development; the numbers quoted in §5 come from that run.
+* Real-file pass through the production phase (`run_spectral_check` + real
+  `FfmpegService` + real config) on `Imogen Heap — Hide and Seek` (128 kbps MP3
+  from the harvested library), rebuilt three ways with ffmpeg:
+
+  | File | Claimed | Empty low byte | Verdict | Reason |
+  | --- | --- | --- | --- | --- |
+  | MP3 → 24/48 FLAC | 24 bits | 0.4 % | FRAUD | v1 brick wall, f_c = 16 kHz, S = 28.3 |
+  | MP3 → 16/48 FLAC | 16 bits | 100 % | FRAUD | v1 brick wall, f_c = 16 kHz, S = 28.1 |
+  | 16-bit stage widened to 24-bit FLAC | 24 bits | 100 % | FRAUD | v1 brick wall (R2 outranked, see below) |
+
+  The first row is the one that matters for false positives: a *genuine* 24-bit
+  transcode has a live low byte (0.4 % empty), so R2 abstains and the verdict
+  comes from the brick wall. The third row shows the ordering at work — a real
+  lossy source widened to 24 bits trips both rules, and the brick wall (the more
+  specific diagnosis) is the one reported. R2 is what catches a *clean* 16-bit
+  master widened to 24 bits with no lossy signature; that path is covered by the
+  unit and ffmpeg-decode tests above.
 
 ## 9. Follow-ups
 
-* Real-world corpus pass: run the new rules over the harvested library and record
-  how many tracks change verdict, then tune thresholds if the false-positive rate
-  is non-zero on honest material.
+* **First corpus pass — done (2026-09-22).** The v2 analyzer was run over every
+  audio file in the real music library (18 files: 16 MP3, 2 WAV; 30 s excerpts at
+  30 % offset, real `FfmpegService`, stereo decode, native decode for ≥ 24-bit
+  claims): **14 PASS, 4 FRAUD, 0 errors.** Every FRAUD had a genuine encoder
+  lowpass (f_c 15.5–16.5 kHz, S 52–62 dB/kHz) — the four are ~128 kbps encodes,
+  correctly caught. No false positives: both real 16-bit WAVs pass, and no file
+  was flagged by R1/R3/R4 (the library has no hi-res or stereo-asymmetric
+  material to exercise those rules — they rest on fixtures only).
+  Two honest caveats: (a) MP3s whose encoder lowpass sits above 19 kHz pass by
+  design — that is the v1 threshold, unchanged here, and the detector's remit is
+  the ≤ 19 kHz brick wall; (b) for a VBR source whose lowpass varies by section,
+  the verdict depends on the excerpt window — the same *Hide and Seek* file reads
+  S = 3.7 dB/kHz on a 30 s window and S = 28.3 on the production 60 s window.
+  Production is deterministic (one fixed window per file), but a borderline file
+  can legitimately sit near the gate.
 * The report could name the *rule* that fired (currently it is prose in `detail`);
   worth doing only if the UI ever needs to filter by reason.
+* Threshold tuning should wait for a corpus of *P2P lossless* files (the only
+  files the gate actually sees); the library pass above mostly exercises v1.
