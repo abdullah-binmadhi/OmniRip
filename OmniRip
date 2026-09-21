@@ -1,7 +1,18 @@
 #!/bin/sh
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SELF=$0
+i=0
+while [ -h "$SELF" ] && [ "$i" -lt 40 ]; do
+  i=$((i + 1))
+  SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
+  SELF_LINK=$(readlink "$SELF") || break
+  case "$SELF_LINK" in
+    /*) SELF=$SELF_LINK ;;
+    *) SELF=$SELF_DIR/$SELF_LINK ;;
+  esac
+done
+ROOT=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
 LOCAL_CONFIG="$ROOT/tools/slskd/slskd.local.yml"
 APP_CONFIG="$ROOT/config.toml"
 
