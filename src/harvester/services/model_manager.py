@@ -61,6 +61,14 @@ SUPPORTED_MODELS: dict[str, ModelSpec] = {
         description="HDEMUCS deep multi-source rhythm & instrument separation (44.1kHz)",
         direct_url="https://download.pytorch.org/torchaudio/models/hdemucs_high_musdbhq_only.pt",
     ),
+    "htdemucs_6s": ModelSpec(
+        name="htdemucs_6s",
+        repo_id="adefossez/HTDemucs-6s",
+        filename="5c90dfd2.safetensors",
+        target_sample_rate=44100,
+        expected_sha256=None,
+        description="HTDemucs 6-source extras — guitar + piano lanes (44.1kHz)",
+    ),
     "dereverb": ModelSpec(
         name="dereverb",
         repo_id="anvuew/dereverb_bs_roformer",
@@ -68,6 +76,17 @@ SUPPORTED_MODELS: dict[str, ModelSpec] = {
         target_sample_rate=44100,
         expected_sha256=None,
         description="BS-RoFormer DeReverb anechoic vocal acoustic isolation (44.1kHz)",
+    ),
+    # Repo-based model: the filename carries the snapshot directory so the
+    # single-file downloader and the CLAP loader agree on one location
+    # (``<cache>/clap-htsat-unfused/``).
+    "clap": ModelSpec(
+        name="clap",
+        repo_id="laion/clap-htsat-unfused",
+        filename="clap-htsat-unfused/pytorch_model.bin",
+        target_sample_rate=48000,
+        expected_sha256=None,
+        description="CLAP audio-text tagger — advisory instrument/vocal labels (48kHz)",
     ),
 }
 

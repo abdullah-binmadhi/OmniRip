@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from collections.abc import Sequence
 
 from harvester import __version__
-from harvester.config import load_config
+from harvester.config import load_config, load_env_file
 from harvester.ui.app import HarvesterApp
 from harvester.util.errors import ConfigError
+
+logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,6 +80,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     environment = dict(os.environ)
     if args.data_dir:
         environment["HARVESTER_DATA_DIR"] = args.data_dir
+    # NFR-6: API keys come from the environment. A local gitignored .env (next
+    # to the config or in the project root) is read here so GUI launches — which
+    # do not inherit shell exports — still find ACOUSTID_API_KEY et al.
+    loaded = load_env_file(config_path=args.config, environ=environment)
+    if loaded:
+        logger.debug("Loaded %d key(s) from a local .env file", len(loaded))
     try:
         config = load_config(args.config, environ=environment)
     except ConfigError as exc:

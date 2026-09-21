@@ -150,7 +150,10 @@ class AcoustidService:
         form = {
             "client": self.api_key,
             "format": "json",
-            "meta": "recordings+releases+releasegroups+isrcs",
+            # AcoustID expects `meta` as a repeatable parameter: a single
+            # "+"-joined string is URL-encoded to a literal '+' and the API then
+            # returns bare results (id + score only, no recordings).
+            "meta": ["recordings", "releases", "releasegroups", "isrcs"],
             "duration": str(int(fingerprint.duration)),
             "fingerprint": fingerprint.value,
         }

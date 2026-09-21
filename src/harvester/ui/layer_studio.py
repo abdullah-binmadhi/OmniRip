@@ -10,6 +10,8 @@ playhead tracking, and per-second surgical defect repair.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from rich.text import Text
 from textual import events
 from textual.message import Message
@@ -22,9 +24,7 @@ from harvester.analysis.enhancement.layer_editor import (
 )
 from harvester.analysis.enhancement.layers import (
     ISSUE_COLORS,
-    LAYER_LABELS,
     LayerSegment,
-    LayerSource,
     LayerTrack,
 )
 
@@ -53,12 +53,40 @@ STEM_THEMES: dict[str, dict[str, str]] = {
         "label": "VOCALS",
         "sub": "Lead & Harmony",
     },
+    "kick": {
+        "color": "#ff5555",
+        "dim": "#551818",
+        "bg": "#1c0404",
+        "label": "KICK",
+        "sub": "Drums › Low Punch",
+    },
+    "snare": {
+        "color": "#ff9955",
+        "dim": "#553a18",
+        "bg": "#1c0e02",
+        "label": "SNARE",
+        "sub": "Drums › Body & Crack",
+    },
+    "hats": {
+        "color": "#ffdd66",
+        "dim": "#554a18",
+        "bg": "#1c1602",
+        "label": "HATS",
+        "sub": "Drums › Cymbals / Air",
+    },
     "drums": {
         "color": "#ff4444",
         "dim": "#551818",
         "bg": "#1c0404",
         "label": "DRUMS",
         "sub": "Kicks / Snares / Hi-Hats",
+    },
+    "sub_bass": {
+        "color": "#2266dd",
+        "dim": "#122f5c",
+        "bg": "#02091a",
+        "label": "SUB BASS",
+        "sub": "Bass › Sub Frequencies",
     },
     "bass": {
         "color": "#3388ff",
@@ -73,6 +101,20 @@ STEM_THEMES: dict[str, dict[str, str]] = {
         "bg": "#1c1200",
         "label": "INSTRUMENTS",
         "sub": "Keys / Synths / Guitars",
+    },
+    "guitar": {
+        "color": "#00ddaa",
+        "dim": "#0b4a3a",
+        "bg": "#021712",
+        "label": "GUITAR",
+        "sub": "Neural › Guitar",
+    },
+    "piano": {
+        "color": "#cc88ff",
+        "dim": "#3d2255",
+        "bg": "#0d0518",
+        "label": "PIANO",
+        "sub": "Neural › Piano",
     },
     "mix": {
         "color": "#00e699",
@@ -168,6 +210,10 @@ class LayerStudio(Widget):
         self._selected_idx: int | None = None
         self._muted_layers: set[str] = set()
         self._solo_layer: str | None = None
+        # Playhead source. When set (detached layer terminal), the widget reads
+        # the position from it instead of this process's `#audio-player`, which
+        # only exists in the main OmniRip process.
+        self.playhead_provider: Callable[[], float] | None = None
 
     def on_mount(self) -> None:
         self._sync_timer = self.set_interval(0.20, self._sync_playhead)
@@ -185,6 +231,12 @@ class LayerStudio(Widget):
 
     def _sync_playhead(self) -> None:
         if self.track is None:
+            return
+        if self.playhead_provider is not None:
+            try:
+                self.playhead_s = float(self.playhead_provider())
+            except Exception:
+                return
             return
         try:
             from harvester.ui.player import AudioPlayerWidget
@@ -437,6 +489,24 @@ class LayerStudio(Widget):
 
         # Top border separator
         t.append("─" * _LABEL_COL + "┼" + "─" * visible + "\n", style="dim #334455")
+
+        # Empty-state hint: built track but no resolvable layer sources.
+        if not layers:
+            hint = " No layer sources found in this stem set — run ⚡ BUILD STEMS to regenerate. "
+            pad = max(2, (visible - len(hint)) // 2)
+            trail = max(1, visible - pad - len(hint))
+            t.append(
+                " " * _LABEL_COL + "│" + " " * visible + "\n",
+                style="dim #223344",
+            )
+            t.append(
+                " " * _LABEL_COL + "│" + " " * pad + hint + " " * trail + "\n",
+                style="#ffcc00 on #223344",
+            )
+            t.append(
+                " " * _LABEL_COL + "│" + " " * visible + "\n",
+                style="dim #223344",
+            )
 
         # 3. Render Each FL Studio Multi-Row Track Lane
         for layer_name in layers:

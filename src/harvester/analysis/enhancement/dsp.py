@@ -77,11 +77,16 @@ def split_bands(
     audio: np.ndarray,
     cutoff_hz: float,
     sample_rate: int = 48000,
+    transition_width_hz: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Split audio into low and high bands at cutoff_hz using a linear-phase smooth crossover.
 
     The sum low_band + high_band reconstructs the input audio with flat magnitude response.
+
+    ``transition_width_hz`` narrows (or widens) the raised-cosine transition; the
+    default keeps the wide mastering crossover and the layer engine passes a
+    tighter width so neighbouring lanes stay separated.
     """
     audio_2d, was_1d = ensure_2d_audio(audio)
     n_samples = audio_2d.shape[1]
@@ -91,7 +96,11 @@ def split_bands(
     freqs = np.fft.rfftfreq(n_samples, d=1.0 / sample_rate)
 
     # Cosine transition around cutoff (width = 5% of cutoff or 500 Hz)
-    transition_width = max(500.0, cutoff_hz * 0.05)
+    transition_width = (
+        float(transition_width_hz)
+        if transition_width_hz is not None
+        else max(500.0, cutoff_hz * 0.05)
+    )
     f_start = max(100.0, cutoff_hz - transition_width / 2.0)
     f_end = min(sample_rate / 2.0 - 10.0, cutoff_hz + transition_width / 2.0)
 

@@ -55,8 +55,9 @@ def test_compute_source_envelope_signal_levels(tmp_path) -> None:
     assert rms[0] < 0.0
 
 
-def test_build_layer_sources_assembles_4_stems_from_raw_cache(tmp_path) -> None:
-    """Neural raw source stems get blended into per-layer WAVs and cached on disk."""
+def test_build_layer_sources_detects_dynamic_lanes(tmp_path) -> None:
+    """Raw source stems get blended into per-layer WAVs, then split into the
+    lanes this song actually contains (cached on disk)."""
     sr = 44100
     stem_dir = tmp_path / "stems"
     stem_dir.mkdir()
@@ -67,11 +68,19 @@ def test_build_layer_sources_assembles_4_stems_from_raw_cache(tmp_path) -> None:
 
     sources = build_layer_sources(stem_dir, "song", "bs_roformer", sample_rate=sr)
 
-    assert set(sources) == {"vocals", "bass", "drums", "other"}
+    # The bass stem carries both sub (90 Hz) and body (400 Hz) content, so it is
+    # detected as two lanes; the drums stem has no cymbal-band content, so it
+    # survives whole (presence gate) rather than becoming three silent lanes.
+    assert set(sources) == {"vocals", "bass", "sub_bass", "drums", "other"}
+    assert "sub_bass" in sources
     for name, path in sources.items():
-        assert path.exists()
-        assert path.stat().st_size > 44
-        assert path.name == f"{suffix}_layer_{name}.wav"
+        assert path.exists(), name
+        assert path.stat().st_size > 44, name
+    assert sources["vocals"].name == f"{suffix}_layer_vocals.wav"
+    assert sources["sub_bass"].name == f"{suffix}_layer_sub_bass.wav"
+    # The upper half of the bass split keeps the parent's lane name but never
+    # clobbers the unfiltered parent file.
+    assert sources["bass"].name == f"{suffix}_layer_bass_upper.wav"
 
 
 def test_build_layer_sources_eco_fallback(tmp_path) -> None:
@@ -113,7 +122,8 @@ def test_build_layer_track_segments_levels_and_bleed_issue(tmp_path) -> None:
 
     track = build_layer_track(stem_dir, "song", "bs_roformer", duration_s=2.0, sample_rate=sr)
 
-    assert track.active_layers == ["vocals", "bass", "drums", "other"]
+    # 90 Hz sub + the 1000 Hz second-0 burst make the bass stem two lanes.
+    assert track.active_layers == ["vocals", "drums", "sub_bass", "bass", "other"]
     assert track.n_segments == 2
     assert track.segment_at(0.4) is track.segments[0]
     assert track.segment_at(1.5) is track.segments[1]
@@ -121,6 +131,8 @@ def test_build_layer_track_segments_levels_and_bleed_issue(tmp_path) -> None:
     assert track.segments[1].levels["vocals"] > 0.0
     seg0_kinds = {issue.kind for issue in track.segments[0].issues if issue.layer == "bass"}
     assert "vocal_bleed" in seg0_kinds
+    assert "bass → sub_bass/bass" in track.lane_summary
+    assert "drums (whole)" in track.lane_summary
 
 
 class LayerStudioTestApp(App[None]):

@@ -971,7 +971,6 @@ async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> N
         page_deck = app.query_one("#wb-page-deck")
         page_eq = app.query_one("#wb-page-eq")
         page_stems = app.query_one("#wb-page-stems")
-        btn_page_deck = None  # inner page-switch buttons removed; nav via top bar
         # Inner page-switch buttons removed; navigation is via top nav bar.
         # 1. Initially on DECK page
         assert wb.active_page == "deck"
@@ -1111,7 +1110,8 @@ async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Pat
 async def test_layer_studio_fl_studio_arrangement_features(tmp_path: Path):
     """Verify FL Studio-style multi-row track swimlanes, Mute/Solo toggles, and dual ruler."""
     import numpy as np
-    from harvester.analysis.enhancement.layers import LayerTrack, LayerSource, LayerSegment
+
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
     from harvester.ui.layer_studio import LayerStudio
 
     sources = {
@@ -1149,6 +1149,553 @@ async def test_layer_studio_fl_studio_arrangement_features(tmp_path: Path):
     # Toggle Solo on drums
     studio._solo_layer = "drums"
     assert studio._solo_layer == "drums"
+
+
+@pytest.mark.asyncio
+async def test_layer_studio_empty_source_grid_shows_hint(tmp_path: Path):
+    """A built track with segments but no resolvable sources shows an actionable hint."""
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerTrack
+    from harvester.ui.layer_studio import LayerStudio
+
+    segments = [
+        LayerSegment(0, 0.0, 1.0, {}),
+        LayerSegment(1, 1.0, 2.0, {}),
+    ]
+    track = LayerTrack(duration_s=2.0, sample_rate=44100, sources={}, segments=segments)
+
+    studio = LayerStudio()
+    studio.track = track
+    rendered = studio.render().plain
+    assert "BARS / BEATS" in rendered
+    assert "No layer sources found" in rendered
+
+
+@pytest.mark.asyncio
+async def test_workbench_layer_terminal_opens_only_via_new_window_button(
+    tmp_path: Path,
+):
+    """The detached terminal is never auto-opened on page switch; clicking
+    'OPEN LAYER TERMINAL' writes the sidecar and launches it on demand."""
+    from unittest.mock import patch
+
+    import numpy as np
+
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+
+    dummy_mp3 = tmp_path / "terminal_dummy.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    sources = {
+        "vocals": LayerSource(
+            "vocals",
+            tmp_path / "voc.wav",
+            np.array([-10.0, -12.0]),
+            np.array([0.8, 0.7]),
+        ),
+    }
+    segments = [
+        LayerSegment(0, 0.0, 1.0, {"vocals": 0.8}),
+        LayerSegment(1, 1.0, 2.0, {"vocals": 0.7}),
+    ]
+    track = LayerTrack(duration_s=2.0, sample_rate=44100, sources=sources, segments=segments)
+
+    app = WorkbenchTestApp()
+    launch_calls: list = []
+    with patch(
+        "harvester.ui.layer_terminal.launch_layer_terminal",
+        side_effect=lambda p: launch_calls.append(p),
+    ):
+        async with app.run_test() as pilot:
+            wb = app.query_one("#test-workbench", WorkbenchWidget)
+            wb.load_job(TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            ))
+            wb.layer_track = track
+
+            # Switching to the layers page must NOT open a terminal.
+            wb.switch_page("layers")
+            await pilot.pause()
+            assert launch_calls == []
+
+            # Pressing OPEN LAYER TERMINAL opens it exactly once, writing the sidecar.
+            wb.query_one("#wb-btn-layer-terminal", Button).press()
+            for _ in range(6):
+                await pilot.pause()
+            assert len(launch_calls) == 1
+            assert launch_calls[0] == dummy_mp3.parent / "layer_sidecar.json"
+
+            # A second press while a terminal is already open re-launches.
+            wb.query_one("#wb-btn-layer-terminal", Button).press()
+            for _ in range(6):
+                await pilot.pause()
+            assert len(launch_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_workbench_preset_button_cycles_and_reports_cost(tmp_path: Path):
+    """The LAYERS page exposes the processing preset and its RAM/lane cost."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        button = wb.query_one("#wb-btn-preset", Button)
+        assert "STANDARD" in str(button.label)
+
+        button.press()
+        await pilot.pause()
+        assert wb.processing_preset == "neural_full"
+        assert "NEURAL FULL" in str(wb.query_one("#wb-btn-preset", Button).label)
+        assert "6-source" in str(wb.query_one("#wb-preset-status", Label).render())
+
+        button.press()
+        await pilot.pause()
+        assert wb.processing_preset == "fetch_only"
+        assert "no lanes" in str(wb.query_one("#wb-preset-status", Label).render())
+
+
+@pytest.mark.asyncio
+async def test_workbench_build_stems_opts_into_separation_from_fetch_only(tmp_path: Path):
+    """FETCH ONLY skips separation, but BUILD STEMS is an explicit opt-in."""
+    dummy_mp3 = tmp_path / "fetch_only.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    app = WorkbenchTestApp()
+    with patch.object(WorkbenchWidget, "_trigger_stem_separation") as trigger:
+        async with app.run_test() as pilot:
+            wb = app.query_one("#test-workbench", WorkbenchWidget)
+            wb.load_job(
+                TrackJob(
+                    mode=Mode.SINGLE_URL,
+                    input_path=tmp_path / "src.opus",
+                    output_path=dummy_mp3,
+                )
+            )
+            wb.switch_page("layers")
+            wb._set_preset("fetch_only")
+            await pilot.pause()
+
+            wb.query_one("#wb-btn-build-layers", Button).press()
+            await pilot.pause()
+
+            assert wb.processing_preset == "standard"
+            trigger.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_workbench_renders_lane_provenance(tmp_path: Path):
+    """The LAYERS panel labels every lane with origin + confidence + note."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.lane_plan import plan_lanes
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+
+    dummy_mp3 = tmp_path / "provenance.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    sources = {
+        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
+        "kick": LayerSource("kick", tmp_path / "kick.wav", np.array([-12.0]), np.array([0.6])),
+        "guitar": LayerSource("guitar", tmp_path / "gtr.wav", np.array([-14.0]), np.array([0.5])),
+    }
+    track = LayerTrack(
+        duration_s=1.0,
+        sample_rate=44100,
+        sources=sources,
+        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+    )
+    track.lane_plan = plan_lanes(
+        ["vocals", "kick", "guitar"],
+        splits={"drums": ("kick",)},
+        extras=("guitar",),
+        credit_instruments=["saxophone"],
+        singer_count=2,
+    )
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        wb.layer_track = track
+        wb._render_lane_plan(track)
+        await pilot.pause()
+
+        rendered = str(wb.query_one("#wb-lane-plan", Label).render())
+        assert "LANE PLAN" in rendered
+        assert "KICK [DSP split, medium]" in rendered
+        assert "GUITAR [6-source model, low]" in rendered
+        assert "SAXOPHONE [credits only, none]" in rendered
+        assert "2 singers" in rendered
+
+
+@pytest.mark.asyncio
+async def test_workbench_credits_annotate_the_plan_without_reanalysis(tmp_path: Path):
+    """A credits lookup replans provenance in place (no re-segmentation)."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.lane_plan import plan_lanes
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    from harvester.services.musicbrainz import Credit, RecordingCredits
+
+    dummy_mp3 = tmp_path / "credits.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    sources = {
+        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
+        "bass": LayerSource("bass", tmp_path / "bass.wav", np.array([-12.0]), np.array([0.6])),
+    }
+    track = LayerTrack(
+        duration_s=1.0,
+        sample_rate=44100,
+        sources=sources,
+        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+    )
+    track.lane_plan = plan_lanes(["vocals", "bass"])
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        wb.layer_track = track
+        wb.recording_credits = RecordingCredits(
+            recording_id="mbid",
+            title="Headlock",
+            instruments=(Credit(name="double bass", artist="Mich Gerber"),),
+            vocals=(Credit(name="lead vocals", artist="Imogen Heap"),),
+        )
+        wb._apply_credits_to_plan()
+        await pilot.pause()
+
+        plan = wb.layer_track.lane_plan
+        assert plan is not None
+        assert plan.singer_count == 1
+        assert "double bass" in plan.note_of("bass")
+        assert "Imogen Heap" in str(wb.query_one("#wb-lane-plan", Label).render())
+
+
+@pytest.mark.asyncio
+async def test_workbench_credits_lookup_chain_and_miss(tmp_path: Path, monkeypatch):
+    """The CREDITS button: AcoustID → mb_recording_id → credits → annotated plan."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.lane_plan import plan_lanes
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    from harvester.services import acoustid as acoustid_mod
+    from harvester.services import musicbrainz as mb_mod
+    from harvester.services.musicbrainz import Credit, RecordingCredits
+
+    dummy_mp3 = tmp_path / "chain.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    calls: dict[str, object] = {}
+
+    class _FakeAcoustid:
+        configured = True
+
+        def __init__(self, config: object) -> None:
+            pass
+
+        async def identify(self, path: Path) -> object:
+            return calls.get("meta")
+
+        async def close(self) -> None:
+            pass
+
+    class _FakeCoverArt:
+        def __init__(self, config: object) -> None:
+            pass
+
+        async def fetch_recording_credits(self, mbid: str) -> RecordingCredits:
+            calls["mbid"] = mbid
+            return RecordingCredits(
+                recording_id=mbid,
+                title="Headlock",
+                instruments=(Credit(name="double bass", artist="Mich Gerber"),),
+                vocals=(Credit(name="lead vocals", artist="Imogen Heap"),),
+            )
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(acoustid_mod, "AcoustidService", _FakeAcoustid)
+    monkeypatch.setattr(mb_mod, "CoverArtService", _FakeCoverArt)
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(
+            TrackJob(
+                mode=Mode.SINGLE_URL,
+                input_path=tmp_path / "src.opus",
+                output_path=dummy_mp3,
+            )
+        )
+        wb.switch_page("layers")
+        sources = {
+            "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
+            "bass": LayerSource("bass", tmp_path / "bass.wav", np.array([-12.0]), np.array([0.6])),
+        }
+        wb.layer_track = LayerTrack(
+            duration_s=1.0,
+            sample_rate=44100,
+            sources=sources,
+            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+        )
+        wb.layer_track.lane_plan = plan_lanes(["vocals", "bass"])
+
+        # Miss: AcoustID returns nothing → lanes stay as detected, no crash.
+        calls["meta"] = None
+        await wb._async_fetch_credits(dummy_mp3)
+        await pilot.pause()
+        assert "no MusicBrainz recording id" in str(wb.query_one("#wb-layer-status", Label).render())
+
+        # Hit: metadata carries mb_recording_id → credits annotate the plan.
+        from types import SimpleNamespace
+
+        calls["meta"] = SimpleNamespace(mb_recording_id="d871b5ab")
+        await wb._async_fetch_credits(dummy_mp3)
+        await pilot.pause()
+
+        assert calls["mbid"] == "d871b5ab"
+        plan = wb.layer_track.lane_plan
+        assert plan is not None
+        assert plan.singer_count == 1
+        assert "Mich Gerber" in plan.note_of("bass")
+        assert "Imogen Heap" in plan.note_of("vocals")
+        rendered = str(wb.query_one("#wb-lane-plan", Label).render())
+        assert "Mich Gerber" in rendered
+
+
+@pytest.mark.asyncio
+async def test_workbench_tagging_pass_reports_tags(tmp_path: Path, monkeypatch):
+    """NEURAL FULL tags are reported in the LAYERS status line."""
+    from harvester.analysis.enhancement import tags as tags_mod
+
+    dummy_mp3 = tmp_path / "tagged.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+    calls: list[tuple[Path, Path]] = []
+
+    class _FakeTagger:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def tag_and_store(
+            self, path: Path, stem_dir: Path, progress_callback: object = None
+        ) -> tags_mod.TagResult:
+            calls.append((Path(path), Path(stem_dir)))
+            return tags_mod.TagResult(labels=("strings",), scores={"strings": 0.51}, windows=2)
+
+    monkeypatch.setattr(tags_mod, "ClapTagger", _FakeTagger)
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.switch_page("layers")
+        await wb._run_tagging_pass(dummy_mp3, tmp_path / "stems")
+        await pilot.pause()
+
+        assert calls == [(dummy_mp3, tmp_path / "stems")]
+        assert "strings 0.51" in str(wb.query_one("#wb-layer-status", Label).render())
+
+
+@pytest.mark.asyncio
+async def test_workbench_tagging_pass_degrades_without_the_model(tmp_path: Path, monkeypatch):
+    """An unavailable CLAP model leaves the lanes untouched and says so."""
+    from harvester.analysis.enhancement import tags as tags_mod
+
+    class _MissingTagger:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def tag_and_store(self, *args: object, **kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr(tags_mod, "ClapTagger", _MissingTagger)
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.switch_page("layers")
+        await wb._run_tagging_pass(tmp_path / "tagged.mp3", tmp_path / "stems")
+        await pilot.pause()
+        assert "Tags unavailable" in str(wb.query_one("#wb-layer-status", Label).render())
+
+
+@pytest.mark.asyncio
+async def test_workbench_layers_page_has_no_embedded_lane_rows(tmp_path: Path):
+    """Lanes live only in the detached terminal: the workbench page keeps the
+    control buttons + status, and hosts no LayerStudio widget or tool palette."""
+    from harvester.ui.layer_studio import LayerStudio
+
+    dummy_mp3 = tmp_path / "layers_page.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(TrackJob(
+            mode=Mode.SINGLE_URL,
+            input_path=tmp_path / "src.opus",
+            output_path=dummy_mp3,
+        ))
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        assert len(wb.query(LayerStudio)) == 0
+        assert len(wb.query("#wb-btn-tool-mute")) == 0
+        for btn_id in (
+            "#wb-btn-build-layers",
+            "#wb-btn-layer-terminal",
+            "#wb-btn-save-layers",
+            "#wb-btn-clear-layers",
+        ):
+            assert wb.query_one(btn_id, Button) is not None
+
+
+@pytest.mark.asyncio
+async def test_workbench_publishes_playhead_and_applies_terminal_requests(
+    tmp_path: Path,
+):
+    """The workbench streams its playhead to the detached terminal and consumes
+    the terminal's seek/play requests."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    from harvester.ipc.layer_sidecar import (
+        consume_requests,
+        read_transport,
+        request_play_state,
+        request_seek,
+        transport_path,
+    )
+
+    dummy_mp3 = tmp_path / "transport_dummy.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(TrackJob(
+            mode=Mode.SINGLE_URL,
+            input_path=tmp_path / "src.opus",
+            output_path=dummy_mp3,
+        ))
+        await pilot.pause()
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        player.duration_s = 100.0
+        player.elapsed_s = 7.5
+        wb.layer_track = LayerTrack(
+            duration_s=2.0,
+            sample_rate=44100,
+            sources={"vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8]))},
+            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+        )
+        wb._layer_terminal_launched = True
+        wb.switch_page("layers")
+        await pilot.pause()
+
+        # 1. The playhead reaches the terminal's transport file.
+        wb._publish_layer_transport()
+        state = read_transport(transport_path(dummy_mp3.parent / "layer_sidecar.json"))
+        assert state.playhead_s == pytest.approx(7.5)
+        assert state.duration_s == pytest.approx(100.0)
+
+        # 2. A seek request written by the terminal moves this app's player.
+        request_seek(dummy_mp3.parent / "layer_sidecar.json", 42.0)
+        wb._publish_layer_transport()
+        assert player.elapsed_s == pytest.approx(42.0)
+        assert consume_requests(dummy_mp3.parent / "layer_sidecar.json") == (None, None)
+
+        # 3. A pause request pauses playback.
+        player.is_playing = True
+        request_play_state(dummy_mp3.parent / "layer_sidecar.json", False)
+        wb._publish_layer_transport()
+        assert player.is_playing is False
+
+
+@pytest.mark.asyncio
+async def test_workbench_stops_publishing_when_idle_off_the_layers_page(
+    tmp_path: Path,
+):
+    """Idle on another page: no 5 Hz write — but requests are still answered."""
+    import numpy as np
+
+    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    from harvester.ipc.layer_sidecar import (
+        TransportState,
+        read_transport,
+        request_seek,
+        transport_path,
+        write_transport,
+    )
+
+    dummy_mp3 = tmp_path / "idle_dummy.mp3"
+    dummy_mp3.write_bytes(b"mp3-data")
+    sidecar = dummy_mp3.parent / "layer_sidecar.json"
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.load_job(TrackJob(
+            mode=Mode.SINGLE_URL,
+            input_path=tmp_path / "src.opus",
+            output_path=dummy_mp3,
+        ))
+        await pilot.pause()
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        player.duration_s = 100.0
+        player.elapsed_s = 3.0
+        player.is_playing = False
+        wb.layer_track = LayerTrack(
+            duration_s=2.0,
+            sample_rate=44100,
+            sources={"vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8]))},
+            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
+        )
+        wb._layer_terminal_launched = True
+        wb.switch_page("stems")
+        await pilot.pause()
+
+        # Paused off the LAYERS page → the published state is left untouched.
+        write_transport(
+            transport_path(sidecar), TransportState(playhead_s=99.0, playing=False)
+        )
+        wb._publish_layer_transport()
+        assert read_transport(transport_path(sidecar)).playhead_s == pytest.approx(99.0)
+
+        # A request still gets consumed and answered, even off the LAYERS page.
+        request_seek(sidecar, 12.0)
+        wb._publish_layer_transport()
+        assert player.elapsed_s == pytest.approx(12.0)
+        state = read_transport(transport_path(sidecar))
+        assert state.playhead_s == pytest.approx(12.0)
+        assert state.seek_request is None
+
+        # Playing (any page) keeps the stream alive.
+        write_transport(
+            transport_path(sidecar), TransportState(playhead_s=99.0, playing=False)
+        )
+        player.is_playing = True
+        player.elapsed_s = 21.0
+        wb._publish_layer_transport()
+        assert read_transport(transport_path(sidecar)).playhead_s == pytest.approx(21.0)
 
 
 

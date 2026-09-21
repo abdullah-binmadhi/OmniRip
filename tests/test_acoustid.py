@@ -107,6 +107,36 @@ async def test_low_confidence_result_is_rejected(tmp_path: Path, monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_lookup_sends_meta_as_repeatable_params(tmp_path: Path, monkeypatch) -> None:
+    """AcoustID's `meta` must repeat as separate form fields.
+
+    A single "+"-joined string is URL-encoded to a literal '+', and AcoustID then
+    answers with bare results (id + score, no recordings) — i.e. identification
+    silently resolves nothing.
+    """
+    monkeypatch.setenv("ACOUSTID_API_KEY", "test-key")
+    seen: dict[str, list[str]] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["meta"] = [
+            value
+            for key, value in httpx.QueryParams(request.content.decode()).multi_items()
+            if key == "meta"
+        ]
+        return httpx.Response(200, json=_RESPONSE)
+
+    config = _config(tmp_path)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = AcoustidService(config, client=client)
+
+    metadata = await service.lookup(Fingerprint(duration=120.0, value="abc"))
+
+    assert metadata is not None and metadata.title == "Real Title"
+    assert seen["meta"] == ["recordings", "releases", "releasegroups", "isrcs"]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_missing_api_key_returns_none_without_network(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ACOUSTID_API_KEY", raising=False)
     config = load_config(

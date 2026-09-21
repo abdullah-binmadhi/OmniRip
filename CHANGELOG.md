@@ -8,6 +8,13 @@ All notable changes to `harvester` are documented here. Versioning follows
 
 ### Added
 
+- **Lane Expansion (docs/13, D21–D24):**
+  - **Processing presets** (`[processing] preset`): `fetch_only` (acquire + tag, no separation), `standard` (4-source separation + song-driven lanes, default), `neural_full` (adds guitar/piano extras, MusicBrainz credits and tagging). The separator's engine fallback chain stays separate and is now reported loudly — a run that lands on the `eco` 2-layer fallback raises a warning instead of silently replacing the chosen preset.
+  - **Lane provenance** (`analysis/enhancement/lane_plan.py`): every grid row carries an origin (`separator`, `dsp-split`, `extra-source`, `mix`, `credit-only`, `tag-only`), a confidence and a human note. Credited-but-unrenderable instruments (sax, violin) and tag-only labels are listed **without** an audio row — never faked. `LayerTrack.replan()` refreshes provenance when credits arrive, with no re-segmentation.
+  - **MusicBrainz recording credits** (`CoverArtService.fetch_recording_credits`): documented instruments, vocal parts and a singer count, cached under `cache/credits/`, surfaced via the new `🏷 CREDITS` button on the `LAYERS` page. Live-verified on Imogen Heap — *Headlock* (double bass, lead vocals + 1 backing vocal → 2 singers).
+  - **6-source extras** (`StemSeparator.separate_extra_lanes`): HTDemucs-6s (54.9 MB, `adefossez/HTDemucs-6s`) writes `{stem}_{mode}_raw_guitar.wav` / `_raw_piano.wav` after the 4-source run, so guitar and piano become first-class lanes via the existing disk discovery. Loaded alone and unloaded before the next stage; a missing model degrades to 4-source lanes.
+  - Sidecar schema **v2** carries the lane plan (`lane_plan`, `singer_count`, `credit_instruments`, `tag_labels`) so the detached terminal labels rows exactly like the workbench.
+  - **CLAP instrument/vocal tagging** (`analysis/enhancement/tags.py`, D25): `laion/clap-htsat-unfused` (614 MB) scores up to 24 evenly spaced 5 s windows against 12 instrument/vocal prompts. Scores are the mean softmax share across labels (relative, not calibrated probabilities — an even spread reports nothing), gated by `[processing] tag_threshold` (default 0.15). Results land in `tags.json` beside the stems and fold into the lane plan: a tag annotates the lane that renders it, or becomes a `tags only` row with no audio. Advisory only — never the verdict, the mix or the file metadata; every failure mode degrades to "no tags".
 - **6-Page Full-Width Navigation Architecture:**
   - Decoupled workbench into six dedicated full-width pages (`F1`–`F6`): `[ ≡ TRACKS & LOGS ]`, `[ ◈ VISUALIZER ]`, `[ ⎈ DECK ]`, `[ 🎚 EQ ]`, `[ 𝄢 STEMS ]`, and `[ ▤ LAYERS ]`.
   - Dedicated multi-panel Audio Visualizer studio (`F2`) featuring a dual-channel calibrated VU meter, real-time 10-band octave spectrum analyzer, stereo phase correlation meter, and full-width braille waveform scrub ruler.
@@ -22,7 +29,15 @@ All notable changes to `harvester` are documented here. Versioning follows
 - **Stems-to-Layers Pipeline Cohesion:**
   - One-click `[ ▤ OPEN IN LAYERS ]` bridge on `STEMS` page directly populating the FL Studio arrangement timeline.
   - One-click `[ ⚡ BUILD STEMS ]` trigger on `LAYERS` toolbar initiating neural separation on demand.
-  - Mouse-clickable tool palette buttons on the Layers action bar for all 10 operations, `[ 💾 SAVE LAYERS ]`, and `[ CLEAR ]`.
+  - Mouse-clickable tool palette buttons for all 10 operations, `[ 💾 COMMIT ]`, and `[ RELOAD ]` — these live in the detached layer terminal (the workbench `LAYERS` page is the control panel: build / open terminal / save / clear).
+
+### Changed
+
+- **Song-driven dynamic lanes:** the fixed four rows (vocals / bass / drums / other) are replaced by the lanes the song actually has. `analysis/enhancement/dynamic_layers.py` splits a family into disjoint child lanes — `drums → kick / snare / hats`, `bass → sub_bass / bass` — using the zero-phase complementary crossover with a narrow transition, and keeps a split only when every child clears the presence gate (active-second ratio ≥ 5 %, mean RMS ≥ -50 dBFS); otherwise the parent row survives whole. Children partition the parent exactly, so mix reconstruction keeps its -40 dBFS budget. Extra neural sources (e.g. `guitar` / `piano` from a 6-source model) become lanes automatically, so a track can render 4–8+ rows. The `LAYERS` status line reports the detected layout (`kick/snare/hats · bass → sub_bass/bass`).
+- **Lane rows render only in the detached layer terminal:** the workbench `LAYERS` page no longer embeds the grid or the tool palette, so the timeline gets the full width of its own terminal window.
+- **The detached terminal is now genuinely connected to OmniRip playback:** a new transport channel (`layer_sidecar.transport.json`, atomic writes) publishes the playhead / playing state / duration from the main app — which owns audio — at 5 Hz and carries the terminal's seek/play requests back. The terminal follows that playhead (the grid moves with the song), re-issues unanswered requests until the main app confirms them, and reloads lanes whenever the sidecar changes. Fixes the detached page sitting still while a track played in OmniRip.
+- **AcoustID `meta` is posted as a repeated form field** (`meta=recordings&meta=releases&…`) instead of one `+`-joined string, which URL-encoded to a literal `+` and silently returned results with no recordings block (no title/artist resolution). Verified against the live API on a real track (title + artist + MusicBrainz recording id + 0.98 confidence).
+- **Local secret file for API keys:** a gitignored `.env` (or `OMNIRIP_ENV_FILE`) is loaded into the process environment at startup, so GUI launches that do not inherit shell exports still find `ACOUSTID_API_KEY`; real environment variables still win and values are never logged or written back. `.env.example` documents the keys.
 
 ## [0.2.0] — 2026-09-18
 

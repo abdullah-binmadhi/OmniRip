@@ -20,22 +20,47 @@ The per-source stems are either:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+from harvester.analysis.enhancement.lane_plan import LanePlan, plan_lanes
+
+if TYPE_CHECKING:
+    from harvester.analysis.enhancement.dynamic_layers import LaneReport
 
 logger = logging.getLogger(__name__)
 
 SEGMENT_SIZE_S: float = 1.0
 
-LAYER_ORDER: tuple[str, ...] = ("vocals", "bass", "drums", "other", "mix")
+LAYER_ORDER: tuple[str, ...] = (
+    "vocals",
+    "kick",
+    "snare",
+    "hats",
+    "drums",
+    "sub_bass",
+    "bass",
+    "other",
+    "mix",
+)
 
+# Lane ordering is data-driven (docs/12 §6): the known order above wins, any
+# extra detected lane (e.g. guitar / piano from a 6-source model) comes after
+# it in detection order.
 LAYER_LABELS: dict[str, str] = {
     "vocals": "VOCALS",
+    "kick": "KICK",
+    "snare": "SNARE",
+    "hats": "HATS",
+    "sub_bass": "SUB BASS",
     "bass": "BASS",
     "drums": "DRUMS",
+    "guitar": "GUITAR",
+    "piano": "PIANO",
     "other": "OTHER",
     "mix": "MIX",
 }
@@ -124,6 +149,8 @@ class LayerTrack:
     sources: dict[str, LayerSource] = field(default_factory=dict)
     segments: list[LayerSegment] = field(default_factory=list)
     engine: str = "neural"
+    lane_plan: LanePlan | None = None
+    lane_report: LaneReport | None = None
 
     @property
     def n_segments(self) -> int:
@@ -131,13 +158,72 @@ class LayerTrack:
 
     @property
     def active_layers(self) -> list[str]:
-        return [name for name in LAYER_ORDER[:-1] if name in self.sources]
+        """Detected lanes: known order first, then any extra lane in insert order."""
+        return ordered_lanes(self.sources)
+
+    @property
+    def lane_summary(self) -> str:
+        """Human-readable account of how this song's lanes were detected."""
+        return lane_summary(self.active_layers)
+
+    def replan(
+        self,
+        *,
+        credit_instruments: tuple[object, ...] | list[object] = (),
+        singer_count: int | None = None,
+        tag_labels: tuple[str, ...] | list[str] = (),
+    ) -> LanePlan:
+        """Rebuild lane provenance (e.g. once credits arrive) — no re-analysis."""
+        report = self.lane_report
+        self.lane_plan = plan_lanes(
+            self.active_layers,
+            splits=report.splits if report is not None else {},
+            extras=report.extras if report is not None else (),
+            kept_whole=report.kept_whole if report is not None else (),
+            credit_instruments=credit_instruments,
+            singer_count=singer_count,
+            tag_labels=tag_labels,
+        )
+        return self.lane_plan
 
     def segment_at(self, seconds: float) -> LayerSegment | None:
         idx = int(seconds // self.segment_size_s)
         if 0 <= idx < len(self.segments):
             return self.segments[idx]
         return None
+
+
+def ordered_lanes(sources: Mapping[str, object]) -> list[str]:
+    """Lane order for a source map: known order first, then extras in insert order."""
+    known = [name for name in LAYER_ORDER[:-1] if name in sources]
+    extra = [name for name in sources if name not in known and name != "mix"]
+    return known + extra
+
+
+def lane_summary(lane_names: list[str] | tuple[str, ...]) -> str:
+    """Describe how a song's lanes were detected: family splits + extra lanes.
+
+    ``drums → kick/snare/hats · bass (whole)`` style, for the UI status line.
+    """
+    from harvester.analysis.enhancement.dynamic_layers import (
+        EXTRA_LANE_SOURCES,
+        FAMILY_SPLITS,
+    )
+
+    names = list(lane_names)
+    present = set(names)
+    parts: list[str] = []
+    for family, specs in FAMILY_SPLITS.items():
+        # Children win over the parent: the upper half of a split may keep the
+        # parent's lane name (bass → sub_bass/bass), so a present "bass" alone
+        # does not prove the family stayed whole.
+        children = [spec.name for spec in specs if spec.name in present]
+        if children:
+            parts.append(f"{family} → {'/'.join(children)}")
+        elif family in present:
+            parts.append(f"{family} (whole)")
+    parts.extend(f"+{name}" for name in names if name in EXTRA_LANE_SOURCES)
+    return " · ".join(parts)
 
 
 # Long-track hardening (M3): budget + run-length rendering threshold
@@ -354,7 +440,7 @@ def _detect_segment_issues(
     mono_energy_db = 20.0 * np.log10(np.sqrt(np.mean(audio.mean(0) ** 2)) + 1e-9)
     mono = audio.mean(axis=0)
 
-    if source_name in ("bass", "drums", "other"):
+    if source_name in ("drums", "kick", "snare", "hats", "bass", "other"):
         vocal_energy = _band_db(mono, sr, VOCAL_CORE_BAND)
         if vocal_energy > mono_energy_db + 6.0:
             sev = float(np.clip((vocal_energy - mono_energy_db - 6.0) / 18.0, 0.0, 1.0))
@@ -397,6 +483,26 @@ def build_layer_sources(
     crossover_hz: float = 300.0,
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> dict[str, Path]:
+    """Lane map only — ``build_layer_sources_with_report`` also returns provenance."""
+    lanes, _report = build_layer_sources_with_report(
+        stem_dir,
+        input_stem,
+        mode,
+        sample_rate=sample_rate,
+        crossover_hz=crossover_hz,
+        progress_callback=progress_callback,
+    )
+    return lanes
+
+
+def build_layer_sources_with_report(
+    stem_dir: Path,
+    input_stem: str,
+    mode: str,
+    sample_rate: int = 44100,
+    crossover_hz: float = 300.0,
+    progress_callback: Callable[[float, str], None] | None = None,
+) -> tuple[dict[str, Path], LaneReport]:
     """
     Assemble per-source stems from the raw neural cache in ``stem_dir``.
 
@@ -474,7 +580,20 @@ def build_layer_sources(
 
     if progress_callback:
         progress_callback(18.0, "Layer Studio: source stems ready.")
-    return sources
+
+    # Dynamic lane detection (docs/12 §6): split drums/bass into the sub-lanes
+    # this song actually contains and pick up optional neural lanes.
+    from harvester.analysis.enhancement.dynamic_layers import expand_dynamic_lanes
+
+    lanes, report = expand_dynamic_lanes(
+        sources,
+        sample_rate=sample_rate,
+        segment_size_s=SEGMENT_SIZE_S,
+        stem_dir=stem_dir,
+        suffix=suffix,
+        progress_callback=progress_callback,
+    )
+    return lanes, report
 
 
 def analyze_layer_segments(
@@ -540,9 +659,12 @@ def build_layer_track(
     segment_size_s: float = SEGMENT_SIZE_S,
     crossover_hz: float = 300.0,
     progress_callback: Callable[[float, str], None] | None = None,
+    credit_instruments: tuple[object, ...] | list[object] = (),
+    singer_count: int | None = None,
+    tag_labels: tuple[str, ...] | list[str] = (),
 ) -> LayerTrack:
-    """Build a complete LayerTrack from a separated stem directory."""
-    sources = build_layer_sources(
+    """Build a complete LayerTrack (with lane provenance) from a stem directory."""
+    sources, report = build_layer_sources_with_report(
         stem_dir,
         input_stem,
         mode,
@@ -557,6 +679,15 @@ def build_layer_track(
         segment_size_s=segment_size_s,
         progress_callback=progress_callback,
     )
+    plan = plan_lanes(
+        ordered_lanes(sources),
+        splits=report.splits,
+        extras=report.extras,
+        kept_whole=report.kept_whole,
+        credit_instruments=credit_instruments,
+        singer_count=singer_count,
+        tag_labels=tag_labels,
+    )
     return LayerTrack(
         duration_s=duration_s,
         sample_rate=sample_rate,
@@ -564,4 +695,6 @@ def build_layer_track(
         sources=layer_sources,
         segments=segments,
         engine=mode,
+        lane_plan=plan,
+        lane_report=report,
     )

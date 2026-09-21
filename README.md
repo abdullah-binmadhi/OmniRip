@@ -124,6 +124,14 @@ Take complete timeline command of separated stems with OmniRip's terminal DAW ar
   - If stems are not yet separated, the **`[ ⚡ BUILD STEMS ]`** button inside `LAYERS` initiates the neural pipeline on demand.
   - Dedicated mouse-clickable tool buttons on the Layers action bar provide instant access to all 10 surgical operations, plus **`[ 💾 SAVE LAYERS ]`** (exports 320 kbps mastered layer stems with 20 ms clickless crossfades) and **`[ CLEAR ]`**.
 
+### 5c. Processing Presets, Lane Provenance & Instrument Intelligence
+The lane grid stops being anonymous — and you stop guessing which stages ran:
+- **Three Processing Presets (`[processing] preset`):** `FETCH ONLY` (acquire + tag only — no separation, no lanes, ~0.2 GB), `STANDARD` (4-source neural separation + song-driven lanes, ~1.7 GB, default) and `NEURAL FULL` (adds 6-source guitar/piano lanes, MusicBrainz credits and CLAP tagging, ~2.5 GB). The preset decides *which* stages run; the separator's engine chain only decides *how* they run — and any fallback to the 2-layer eco DSP is announced with a warning, never applied silently.
+- **Provenance on Every Lane Row:** each row carries an origin (`separator`, `DSP split`, `6-source model`, `credits only`, `tags only`), a confidence and a plain-language note (`DRUMS [separator, high] · kept whole — no audible split in this song`). Content that is documented or tagged but has no stem — a credited sax, a tagged string section, a second singer — is **listed without an audio row** rather than faked.
+- **Song-Driven Lanes (more than 4 rows when the song supports it):** the drum bus splits into `KICK / SNARE / HATS`, the bass bus into `SUB_BASS / BASS`, and the 6-source model adds `GUITAR` / `PIANO` lanes — each gated by a presence test (≥5 % active seconds above −45 dBFS and mean RMS ≥ −50 dBFS), so bleed does not invent rows. A full-band track renders up to 8 lanes.
+- **MusicBrainz Credit Inventory (`🏷 CREDITS`):** fingerprints the loaded track (AcoustID → recording MBID) and pulls the documented instrument/vocal credits and singer count — the *authoritative* inventory, cached locally, annotated straight onto the matching lanes.
+- **CLAP Instrument/Vocal Tagging:** a zero-shot audio tagger (`laion/clap-htsat-unfused`) scores evenly spaced windows against 12 instrument/vocal prompts and reports what no stem renders (strings, sax, choir, a second voice). Advisory by design: tags only add provenance rows — they never touch the spectral verdict or your file metadata.
+
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
 - **AcoustID Audio Fingerprinting:** Instead of relying on random filenames, OmniRip uses Chromaprint (`fpcalc`) to listen to the song's acoustic fingerprint—just like Shazam. It queries the open MusicBrainz database to retrieve the official canonical song title, artist name, album, release year, genre, and track number.
@@ -269,8 +277,9 @@ For engineers and contributors exploring the internal mechanics:
 | 🎨 [**08. TUI Workstation Design**](docs/08-tui-design.md) | Textual widget hierarchy, event throttling, and layout |
 | 🛡️ [**09. Testing & Resilience**](docs/09-resilience-testing.md) | Circuit breakers, retry policies, and test matrix |
 | 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M10 |
-| 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 5-Model on-device AI registry, weights management, PyTorch MPS |
+| 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 7-Model on-device AI registry, weights management, PyTorch MPS |
 | 🎛️ [**12. Layer Studio & Surgical Edits**](docs/12-layers-studio.md) | FL Studio arrangement timeline, 10 per-second surgical DSP edits |
+| 🧬 [**13. Lane Expansion**](docs/13-lane-expansion.md) | Processing presets, lane provenance, MusicBrainz credits, 6-source guitar/piano lanes, CLAP tags |
 
 ---
 

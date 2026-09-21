@@ -62,9 +62,17 @@ def test_model_manager_cache_lookup(tmp_path: Path):
     assert mm.get_model_path("nonexistent") is None
 
 
-def test_model_manager_all_five_models_registered():
-    """Verify all 5 models are properly registered in SUPPORTED_MODELS."""
-    expected = {"nvsr", "flashsr", "bs_roformer", "hdemucs", "dereverb"}
+def test_model_manager_registry_lists_every_supported_model():
+    """Verify every supported model is properly registered in SUPPORTED_MODELS."""
+    expected = {
+        "nvsr",
+        "flashsr",
+        "bs_roformer",
+        "hdemucs",
+        "htdemucs_6s",
+        "dereverb",
+        "clap",
+    }
     assert set(SUPPORTED_MODELS.keys()) == expected
     for name, spec in SUPPORTED_MODELS.items():
         assert spec.repo_id, f"{name} missing repo_id"

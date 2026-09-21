@@ -6,13 +6,15 @@ import copy
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from harvester.appdirs import AppPaths
+from harvester.processing import DEFAULT_PRESET, TAG_THRESHOLD
+from harvester.processing import PRESETS as PROCESSING_PRESETS
 from harvester.util.errors import ConfigError
 
 _SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -111,6 +113,15 @@ class TimeoutConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessingSettings:
+    """Which pipeline stages run (docs/13): fetch_only | standard | neural_full."""
+
+    preset: str = DEFAULT_PRESET
+    use_credits: bool = True
+    tag_threshold: float = TAG_THRESHOLD
+
+
+@dataclass(frozen=True, slots=True)
 class UiConfig:
     refresh_hz: int = 8
     max_log_lines: int = 2000
@@ -127,6 +138,7 @@ class AppConfig:
     ffmpeg: FfmpegConfig
     spectral: SpectralConfig
     batch: BatchConfig
+    processing: ProcessingSettings
     timeouts: TimeoutConfig
     ui: UiConfig
     paths: AppPaths
@@ -170,6 +182,12 @@ class AppConfig:
             )
         if self.slskd.max_queue_length < 0:
             raise ConfigError("slskd.max_queue_length must be zero or greater")
+        if self.processing.preset not in PROCESSING_PRESETS:
+            raise ConfigError(
+                "processing.preset must be one of " + ", ".join(sorted(PROCESSING_PRESETS))
+            )
+        if not 0.0 < self.processing.tag_threshold <= 1.0:
+            raise ConfigError("processing.tag_threshold must be greater than 0 and at most 1")
         if self.batch.skip_bitrate_kbps < 1:
             raise ConfigError("batch.skip_bitrate_kbps must be at least 1")
         if self.batch.playlist_cap < 1:
@@ -294,6 +312,7 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "trash_retention_days": 7,
         "auto_purge_trash": False,
     },
+    "processing": {"preset": DEFAULT_PRESET, "use_credits": True, "tag_threshold": TAG_THRESHOLD},
     "timeouts": {
         "probe_s": 30.0,
         "fpcalc_s": 60.0,
@@ -425,6 +444,7 @@ def _build_config(
     ffmpeg = section("ffmpeg")
     spectral = section("spectral")
     batch = section("batch")
+    processing = section("processing")
     timeouts = section("timeouts")
     ui = section("ui")
 
@@ -508,6 +528,13 @@ def _build_config(
                 batch.get("auto_purge_trash", False), name="batch.auto_purge_trash"
             ),
         ),
+        processing=ProcessingSettings(
+            preset=str(processing.get("preset", DEFAULT_PRESET)),
+            use_credits=_bool(processing.get("use_credits", True), name="processing.use_credits"),
+            tag_threshold=_float(
+                processing.get("tag_threshold", TAG_THRESHOLD), name="processing.tag_threshold"
+            ),
+        ),
         timeouts=TimeoutConfig(
             probe_s=_float(timeouts.get("probe_s", 30.0), name="timeouts.probe_s"),
             fpcalc_s=_float(timeouts.get("fpcalc_s", 60.0), name="timeouts.fpcalc_s"),
@@ -559,6 +586,81 @@ def load_config(
 
 
 _FIRST_RUN_KEY = "first_run_notice_accepted"
+
+ENV_FILE_NAME = ".env"
+ENV_FILE_VAR = "OMNIRIP_ENV_FILE"
+
+
+def _parse_env_file(text: str) -> dict[str, str]:
+    """Parse a dotenv-style file into KEY=VALUE pairs (stdlib only)."""
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def env_file_candidates(config_path: Path | str | None = None) -> list[Path]:
+    """Where a local ``.env`` may live, most specific first."""
+    candidates: list[Path] = []
+    explicit = os.environ.get(ENV_FILE_VAR, "").strip()
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    if config_path:
+        candidates.append(Path(config_path).expanduser().parent / ENV_FILE_NAME)
+    candidates.append(Path.cwd() / ENV_FILE_NAME)
+    # Same data-dir resolution as `load_config` (HARVESTER_DATA_DIR override first).
+    override = os.environ.get("HARVESTER_DATA_DIR", "").strip()
+    data_dir = Path(override).expanduser() if override else AppPaths.default().data_dir
+    candidates.append(data_dir / ENV_FILE_NAME)
+    return candidates
+
+
+def load_env_file(
+    path: Path | str | None = None,
+    *,
+    config_path: Path | str | None = None,
+    environ: MutableMapping[str, str] | None = None,
+) -> list[str]:
+    """Load secrets from a local ``.env`` into the process environment.
+
+    API keys come from environment variables only (NFR-6) — but a GUI launch
+    (Terminal.app, double-click) does not inherit the shell's exports, so a
+    gitignored ``.env`` file next to the config is read at startup. Real
+    environment variables always win; nothing is ever written back to the file.
+
+    Returns the names of the keys that were loaded (never their values).
+    """
+    target = environ if environ is not None else os.environ
+    files = [Path(path).expanduser()] if path else env_file_candidates(config_path)
+    loaded: list[str] = []
+    for candidate in files:
+        try:
+            if not candidate.is_file():
+                continue
+            values = _parse_env_file(candidate.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        # Most specific file first; whatever it lacks may come from the next one,
+        # and an already-set (real) environment variable is never overwritten.
+        for key, value in values.items():
+            if value and not target.get(key):
+                target[key] = value
+                loaded.append(key)
+    return loaded
 
 
 def persist_first_run_acceptance(config: AppConfig) -> None:

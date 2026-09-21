@@ -103,7 +103,14 @@ def test_reconstruct_mix_inversion_within_budget(tmp_path) -> None:
     _write_raw_sources(stem_dir, suffix, sr=sr, dur_s=3.0)
 
     sources = build_layer_sources(stem_dir, "song", "bs_roformer", sample_rate=sr)
-    assert set(sources) == {"vocals", "bass", "drums", "other"}
+    # The song's lanes replace the static four-stem rows where its content
+    # supports a split; the children partition their parent exactly, which is
+    # what keeps this reconstruction budget valid.
+    lanes = set(sources)
+    assert {"vocals", "other"} <= lanes
+    assert ("drums" in lanes) or {"kick", "snare", "hats"} <= lanes
+    assert ("bass" in lanes) or {"sub_bass", "bass"} <= lanes
+    assert len(lanes) > 4
 
     reference = _lr4_reference(suffix, stem_dir, sr=sr)
     mix = reconstruct_mix(sources, sr)
@@ -126,8 +133,10 @@ def test_edited_seconds_are_the_only_budget_violations(tmp_path) -> None:
 
     pre = reconstruct_mix(sources, sr)
     plan = EditPlan()
-    plan.add("bass", 1, "mute")
-    plan.add("drums", 2, "de_ess")
+    edited_lanes = sorted(set(sources))[:2]
+    assert len(edited_lanes) == 2
+    plan.add(edited_lanes[0], 1, "mute")
+    plan.add(edited_lanes[1], 2, "mute")
     commit_edit_plan(plan, sources, sample_rate=sr)
     post = reconstruct_mix(sources, sr)
 

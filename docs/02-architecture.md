@@ -35,6 +35,9 @@ harvester/
 │   ├── models.py                    # TrackJob, enums, JobEvent, CanonicalMetadata
 │   ├── statemachine.py              # legal transitions (single source of truth)
 │   ├── appdirs.py                   # workspace/cache/logs/reports paths (platformdirs)
+│   ├── processing.py                # processing presets: which stages run (docs/13 D21)
+│   ├── ipc/
+│   │   └── layer_sidecar.py         # workbench ⇄ detached terminal channels (docs/12 §6.3)
 │   ├── pipeline/
 │   │   ├── orchestrator.py          # queues, worker pools, cancellation, shutdown
 │   │   ├── phase1_analyze.py        # URL probe / directory scan
@@ -47,12 +50,21 @@ harvester/
 │   │   ├── ytdlp.py                 # subprocess wrapper, progress parsing, kill semantics
 │   │   ├── ffmpeg.py                # binary detection, decode pipe, transcode, probe
 │   │   ├── acoustid.py              # lookup client, rate limiter, SQLite cache
-│   │   ├── musicbrainz.py           # Cover Art Archive client
+│   │   ├── musicbrainz.py           # Cover Art Archive + recording credits (docs/13 D23)
+│   │   ├── model_manager.py         # model registry: download, cache, checksum (docs/11)
 │   │   └── tagging.py               # mutagen write ops (MP3/FLAC/MP4/Opus)
 │   ├── analysis/
 │   │   ├── titleclean.py            # query normalization (Phase 2)
 │   │   ├── scoring.py               # P2P candidate ranking (weights in docs/06)
-│   │   └── spectral.py              # cutoff/brick-wall detector — pure numpy
+│   │   ├── spectral.py              # cutoff/brick-wall detector — pure numpy
+│   │   └── enhancement/
+│   │       ├── stem_separator.py    # BS-RoFormer → HDEMUCS ensemble, 6-source extras, eco fallback
+│   │       ├── dynamic_layers.py    # song-driven lanes: splits, extras, presence gates (docs/12 §6)
+│   │       ├── lane_plan.py         # lane provenance: origin / confidence / note (docs/13 D22)
+│   │       ├── tags.py              # CLAP zero-shot instrument + vocal tags (docs/13 D25)
+│   │       ├── layers.py            # LayerTrack assembly + per-second analysis
+│   │       ├── layer_editor.py      # the 10 surgical per-second ops + EditPlan
+│   │       └── dsp.py               # LR4 crossovers, band splits
 │   ├── batch/
 │   │   ├── scanner.py               # directory walk + mutagen probe + skip rules
 │   │   ├── report.py                # JSONL batch report writer (append-only)
@@ -60,6 +72,9 @@ harvester/
 │   ├── ui/
 │   │   ├── app.py                   # HarvestApp(App)
 │   │   ├── bridge.py                # JobEvent queue → throttled widget updates
+│   │   ├── workbench.py             # 6-page workbench: tracks, visualizer, deck, EQ, stems, layers
+│   │   ├── layer_studio.py          # FL-style arrangement grid widget
+│   │   ├── layer_terminal.py        # detached layer terminal (docs/12 §6)
 │   │   ├── screens/
 │   │   │   ├── main.py
 │   │   │   ├── dirpicker.py         # DirectoryTree modal
@@ -267,7 +282,9 @@ max_log_lines = 2000
 
 Secrets: `SLSKD_API_KEY`, `ACOUSTID_API_KEY` from environment only. Config stores the *env
 var name*, never a value. The logging masker (`util/logging_setup.py`) redacts anything
-matching configured key values.
+matching configured key values. A gitignored `.env` next to the config (or at
+`OMNIRIP_ENV_FILE`) is loaded into the process environment at startup for launches that do not
+inherit shell exports; already-set environment variables always win (docs/01 D20).
 
 ## 7. Logging & observability
 

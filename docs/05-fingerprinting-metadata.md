@@ -26,12 +26,17 @@ fpcalc -json -length 120 <file>
 
 ```
 POST https://api.acoustid.org/v2/lookup
-form: client=<APP_KEY>&format=json&meta=recordings+releases+releasegroups+isrcs
-      &duration=<int>&fingerprint=<fp>
+form: client=<APP_KEY>&format=json&meta=recordings&meta=releases
+      &meta=releasegroups&meta=isrcs&duration=<int>&fingerprint=<fp>
 ```
 
+- `meta` is posted as a **repeated** form field, not one `+`-joined string: URL-encoding turns
+  the `+` into a literal plus and AcoustID then returns bare results with no `recordings`
+  block (silent metadata loss — verified against the live API).
 - **API key:** free registration at `acoustid.org/new-application`; supplied via env
-  `ACOUSTID_API_KEY` (config stores only the env-var name — NFR-6).
+  `ACOUSTID_API_KEY` (config stores only the env-var name — NFR-6). A gitignored `.env`
+  (`ACOUSTID_API_KEY=…`, path override `OMNIRIP_ENV_FILE`) is loaded at startup for GUI
+  launches that do not inherit shell exports; real environment variables always win (docs/01 D20).
 - **Rate limit:** ≤ 3 requests/s (AC-9). Enforced by a token-bucket in `services/acoustid.py`
   plus the single `q_identify` worker (docs/02 §5.1). On HTTP 429 or `error` response about
   rate: back off 2 s, one retry.

@@ -16,6 +16,9 @@ milestone per work session with a coding assistant, feeding it
 | 7 | QA & packaging | M6 | ✅ Complete — CI matrix, coverage gate, quickstart, CHANGELOG |
 | 10 | Neural Audio Enhancement Workbench | M6 | ✅ Complete — model manager, DSP crossover/progressive mono, NVSR/FlashSR providers, presets, preview manager, workbench screen, CLI --enhance |
 | 11 | Layer Studio (M1: visualize & inspect + M2: per-second editing + M3: hardening) | M10 | ✅ Complete — raw 4-stem persistence, per-second LR4 layer assembly + segment flags, LAYERS tab, playhead-synced grid + click-to-seek, cell-op edits (docs/12 §4), mix reconstruction residual budget + de-bleed fixture + run-length collapse (docs/12 §5) |
+| 12 | Detached Layer Terminal (Option B) | M11 | ✅ Complete — JSON sidecar IPC (`harvester/ipc/layer_sidecar.py`), standalone `layer_terminal.py` reusing `LayerStudio` unchanged in its own Terminal.app window, explicit `🪟 NEW WINDOW` button (`wb-btn-layer-terminal`) launches it on demand (no auto-open), edits merge back into the main plan on next SAVE LAYERS / export; empty-stem sets now show a "run ⚡ BUILD STEMS" hint with live % progress (D17) |
+| 13 | Song-driven lanes + two-way transport link | M12 | ✅ Complete — `dynamic_layers.py` expands the four base rows into the lanes the song actually has (kick/snare/hats, sub_bass/bass, any extra neural source) with a presence gate and an exact complementary partition; lane rows render only in the detached terminal (workbench LAYERS page = control panel) and both processes stay in sync through `layer_sidecar.transport.json` (5 Hz playhead publish + seek/play requests, atomic writes, re-issued until confirmed) (D18, D19) |
+| 14 | AcoustID hardening | M12 | ✅ Complete — `meta` posted as repeated form fields (the `+`-joined form silently returned no recordings), `ACOUSTID_API_KEY` loadable from a gitignored `.env` while real env vars win (D20) |
 
 ---
 
@@ -212,6 +215,46 @@ reconstruction ≤ -40 dBFS inversion, edited-seconds-only budget violations, de
 fixture dropping in-band leak ≥ 20 dB, 600 s analysis within the per-second budget with
 single-run-length collapse, and the widget's long-track run-length render. Spec in
 docs/12 §5.
+
+---
+
+## M11.5 — Lane expansion: presets, provenance, credits, extras & tags
+
+**Goal:** stop guessing. Every lane row says what it is, every stage that runs is a
+user-visible choice, and the instrument inventory comes from documented data plus an
+advisory tagger — never from an LLM.
+
+**Status:** ✅ implemented (docs/13, decisions D21–D24). Shipped:
+
+1. **Processing presets** (`[processing] preset`, `processing.py`): `fetch_only` /
+   `standard` (default) / `neural_full`. The preset decides *which* stages run; the
+   separator's engine chain still decides *how* they run, and any fallback to the eco
+   2-layer DSP is reported loudly (`engine_note` + warning toast) instead of silently
+   replacing the user's choice.
+2. **Lane provenance** (`analysis/enhancement/lane_plan.py`): origin (`separator`,
+   `dsp-split`, `extra-source`, `mix`, `credit-only`, `tag-only`) + confidence + note per
+   row. `credit-only` / `tag-only` rows are listed but carry **no** audio row — nothing is
+   faked. Sidecar schema **v2** carries the plan so the detached terminal labels rows
+   identically.
+3. **MusicBrainz recording credits** (`services/musicbrainz.py`): instruments, vocal parts,
+   producers and a singer count, cached under `cache/credits/`, surfaced by the `🏷 CREDITS`
+   button; credited-but-unrenderable instruments (sax, violin) become listed rows.
+4. **6-source extras** (`stem_separator.separate_extra_lanes`, HTDemucs-6s): guitar/piano
+   raw stems under the same mode suffix, so the lane engine picks them up generically;
+   presence-gated, so bleed does not invent rows.
+5. **CLAP tagging** (`analysis/enhancement/tags.py`, D25): zero-shot instrument/vocal tags
+   over evenly spaced windows, stored as `tags.json` beside the stems and folded into the
+   lane plan as annotations or `tags only` rows. Advisory only — it never touches the
+   spectral verdict or file metadata.
+
+**Verification:** full suite green + ruff clean; real-weight end-to-end runs on real songs
+(8 lanes including `GUITAR [6-source model, low]`, live AcoustID → MusicBrainz credit chain
+with `2 singers`, sidecar v2 round trip). Measurements, gates and the exact commands live in
+docs/13 §7.1.
+
+**Out of scope (documented, not built):** hosted separators (MVSEP — needs an account/key)
+and audio diarization for singer counting (pyannote — gated weights need a HF token, plus a
+new dependency). See docs/13 §8.
 
 ---
 

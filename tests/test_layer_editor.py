@@ -14,7 +14,6 @@ from harvester.analysis.enhancement.layer_editor import (
     save_pcm32,
 )
 from harvester.analysis.enhancement.layers import (
-    LAYER_ORDER,
     LayerTrack,
     build_layer_sources,
     build_layer_track,
@@ -136,18 +135,23 @@ def test_commit_edit_plan_writes_and_rebuilds(tmp_path) -> None:
     _write_sources(stem_dir, suffix, sr=sr, dur_s=3.0)
 
     sources = build_layer_sources(stem_dir, "song", "bs_roformer", sample_rate=sr)
-    assert set(sources) == {"vocals", "bass", "drums", "other"}
-
     plan = EditPlan()
-    plan.add("bass", 1, "mute")
-    plan.add("drums", 0, "drum_punch")
+    lanes = set(sources)
+    # Song-detected lanes: bass carries sub + body content, so it splits.
+    assert {"vocals", "other"} <= lanes
+    assert {"sub_bass", "bass"} <= lanes
+    assert len(lanes) > 4
+    bass_lane = next(name for name in ("bass", "sub_bass") if name in sources)
+    drum_lane = next(name for name in ("drums", "kick", "snare", "hats") if name in sources)
+    plan.add(bass_lane, 1, "mute")
+    plan.add(drum_lane, 0, "drum_punch")
     written = commit_edit_plan(plan, sources, sample_rate=sr)
-    assert set(written) == {"bass", "drums"}
+    assert set(written) == {bass_lane, drum_lane}
 
     # Committed layer files now carry the edits
     import soundfile as sf
 
-    bass, _ = sf.read(str(written["bass"]), dtype="float32", always_2d=True)
+    bass, _ = sf.read(str(written[bass_lane]), dtype="float32", always_2d=True)
     bass = bass.T
     fade_n = int(0.02 * sr)
     splat = bass[:, sr + fade_n:2 * sr - fade_n]
@@ -158,10 +162,11 @@ def test_commit_edit_plan_writes_and_rebuilds(tmp_path) -> None:
     track: LayerTrack = build_layer_track(
         stem_dir, "song", "bs_roformer", duration_s=3.0, sample_rate=sr
     )
-    bass_src = track.sources["bass"]
+    bass_src = track.sources[bass_lane]
     assert bass_src.level(1) < bass_src.level(0) - 0.2
     assert bass_src.level(1) < bass_src.level(2) - 0.2
-    assert track.active_layers == list(LAYER_ORDER[:-1])
+    # Committing edits never changes the detected lane set (cached lane files).
+    assert set(track.active_layers) == lanes
 
 
 def test_commit_empty_and_missing_layer(tmp_path) -> None:

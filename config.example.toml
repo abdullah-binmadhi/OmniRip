@@ -19,6 +19,7 @@ max_queue_length = 5
 p2p_timeout_s = 30
 
 [acoustid]
+# Key value read from this env var (or a .env file next to the config / OMNIRIP_ENV_FILE).
 api_key_env = "ACOUSTID_API_KEY"
 rate_limit_per_s = 3
 cache_ttl_days = 90
@@ -27,6 +28,23 @@ cache_ttl_days = 90
 enabled = false
 mode = "conservative"
 preserve_original = true
+
+[processing]
+# Which stages run for a track (docs/13). Orthogonal to slskd.acquisition_mode
+# (which file we get) — this decides what we do with it.
+#   fetch_only  = acquire + tag only. No separation, no lanes, no restoration (~0.2 GB).
+#   standard    = 4-source separation + song-driven lanes (default, ~1.7 GB).
+#   neural_full = adds guitar/piano extras, MusicBrainz credits and tagging (~2.5 GB).
+# The separator may still fall back internally (neural -> hdemucs -> eco); a run that
+# lands on the eco 2-layer fallback is reported loudly, never applied silently.
+preset = "standard"
+# Annotate lanes with documented instruments/vocal parts + singer count (MusicBrainz).
+use_credits = true
+# CLAP tag threshold: the mean share of the label mass a tag needs to be reported.
+# The share is the softmax mass across 12 instrument/vocal prompts (relative, not a
+# calibrated probability); an even spread is ~8 %, so 0.15 ≈ "twice the even share".
+# Raise it for fewer, safer tags. Only used by presets with tags = true.
+tag_threshold = 0.15
 
 [ytdlp]
 binary = "yt-dlp"

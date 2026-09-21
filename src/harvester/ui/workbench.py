@@ -8,6 +8,7 @@ dynamic mastering deck, preset selection, and full-track derivative export.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -18,6 +19,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
+from textual.timer import Timer
 from textual.visual import VisualType
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Label, ProgressBar, Select, SelectionList
@@ -38,9 +40,9 @@ from harvester.analysis.enhancement.stem_separator import (
     VOCAL_REMEDIATIONS,
 )
 from harvester.models import TrackJob
+from harvester.processing import DEFAULT_PRESET, degraded, engine_note, get_preset, next_preset
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
-from harvester.ui.layer_studio import LayerStudio
 from harvester.ui.visualizer import AudioVisualizer
 
 if TYPE_CHECKING:
@@ -253,7 +255,8 @@ class WorkbenchWidget(Widget):
     }
     #wb-export-dropdown {
         display: none;
-        height: 3;
+        height: auto;
+        min-height: 5;
         width: 1fr;
         align: left middle;
         background: $surface-darken-1;
@@ -545,18 +548,13 @@ class WorkbenchWidget(Widget):
         color: $surface;
     }
     #wb-layers-hint {
-        height: 1;
+        height: auto;
         width: 1fr;
         color: $text-muted;
         margin-top: 1;
     }
     #wb-layer-status {
         margin-bottom: 1;
-    }
-    #wb-layer-studio {
-        height: auto;
-        min-height: 7;
-        margin-top: 1;
     }
     #wb-blend-row {
         height: auto;
@@ -781,6 +779,25 @@ class WorkbenchWidget(Widget):
         self.layer_stem_dir: Path | None = None
         self.layer_edit_plan: EditPlan | None = None
         self._is_building_layers: bool = False
+
+        # Detached layer terminal (Option B): open the Layers page in its own
+        # Terminal.app window writing/reading the JSON sidecar instead of (only)
+        # the embedded workbench panel.
+        self.detach_layer_terminal: bool = True
+        self._layer_terminal_launched: bool = False
+        self._layer_terminal_pending: bool = False
+        self._transport_timer: Timer | None = None
+
+        # Processing preset (docs/13): which stages run for this session. The
+        # engine fallback chain (neural → hdemucs → eco) is separate and always
+        # reported out loud — a preset never silently degrades.
+        self.processing_preset: str = getattr(
+            getattr(getattr(self.app, "config", None), "processing", None),
+            "preset",
+            DEFAULT_PRESET,
+        )
+        self.recording_credits: object | None = None
+        self._credits_task_running: bool = False
 
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
@@ -1082,30 +1099,30 @@ class WorkbenchWidget(Widget):
 
             with Vertical(id="wb-page-layers"):
                 yield Label(
-                    "LAYER STUDIO  [Per-Second Susbstem Timeline: VOCALS / BASS / DRUMS / OTHER]",
+                    "LAYER STUDIO  [Detached Terminal: song-detected lanes, per-second surgical edits]",
                     id="wb-layers-title",
                     classes="wb-section-title",
                 )
                 with Horizontal(id="wb-layers-actions"):
                     yield Button("⚡ BUILD STEMS", id="wb-btn-build-layers", classes="wb-layers-btn")
+                    yield Button("🪟 OPEN LAYER TERMINAL", id="wb-btn-layer-terminal", classes="wb-layers-btn")
                     yield Button("💾 SAVE LAYERS", id="wb-btn-save-layers", classes="wb-layers-btn")
                     yield Button("CLEAR", id="wb-btn-clear-layers", classes="wb-layers-btn")
-                    yield Button("MUTE", id="wb-btn-tool-mute", classes="wb-tool-btn")
-                    yield Button("BLEED", id="wb-btn-tool-bleed", classes="wb-tool-btn")
-                    yield Button("DE-ESS", id="wb-btn-tool-ess", classes="wb-tool-btn")
-                    yield Button("DE-MUD", id="wb-btn-tool-mud", classes="wb-tool-btn")
-                    yield Button("PUNCH", id="wb-btn-tool-punch", classes="wb-tool-btn")
-                    yield Button("DE-HUM", id="wb-btn-tool-hum", classes="wb-tool-btn")
-                    yield Button("AIR+", id="wb-btn-tool-air", classes="wb-tool-btn")
-                    yield Button("DE-CLICK", id="wb-btn-tool-click", classes="wb-tool-btn")
-                    yield Button("GATE", id="wb-btn-tool-gate", classes="wb-tool-btn")
-                    yield Button("TAME", id="wb-btn-tool-tame", classes="wb-tool-btn")
-                    yield Button("RESET", id="wb-btn-tool-reset", classes="wb-tool-btn")
-                yield LayerStudio(id="wb-layer-studio")
+                with Horizontal(id="wb-layers-actions-plan"):
+                    yield Button(
+                        f"PROCESSING: {get_preset(self.processing_preset).label}",
+                        id="wb-btn-preset",
+                        classes="wb-layers-btn",
+                    )
+                    yield Button("🏷 CREDITS", id="wb-btn-credits", classes="wb-layers-btn")
+                yield Label("", id="wb-preset-status", classes="wb-acoustic-status")
                 yield Label(
-                    "Click cell to select · m Mute · b De-Bleed · s De-Ess · u De-Mud · p Punch · h De-Hum · a Air+ · c De-Click · g Gate · t Tame · r Reset",
+                    "Lanes are detected from the song and drawn in the detached layer terminal "
+                    "(OPEN LAYER TERMINAL) — full height, no box. The terminal follows this "
+                    "window's playhead and sends seeks straight back to the player.",
                     id="wb-layers-hint",
                 )
+                yield Label("", id="wb-lane-plan", classes="wb-acoustic-status")
                 yield Label("", id="wb-layer-status", classes="wb-acoustic-status")
 
             with Vertical(id="wb-page-vis"):
@@ -1639,7 +1656,33 @@ class WorkbenchWidget(Widget):
                     if res.vocals_path and res.vocals_path.parent
                     else None
                 )
+
+                # NEURAL FULL: add the 6-source extras (guitar / piano) before the
+                # lane grid is built, so the extra lanes show up in the same pass.
+                preset = get_preset(self.processing_preset)
+                if (
+                    preset.extra_sources
+                    and sep_mode != "eco"
+                    and self.layer_stem_dir is not None
+                ):
+                    await self._run_extra_lanes(source_path, self.layer_stem_dir, sep_mode)
+
+                # NEURAL FULL also tags audible content (advisory lane rows); the
+                # tags are written next to the stems so the lane build reads them.
+                if preset.tags and self.layer_stem_dir is not None:
+                    await self._run_tagging_pass(source_path, self.layer_stem_dir)
+
                 self._ensure_layers_built()
+
+                # Report the engine that actually ran — a fallback is never silent.
+                engine_text = engine_note(res.engine)
+                if degraded(res.engine):
+                    self.app.notify(
+                        f"Separation fell back to the {engine_text}.",
+                        title="OmniRip Stems",
+                        severity="warning",
+                        timeout=6.0,
+                    )
 
                 if self.active_stream == "VOC":
                     self._route_to_player(
@@ -1648,7 +1691,7 @@ class WorkbenchWidget(Widget):
                         is_enhanced=True,
                     )
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready [{res.engine.upper()}]: Auditioning Vocals"
+                        f"Stems Ready [{engine_text}]: Auditioning Vocals"
                     )
                 elif self.active_stream == "INST":
                     self._route_to_player(
@@ -1657,11 +1700,11 @@ class WorkbenchWidget(Widget):
                         is_enhanced=True,
                     )
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready [{res.engine.upper()}]: Auditioning Karaoke"
+                        f"Stems Ready [{engine_text}]: Auditioning Karaoke"
                     )
                 else:
                     self.query_one("#wb-status", Label).update(
-                        f"Stems Ready [{res.engine.upper()}]: Vocals & Instrumental"
+                        f"Stems Ready [{engine_text}]: Vocals & Instrumental"
                     )
 
             self.app.notify(
@@ -2132,9 +2175,20 @@ class WorkbenchWidget(Widget):
             self._toggle_export_dropdown(force_close=True)
         elif btn_id == "wb-btn-open-layers":
             self.switch_page("layers")
+        elif btn_id == "wb-btn-layer-terminal":
+            self._layer_terminal_launched = False
+            self._launch_layer_terminal()
         elif btn_id == "wb-btn-build-layers":
             target = self.path_mp3
             if target and target.exists():
+                if not get_preset(self.processing_preset).separation:
+                    # FETCH ONLY has no separation stage; pressing BUILD STEMS is
+                    # the explicit per-track opt-in, so switch and say so.
+                    self._set_preset("standard")
+                    with contextlib.suppress(Exception):
+                        self.query_one("#wb-layer-status", Label).update(
+                            "FETCH ONLY skips separation — switched to STANDARD for this track."
+                        )
                 self._trigger_stem_separation(target, force=False)
                 self._ensure_layers_built()
             else:
@@ -2143,31 +2197,16 @@ class WorkbenchWidget(Widget):
                 except Exception:
                     pass
 
+        elif btn_id == "wb-btn-preset":
+            self._cycle_processing_preset()
+
+        elif btn_id == "wb-btn-credits":
+            self._start_credits_lookup()
+
         elif btn_id == "wb-btn-save-layers":
             self._commit_layers_async()
         elif btn_id == "wb-btn-clear-layers":
             self._clear_layer_edits()
-        elif btn_id.startswith("wb-btn-tool-"):
-            tool_op_map = {
-                "wb-btn-tool-mute": "mute",
-                "wb-btn-tool-bleed": "de_bleed",
-                "wb-btn-tool-ess": "de_ess",
-                "wb-btn-tool-mud": "de_mud",
-                "wb-btn-tool-punch": "drum_punch",
-                "wb-btn-tool-hum": "de_hum",
-                "wb-btn-tool-air": "air_boost",
-                "wb-btn-tool-click": "de_click",
-                "wb-btn-tool-gate": "noise_gate",
-                "wb-btn-tool-tame": "transient_tame",
-                "wb-btn-tool-reset": "reset",
-            }
-            op = tool_op_map.get(btn_id)
-            if op:
-                try:
-                    studio = self.query_one("#wb-layer-studio", LayerStudio)
-                    studio._request_edit(op)
-                except Exception:
-                    pass
         elif btn_id == "wb-btn-audition-voc":
             self.set_active_stream("VOC")
         elif btn_id == "wb-btn-audition-inst":
@@ -2388,63 +2427,279 @@ class WorkbenchWidget(Widget):
             except Exception:
                 pass
 
-    def on_layer_studio_seek_requested(self, message: LayerStudio.SeekRequested) -> None:
-        """Jump playback to the second the user tapped on the layer timeline."""
+    # ------------------------------------------------------------------
+    # Processing preset + lane provenance (docs/13)
+    # ------------------------------------------------------------------
+    async def _run_extra_lanes(self, source_path: Path, stem_dir: Path, mode: str) -> None:
+        """NEURAL FULL: persist guitar/piano raw stems for the lane grid.
+
+        Writes the extras under the *same* mode suffix the 4-source run used, so
+        ``dynamic_layers`` picks them up with no extra wiring. A missing model
+        degrades to 4-source lanes and says so.
+        """
+
+        def _on_progress(pct: float, step: str) -> None:
+            def _ui() -> None:
+                with contextlib.suppress(Exception):
+                    if self.path_mp3 == source_path:
+                        self.query_one("#wb-status", Label).update(
+                            f"Extra lanes [{int(pct)}%]: {step}"
+                        )
+
+            self.app.call_from_thread(_ui)
+
         try:
-            player: AudioPlayerWidget = self.app.query_one("#audio-player")  # type: ignore
-            player.seek(message.seconds)
-        except Exception:
-            pass
+            from harvester.analysis.enhancement.stem_separator import StemSeparator
 
-    def on_layer_studio_selection_changed(self, message: LayerStudio.SelectionChanged) -> None:
-        """Surface the selected cell's details in the layer status line."""
-        if message.segment is None:
-            self.query_one("#wb-layer-status", Label).update("")
+            separator = StemSeparator()
+            extra = await asyncio.to_thread(
+                separator.separate_extra_lanes,
+                source_path,
+                stem_dir,
+                mode=mode,
+                progress_callback=_on_progress,
+            )
+        except Exception as exc:
+            logger.info("extra lane pass skipped: %s", exc)
             return
-        seg = message.segment
-        layers = ", ".join(f"{k}:{int(v * 100)}%" for k, v in seg.levels.items())
-        if seg.issues:
-            issues = "; ".join(f"{i.layer}: {i.label} ({i.severity:.0%})" for i in seg.issues)
-        else:
-            issues = "No defects flagged"
-        self.query_one("#wb-layer-status", Label).update(
-            f"t={seg.start_s:.0f}s–{seg.end_s:.0f}s → {layers} · {issues}"
-        )
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-layer-status", Label).update(
+                "Extra lanes ready: " + ", ".join(sorted(extra))
+                if extra
+                else "Extra lanes unavailable (6-source model missing) — 4-source lanes only."
+            )
 
-    def on_layer_studio_edit_requested(
-        self, message: LayerStudio.EditRequested
-    ) -> None:
-        """Record a per-cell edit op into the non-destructive EditPlan."""
-        if self.layer_track is None:
+    async def _run_tagging_pass(self, source_path: Path, stem_dir: Path) -> None:
+        """NEURAL FULL: CLAP instrument/vocal tags → ``tags.json`` → plan rows.
+
+        Advisory by design (docs/13 D25): tags only add provenance rows to the
+        lane plan — never verdicts, never file metadata. A missing model or
+        dependency leaves the track untagged instead of failing the run.
+        """
+        from harvester.analysis.enhancement.tags import ClapTagger
+
+        def _on_progress(pct: float, step: str) -> None:
+            def _ui() -> None:
+                with contextlib.suppress(Exception):
+                    if self.path_mp3 == source_path:
+                        self.query_one("#wb-layer-status", Label).update(
+                            f"Tags [{int(pct)}%]: {step}"
+                        )
+
+            self.app.call_from_thread(_ui)
+
+        processing = getattr(getattr(self.app, "config", None), "processing", None)
+        threshold = getattr(processing, "tag_threshold", None)
+        tagger = ClapTagger(threshold=float(threshold)) if threshold else ClapTagger()
+        try:
+            result = await asyncio.to_thread(
+                tagger.tag_and_store, source_path, stem_dir, progress_callback=_on_progress
+            )
+        except Exception as exc:
+            logger.info("tagging pass skipped: %s", exc)
             return
-        plan = self.layer_edit_plan
+        with contextlib.suppress(Exception):
+            if result is None:
+                self.query_one("#wb-layer-status", Label).update(
+                    "Tags unavailable (CLAP model not cached) — lanes stay as detected."
+                )
+            else:
+                self.query_one("#wb-layer-status", Label).update(result.describe())
+
+    def _set_preset(self, name: str) -> None:
+        """Apply a processing preset and report what it changes."""
+        from harvester.processing import normalize_preset
+
+        self.processing_preset = normalize_preset(name)
+        preset = get_preset(self.processing_preset)
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-btn-preset", Button).label = f"PROCESSING: {preset.label}"
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-preset-status", Label).update(
+                f"{preset.summary} · {preset.detail}"
+            )
+
+    def _cycle_processing_preset(self) -> None:
+        """Cycle FETCH ONLY → STANDARD → NEURAL FULL."""
+        self._set_preset(next_preset(self.processing_preset))
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-status", Label).update(
+                f"Processing preset: {get_preset(self.processing_preset).summary}"
+            )
+
+    def _render_lane_plan(self, track: object | None = None) -> None:
+        """Show lane provenance rows (origin + confidence + note) in the panel."""
+        target = track if track is not None else self.layer_track
+        plan = getattr(target, "lane_plan", None)
         if plan is None:
-            plan = EditPlan()
-            self.layer_edit_plan = plan
-        plan.add(message.layer or "", message.segment_idx, message.op)
-        try:
-            studio = self.query_one("#wb-layer-studio", LayerStudio)
-            studio.edit_plan = plan
-        except Exception:
-            pass
-        self.query_one("#wb-layer-status", Label).update(
-            f"{plan.count} edit(s) staged → press SAVE LAYERS to commit."
+            return
+        rows = [f"LANE PLAN: {plan.summary()}"]
+        entries = list(plan.entries)
+        for entry in entries[:12]:
+            rows.append(f"  • {entry.describe()}")
+        if len(entries) > 12:
+            rows.append(f"  … +{len(entries) - 12} more")
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-lane-plan", Label).update("\n".join(rows))
+
+    def _start_credits_lookup(self) -> None:
+        """Fingerprint → AcoustID → MusicBrainz credits for the loaded track."""
+        if self._credits_task_running:
+            return
+        target = self.path_mp3
+        if target is None or not target.exists():
+            with contextlib.suppress(Exception):
+                self.query_one("#wb-layer-status", Label).update(
+                    "No active track loaded for a credits lookup."
+                )
+            return
+        self._credits_task_running = True
+        self.run_worker(
+            self._async_fetch_credits(target), name="credits-lookup", exclusive=True
         )
+
+    async def _async_fetch_credits(self, target: Path) -> None:
+        """Resolve documented instruments/vocalists and feed the lane plan."""
+        try:
+            with contextlib.suppress(Exception):
+                self.query_one("#wb-layer-status", Label).update(
+                    "Credits: fingerprinting the track…"
+                )
+            from harvester.config import load_config
+            from harvester.services.acoustid import AcoustidService
+            from harvester.services.musicbrainz import CoverArtService
+
+            app_cfg = getattr(self.app, "config", None) or load_config()
+            acoustid = AcoustidService(app_cfg)
+            try:
+                meta = await acoustid.identify(target)
+            finally:
+                await acoustid.close()
+            mbid = getattr(meta, "mb_recording_id", None) if meta else None
+            if not mbid:
+                with contextlib.suppress(Exception):
+                    self.query_one("#wb-layer-status", Label).update(
+                        "Credits: no MusicBrainz recording id (AcoustID miss) — "
+                        "lanes stay as detected."
+                    )
+                return
+            mb = CoverArtService(app_cfg)
+            try:
+                credits = await mb.fetch_recording_credits(mbid)
+            finally:
+                await mb.close()
+            self.recording_credits = credits
+            text = credits.summary() if credits is not None else "credits unavailable"
+            with contextlib.suppress(Exception):
+                self.query_one("#wb-layer-status", Label).update(f"CREDITS: {text}")
+            self._apply_credits_to_plan()
+        except Exception as exc:
+            logger.info("credits lookup failed: %s", exc)
+            with contextlib.suppress(Exception):
+                self.query_one("#wb-layer-status", Label).update(
+                    f"Credits lookup failed: {exc}"
+                )
+        finally:
+            self._credits_task_running = False
+
+    def _apply_credits_to_plan(self) -> None:
+        """Recompute lane provenance with the credit inventory (no re-analysis)."""
+        track = self.layer_track
+        if track is None or not hasattr(track, "replan"):
+            return
+        credits = self.recording_credits
+        # Instruments *and* vocal credits annotate lanes (producers/performers do not).
+        lane_credits = tuple(getattr(credits, "lane_credits", ()) or ()) if credits else ()
+        singers = getattr(credits, "singer_count", None) if credits is not None else None
+        try:
+            track.replan(credit_instruments=lane_credits, singer_count=singers)
+        except Exception as exc:
+            logger.info("lane replan failed: %s", exc)
+            return
+        self._render_lane_plan(track)
+
+    # ------------------------------------------------------------------
+    # Layer studio → detached terminal transport (the terminal owns selection)
+    # ------------------------------------------------------------------
+    def _layer_sidecar_path(self) -> Path | None:
+        if self.path_mp3 is None:
+            return None
+        return self.path_mp3.parent / "layer_sidecar.json"
+
+    def _publish_layer_transport(self) -> None:
+        """Publish this app's playhead and apply the terminal's seek/play requests.
+
+        Runs while a detached layer terminal is open: OmniRip owns audio output,
+        so it is the single writer of the live transport state, and it consumes
+        the requests the terminal writes back (click-to-seek, space play/pause).
+        """
+        sidecar_path = self._layer_sidecar_path()
+        if sidecar_path is None or not self._layer_terminal_launched:
+            return
+        try:
+            from harvester.ipc.layer_sidecar import (
+                TransportState,
+                consume_requests,
+                transport_path,
+                write_transport,
+            )
+
+            player: AudioPlayerWidget = self.app.query_one("#audio-player")  # type: ignore
+        except Exception:
+            return
+
+        seek_request, play_request = None, None
+        try:
+            seek_request, play_request = consume_requests(sidecar_path)
+        except Exception as exc:
+            logger.debug("layer transport request read failed: %s", exc)
+
+        if seek_request is not None:
+            with contextlib.suppress(Exception):
+                player.seek(float(seek_request))
+                self.query_one("#wb-layer-status", Label).update(
+                    f"Terminal seek → {float(seek_request):.0f}s"
+                )
+        if play_request is not None:
+            with contextlib.suppress(Exception):
+                if play_request and not player.is_playing:
+                    player.play()
+                elif not play_request and player.is_playing:
+                    player.pause()
+
+        # Nothing to say while paused on another page (a request was just answered,
+        # so publish then too) — this keeps the 5 Hz write off the idle path.
+        answered = seek_request is not None or play_request is not None
+        if not answered:
+            try:
+                playing = bool(player.is_playing)
+            except Exception:
+                playing = False
+            if not playing and getattr(self, "active_page", "layers") != "layers":
+                return
+
+        try:
+            write_transport(
+                transport_path(sidecar_path),
+                TransportState(
+                    playhead_s=float(player.elapsed_s),
+                    playing=bool(player.is_playing),
+                    duration_s=float(player.duration_s or 0.0),
+                ),
+            )
+        except Exception as exc:
+            logger.debug("layer transport publish failed: %s", exc)
 
     def _clear_layer_edits(self) -> None:
         """Remove all staged edits (raw cache untouched)."""
         self.layer_edit_plan = EditPlan()
-        try:
-            studio = self.query_one("#wb-layer-studio", LayerStudio)
-            studio.edit_plan = self.layer_edit_plan
-        except Exception:
-            pass
         self.query_one("#wb-layer-status", Label).update(
             "Edits cleared. Nothing staged."
         )
 
     def _commit_layers_async(self) -> None:
         """Commit the staged edit plan onto the layer files in a background thread."""
+        self._reload_sidecar_edits()
         if self.layer_track is None or not self.layer_edit_plan or self.layer_edit_plan.count == 0:
             self.query_one("#wb-layer-status", Label).update(
                 "Nothing to save — stage edits by clicking a cell, then m/b/s/u/p."
@@ -2497,11 +2752,6 @@ class WorkbenchWidget(Widget):
                 commit_edit_plan, self.layer_edit_plan, sources, 44100
             )
             self.layer_edit_plan = EditPlan()
-            try:
-                studio = self.query_one("#wb-layer-studio", LayerStudio)
-                studio.edit_plan = self.layer_edit_plan
-            except Exception:
-                pass
 
             # Rebuild the grid so the timeline reflects the committed edits.
             from harvester.analysis.enhancement.layer_editor import rebuild_track_after_commit
@@ -2523,11 +2773,6 @@ class WorkbenchWidget(Widget):
                 crossover_hz=self.stem_crossover_hz,
             )
             self.layer_track = track
-            try:
-                studio = self.query_one("#wb-layer-studio", LayerStudio)
-                studio.track = track
-            except Exception:
-                pass
             residual_note = ""
             try:
                 from harvester.analysis.enhancement.layer_editor import (
@@ -2554,6 +2799,7 @@ class WorkbenchWidget(Widget):
                 f"Saved layers: {', '.join(sorted(written))} · "
                 f"timeline rebuilt ({track.n_segments}s).{residual_note}"
             )
+            await self._refresh_sidecar_after_commit()
         except Exception as exc:
             logger.exception("Layer Studio commit failed: %s", exc)
             try:
@@ -2579,9 +2825,19 @@ class WorkbenchWidget(Widget):
         else:
             stem_dir = self.layer_stem_dir
         if stem_dir is None or not stem_dir.exists():
-            self.query_one("#wb-layer-status", Label).update(
-                "Separate stems first, then open LAYERS."
-            )
+            if self._is_generating_stems or self._active_stem_tasks:
+                self.query_one("#wb-layer-status", Label).update(
+                    "Separating stems… the layer timeline builds automatically when done."
+                )
+            elif not get_preset(self.processing_preset).separation:
+                self.query_one("#wb-layer-status", Label).update(
+                    f"{get_preset(self.processing_preset).label}: this track was not separated. "
+                    "Press ⚡ BUILD STEMS to opt in for it."
+                )
+            else:
+                self.query_one("#wb-layer-status", Label).update(
+                    "Separate stems first, then open LAYERS."
+                )
             return
 
         mode = "ensemble" if self.neural_enabled else "eco"
@@ -2605,6 +2861,39 @@ class WorkbenchWidget(Widget):
             duration_src = self.path_inst or self.path_voc or self.path_mp3
             duration = await asyncio.to_thread(estimate_duration, duration_src) if duration_src else 0.0
 
+            last_pct = {"v": -1.0}
+
+            def _on_build_progress(pct: float, step: str) -> None:
+                if pct - last_pct["v"] < 1.0:
+                    return
+                last_pct["v"] = pct
+
+                def _ui() -> None:
+                    try:
+                        self.query_one("#wb-layer-status", Label).update(
+                            f"Building layer timeline… {int(pct)}% ({step}) — "
+                            "the grid appears when ready."
+                        )
+                    except Exception:
+                        pass
+
+                self.app.call_from_thread(_ui)
+
+            credits = self.recording_credits
+            credit_instruments = (
+                tuple(getattr(credits, "lane_credits", ()) or ()) if credits else ()
+            )
+            singer_count = getattr(credits, "singer_count", None) if credits is not None else None
+            preset = get_preset(self.processing_preset)
+            tag_labels: tuple[str, ...] = ()
+            if preset.tags:
+                try:
+                    from harvester.analysis.enhancement.tags import tagged_labels
+
+                    tag_labels = tagged_labels(stem_dir)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.info("tags unavailable for the lane plan: %s", exc)
+
             def _build() -> LayerTrack:
                 return build_layer_track(
                     stem_dir,
@@ -2613,24 +2902,39 @@ class WorkbenchWidget(Widget):
                     duration_s=duration,
                     sample_rate=44100,
                     crossover_hz=self.stem_crossover_hz,
+                    progress_callback=_on_build_progress,
+                    credit_instruments=credit_instruments,
+                    singer_count=singer_count,
+                    tag_labels=tag_labels,
                 )
 
+            try:
+                self.query_one("#wb-layer-status", Label).update(
+                    "Building layer timeline… "
+                )
+            except Exception:
+                pass
             track = await asyncio.to_thread(_build)
             if track is None or not track.segments:
                 raise RuntimeError("Layer analysis produced no timeline segments.")
 
             self.layer_track = track
-            try:
-                studio = self.query_one("#wb-layer-studio", LayerStudio)
-                studio.track = track
-            except Exception:
-                pass
+            self._render_lane_plan(track)
+            if self._layer_terminal_pending and self.layer_track is not None:
+                self._layer_terminal_pending = False
+                self.run_worker(
+                    self._async_launch_layer_terminal(),
+                    name="layer-terminal-launch",
+                    exclusive=True,
+                )
             try:
                 n_issues = sum(len(s.issues) for s in track.segments)
+                detected = track.lane_summary
+                lanes = len(track.active_layers)
                 self.query_one("#wb-layer-status", Label).update(
-                    f"LAYERS READY: {len(track.active_layers)} layers · "
+                    f"LAYERS READY: {lanes} lanes ({detected}) · "
                     f"{track.n_segments}s timeline · {n_issues} defect seconds flagged "
-                    f"(click a cell to seek & inspect)."
+                    "(open the layer terminal to edit)."
                 )
             except Exception:
                 pass
@@ -2644,6 +2948,115 @@ class WorkbenchWidget(Widget):
                 pass
         finally:
             self._is_building_layers = False
+
+    # ------------------------------------------------------------------
+    # Detached layer terminal (Option B)
+    # ------------------------------------------------------------------
+    def _launch_layer_terminal(self) -> None:
+        """Write the JSON sidecar and open the layer terminal on demand.
+
+        Called only via the ``🪟 NEW WINDOW`` button (never auto-opened on
+        page switch). The build is async, so if ``layer_track`` is not ready
+        yet the launch is deferred until ``_async_build_layers`` finishes by
+        setting the ``_layer_terminal_pending`` flag. Resetting
+        ``_layer_terminal_launched`` before calling allows each click to open
+        (or re-open after the window was closed) a fresh terminal window.
+        """
+        if not self.detach_layer_terminal or self._layer_terminal_launched:
+            return
+        if self.path_mp3 is None or not self.path_mp3.exists():
+            return
+        if self.layer_track is None:
+            self._layer_terminal_pending = True
+            self._ensure_layers_built()
+            return
+        self._layer_terminal_launched = True
+        self.run_worker(
+            self._async_launch_layer_terminal(),
+            name="layer-terminal-launch",
+            exclusive=True,
+        )
+
+    async def _async_launch_layer_terminal(self) -> None:
+        """Write the sidecar and spawn the detached layer terminal process."""
+        try:
+            from harvester.ipc.layer_sidecar import write_sidecar
+            from harvester.ui.layer_terminal import launch_layer_terminal
+
+            sidecar_path = self._layer_sidecar_path()
+            if sidecar_path is None:
+                return
+            plan = self.layer_edit_plan.edits if self.layer_edit_plan else {}
+            await asyncio.to_thread(
+                write_sidecar, self.layer_track, plan, sidecar_path
+            )
+            proc = await asyncio.to_thread(launch_layer_terminal, sidecar_path)
+            if proc is not None:
+                logger.info("Layer terminal launched (sidecar %s)", sidecar_path)
+                self._start_layer_transport()
+                self.query_one("#wb-layer-status", Label).update(
+                    "LAYER TERMINAL open — it follows this window's playhead; "
+                    "its seek/play requests drive this player. Edits come back on SAVE LAYERS."
+                )
+            else:
+                self.query_one("#wb-layer-status", Label).update(
+                    "Could not open a terminal window — run the layer editor manually: "
+                    f"python -m harvester.ui.layer_terminal --sidecar {sidecar_path}"
+                )
+        except Exception as exc:
+            logger.exception("layer terminal launch failed: %s", exc)
+            self._layer_terminal_launched = False
+            try:
+                self.query_one("#wb-layer-status", Label).update(
+                    f"Layer terminal launch failed: {exc}"
+                )
+            except Exception:
+                pass
+
+    def _start_layer_transport(self) -> None:
+        """Begin publishing the playhead to the detached layer terminal (5 Hz)."""
+        if self._transport_timer is None:
+            self._transport_timer = self.set_interval(0.20, self._publish_layer_transport)
+
+    def _reload_sidecar_edits(self) -> None:
+        """Merge any edit plan written back by the detached layer terminal."""
+        sidecar_path = self._layer_sidecar_path()
+        if sidecar_path is None:
+            return
+        if not sidecar_path.exists():
+            return
+        try:
+            from harvester.ipc.layer_sidecar import read_sidecar
+
+            _, sidecar_plan = read_sidecar(sidecar_path)
+        except Exception as exc:
+            logger.debug("sidecar reload skipped: %s", exc)
+            return
+        if not sidecar_plan:
+            return
+        plan = self.layer_edit_plan or EditPlan()
+        for cell, op in sidecar_plan.items():
+            # Do not clobber edits already staged locally in the workbench.
+            plan.edits.setdefault(cell, op)
+        self.layer_edit_plan = plan
+        logger.info("Picked up %d edit(s) from the detached layer terminal.", plan.count)
+
+    async def _refresh_sidecar_after_commit(self) -> None:
+        """Rewrite the sidecar with the committed grid so a stale plan is not
+        re-applied by an already-open layer terminal on its next save."""
+        if self.layer_track is None:
+            return
+        sidecar_path = self._layer_sidecar_path()
+        if sidecar_path is None or not sidecar_path.exists():
+            return
+        try:
+            from harvester.ipc.layer_sidecar import write_sidecar
+
+            await asyncio.to_thread(
+                write_sidecar, self.layer_track, {}, sidecar_path
+            )
+        except Exception:
+            pass
 
     def toggle_neural_engine(self) -> None:
         """Toggle between Eco DSP mode (cool, zero heat) and Neural AI mode."""
@@ -2999,12 +3412,14 @@ class WorkbenchWidget(Widget):
             self.path_enh = out_path
             if pb:
                 pb.progress = 100.0
-            self.query_one("#wb-status", Label).update(f"Downloaded: {out_path.name}")
+            self.query_one("#wb-status", Label).update(
+                f"Downloaded: {out_path.name} · preset {preset.name} · "
+                f"folder {out_dir}"
+            )
             self.app.notify(
-                f"Downloaded Enhanced MP3: {out_path.name}\n"
-                f"Preset: {preset.name}\nFolder: {out_dir}",
+                f"Enhanced MP3 saved: {out_path.name}",
                 title="OmniRip Enhanced Download",
-                timeout=5.0,
+                timeout=4.0,
             )
             if self.on_exported:
                 self.on_exported(out_path)

@@ -48,3 +48,62 @@ def test_secret_values_are_never_in_public_config(tmp_path: Path) -> None:
     public = config.public_dict()
     assert "SLSKD_API_KEY" in public["slskd"]["api_key_env"]
     assert "value" not in public["slskd"]
+
+
+def test_load_env_file_supplies_api_keys_and_keeps_real_env_wins(tmp_path: Path) -> None:
+    """A local .env feeds ACOUSTID_API_KEY et al. (NFR-6) without overriding real env."""
+    from harvester.config import load_env_file
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# comment\n"
+        "ACOUSTID_API_KEY=from-file\n"
+        'SLSKD_API_KEY="quoted-value"\n'
+        "export EXTRA_KEY=exported\n"
+        "BROKEN LINE\n"
+        "\n",
+        encoding="utf-8",
+    )
+    environ = {"ACOUSTID_API_KEY": "from-shell"}
+
+    loaded = load_env_file(env_file, environ=environ)
+
+    assert "ACOUSTID_API_KEY" not in loaded  # shell export wins
+    assert environ["ACOUSTID_API_KEY"] == "from-shell"
+    assert environ["SLSKD_API_KEY"] == "quoted-value"
+    assert environ["EXTRA_KEY"] == "exported"
+    assert sorted(loaded) == ["EXTRA_KEY", "SLSKD_API_KEY"]
+
+
+def test_load_env_file_is_silent_when_missing(tmp_path: Path, monkeypatch) -> None:
+    """No .env anywhere → no keys loaded and no exception."""
+    from harvester.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HARVESTER_DATA_DIR", str(tmp_path / "data"))
+
+    assert load_env_file(tmp_path / "nope.env", environ={}) == []
+
+
+def test_load_env_file_tops_up_from_less_specific_candidates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A key missing from the more specific .env is still found further down."""
+    from harvester.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("ONLY_HERE=local\n", encoding="utf-8")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / ".env").write_text(
+        "ACOUSTID_API_KEY=from-data-dir\nONLY_HERE=ignored\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("HARVESTER_DATA_DIR", str(data_dir))
+
+    environ: dict[str, str] = {}
+    loaded = load_env_file(environ=environ)
+
+    assert environ["ONLY_HERE"] == "local"  # most specific wins
+    assert environ["ACOUSTID_API_KEY"] == "from-data-dir"  # topped up from the next file
+    assert sorted(loaded) == ["ACOUSTID_API_KEY", "ONLY_HERE"]
+

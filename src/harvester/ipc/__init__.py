@@ -1,0 +1,1 @@
+"""Inter-process communication helpers (layer terminal sidecar)."""
