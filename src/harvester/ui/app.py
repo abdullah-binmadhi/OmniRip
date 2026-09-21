@@ -379,6 +379,93 @@ class PurgeConfirmScreen(ModalScreen[None]):
             self.dismiss()
 
 
+class DiscardEditsConfirmScreen(ModalScreen[None]):
+    """Confirm discarding unsaved layer edits before loading another track."""
+
+    BINDINGS = [("escape", "dismiss", "Cancel")]
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__()
+        self.job_id = job_id
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal-card"):
+            yield Label("Discard unsaved layer edits?", id="confirm-title")
+            yield Label(
+                "Unsaved edits are staged for the current track.\n"
+                "Switching tracks discards them (saved files are untouched).",
+                id="confirm-body",
+            )
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="confirm-cancel")
+                yield Button("Discard & switch", id="confirm-start", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-start":
+            app = typing.cast(HarvesterApp, self.app)
+            app.run_worker(app._load_job_id_for_switch(self.job_id), name="switch-track")
+            self.app.pop_screen()
+        else:
+            self.dismiss()
+
+
+class QuitDirtyConfirmScreen(ModalScreen[None]):
+    """Confirm quitting while unsaved layer edits are staged (docs/14 M1)."""
+
+    BINDINGS = [("escape", "dismiss", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal-card"):
+            yield Label("Discard unsaved edits and quit?", id="confirm-title")
+            yield Label(
+                "Unsaved layer edits are staged and will be lost.\n"
+                "Save them in LAYERS first, or confirm to quit anyway.",
+                id="confirm-body",
+            )
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="confirm-cancel")
+                yield Button("Discard & quit", id="confirm-start", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-start":
+            app = typing.cast(HarvesterApp, self.app)
+            app.run_worker(app._quit_after_dirty_discard(), name="quit-dirty")
+            self.app.pop_screen()
+        else:
+            self.dismiss()
+
+
+class CacheClearConfirmScreen(ModalScreen[None]):
+    """Confirm deleting this track's cached stems (docs/14 M4)."""
+
+    BINDINGS = [("escape", "dismiss", "Cancel")]
+
+    def __init__(self, on_confirm: typing.Callable[[], None], stem_dir: str) -> None:
+        super().__init__()
+        self._on_confirm = on_confirm
+        self.stem_dir = stem_dir
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal-card"):
+            yield Label("Delete cached stems for this track?", id="confirm-title")
+            yield Label(
+                f"This removes the stem cache for the loaded track only:\n{self.stem_dir}\n"
+                "Saved outputs and other tracks are untouched. Separation can be "
+                "re-run at any time with ⚡ BUILD STEMS.",
+                id="confirm-body",
+            )
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="confirm-cancel")
+                yield Button("Delete cache", id="cache-clear-confirm", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cache-clear-confirm":
+            self._on_confirm()
+            self.app.pop_screen()
+        else:
+            self.dismiss()
+
+
 class FirstRunNoticeScreen(ModalScreen[None]):
     """Legal/ToS notice shown once; acceptance persists to config (docs/01 §8, docs/08 §2)."""
 
@@ -622,7 +709,9 @@ class HarvesterApp(App[None]):
                     player = self.query_one(AudioPlayerWidget)
                     if player.current_track is None:
                         wb = self.query_one("#workbench-widget", WorkbenchWidget)
-                        wb.load_job(job)
+                        # Never clobber staged edits with an automatic load.
+                        if not wb.dirty:
+                            wb.load_job(job)
         status.set_jobs(list(orchestrator.jobs.values()))
         for level, text in plan.log_lines:
             console.write_line(level, text)
@@ -998,6 +1087,13 @@ class HarvesterApp(App[None]):
         except Exception:
             pass
 
+    def _load_job_into_workbench(self, job: TrackJob) -> None:
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb.load_job(job)
+        except Exception:
+            pass
+
     def _load_selected_into_workbench_and_player(self) -> None:
         if self.orchestrator is None:
             return
@@ -1009,9 +1105,22 @@ class HarvesterApp(App[None]):
             return
         try:
             wb = self.query_one("#workbench-widget", WorkbenchWidget)
-            wb.load_job(job)
         except Exception:
-            pass
+            return
+        if wb.dirty:
+            # A reload discards staged edits: require an explicit confirmation.
+            self.push_screen(DiscardEditsConfirmScreen(job.id))
+            return
+        wb.load_job(job)
+
+    async def _load_job_id_for_switch(self, job_id: str) -> None:
+        """Apply the confirmed track switch (dirty edits were accepted as lost)."""
+        if self.orchestrator is None:
+            return
+        job = self.orchestrator.jobs.get(job_id)
+        if job is None:
+            return
+        self._load_job_into_workbench(job)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """When user selects a job in the table, load its audio into workbench and player."""
@@ -1033,6 +1142,14 @@ class HarvesterApp(App[None]):
         self.notify(f"Purged {removed} trash day-director(ies)")
 
     async def action_quit(self) -> None:
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            dirty = wb.dirty
+        except Exception:
+            dirty = False
+        if dirty:
+            self.push_screen(QuitDirtyConfirmScreen())
+            return
         if self.orchestrator is not None and any(
             not job.state.terminal for job in self.orchestrator.jobs.values()
         ):
@@ -1040,6 +1157,21 @@ class HarvesterApp(App[None]):
             self.push_screen(QuitConfirmScreen(active))
             return
         self._run_guarded(self._shutdown_and_exit(), name="shutdown", exclusive=True)
+
+    async def _quit_after_dirty_discard(self) -> None:
+        """Discard accepted: clear the staged-edit flag, then apply the normal quit rules."""
+        try:
+            wb = self.query_one("#workbench-widget", WorkbenchWidget)
+            wb._operation_state.clear_dirty()
+        except Exception:
+            pass
+        if self.orchestrator is not None and any(
+            not job.state.terminal for job in self.orchestrator.jobs.values()
+        ):
+            active = sum(not job.state.terminal for job in self.orchestrator.jobs.values())
+            self.push_screen(QuitConfirmScreen(active))
+            return
+        await self._shutdown_and_exit()
 
     async def _shutdown_and_exit(self) -> None:
         if self.bridge is not None:
@@ -1065,6 +1197,7 @@ class HarvesterApp(App[None]):
 
 __all__ = [
     "BatchConfirmScreen",
+    "DiscardEditsConfirmScreen",
     "FatalSetupScreen",
     "FirstRunNoticeScreen",
     "HarvesterApp",
@@ -1073,5 +1206,6 @@ __all__ = [
     "PlaylistConfirmScreen",
     "PurgeConfirmScreen",
     "QuitConfirmScreen",
+    "QuitDirtyConfirmScreen",
     "StatusBar",
 ]

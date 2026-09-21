@@ -249,13 +249,25 @@ Four static rows become as many rows as the song actually has parts:
 ### 6.3 Transport channel — `src/harvester/ipc/layer_sidecar.py`
 
 - Sidecar file `layer_sidecar.json`: `LayerTrack` + plan (the model channel, unchanged apart
-  from `layer_order`).
+  from `layer_order`). Per track since docs/14 M2: `.{source.stem}.layer_sidecar.json` beside
+  the source, carrying source identity (size + mtime + head/tail fingerprint, written by
+  `write_sidecar(..., source_path=...)`). `sidecar_source_matches()` refuses a sidecar whose
+  fingerprint belongs to different audio, so neither process ever edits another source's plan.
 - Transport file `layer_sidecar.transport.json`: `TransportState(playhead_s, playing,
   duration_s, seek_request, play_request, written_at)`. Both writers use `os.replace` (atomic),
   so a reader never sees a half-written JSON; requests are consumed once (`consume_requests`)
   and are field-independent (`request_seek` / `request_play_state` only touch their own field).
+- Heartbeat file `.{stem}.layer_sidecar.terminal.json` (docs/14 M5): written by the terminal
+  every 5 s (`write_terminal_heartbeat`, terminal-owned field), removed on clean exit. The
+  main app reads it only — a launched terminal whose heartbeat is older than 30 s earns a
+  one-time relaunch hint (`_terminal_stale_reported`), never a forced relaunch.
 - Ownership: the **main app** owns audio and therefore owns `playhead_s` / `playing`; the
-  terminal owns selection and the staged plan. Neither writes the other's fields.
+  terminal owns selection and the staged plan. Neither writes the other's fields. The
+  terminal's banner states this split: "Selection & edits live in this terminal · playhead /
+  transport owned by the main OmniRip window".
+- Lane provenance filter (docs/14 M5): `f` in the terminal cycles `LayerStudio.provenance_filter`
+  over all → audio → hosted → credits → tags; `_filtered_layers()` feeds both click-to-cell
+  mapping and rendering, so a filtered row is unreachable by mouse and hidden from view.
 ### 6.4 Lane provenance, presets & extra sources (docs/13)
 
 - Every lane row carries provenance from `analysis/enhancement/lane_plan.py`:

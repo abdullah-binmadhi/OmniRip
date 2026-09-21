@@ -354,6 +354,7 @@ class MvsepClient:
         upload_path = _excerpt(source, float(max_seconds))
         uploaded_seconds = _duration_s(upload_path or source)
         tmp_upload = upload_path is not None
+        staged: list[tuple[Path, Path]] = []
         try:
             _progress(5.0, f"uploading {uploaded_seconds:.0f}s to MVSEP…")
             data = await asyncio.to_thread(upload_path.read_bytes) if tmp_upload else None
@@ -411,6 +412,7 @@ class MvsepClient:
             stems: list[HostedStem] = []
             downloaded: list[Path] = []
             skipped: list[str] = []
+            staged: list[tuple[Path, Path]] = []  # (staging file, final target)
             for index, entry in enumerate(entries):
                 if _cancelled():
                     break
@@ -426,7 +428,9 @@ class MvsepClient:
                     skipped.append(token)
                     continue
                 target = dest_dir / f"{output_prefix}{HOSTED_RAW_TOKEN}{lane_key}.wav"
-                await self._download(url, target)
+                stage = target.with_name(f"{target.name}.staging-{job_hash[-8:]}")
+                await self._download(url, stage)
+                staged.append((stage, target))
                 stems.append(
                     HostedStem(
                         token=token,
@@ -442,6 +446,13 @@ class MvsepClient:
                     f"downloaded {lane_key.replace('_', ' ')}",
                 )
 
+            if not _cancelled() and staged:
+                # Commit as one swap so a new run never mixes with the previous
+                # run's stems (docs/14 M2): back up the old set, move the new
+                # files in, then remove the backups. A failure restores the old
+                # set instead of leaving a half-replaced directory.
+                _swap_hosted_run(dest_dir, output_prefix, staged, job_hash)
+
             result = HostedResult(
                 job_hash=job_hash,
                 sep_type=resolved,
@@ -455,6 +466,9 @@ class MvsepClient:
             result.message = result.describe()
             return result
         finally:
+            for stage, _target in staged:
+                with contextlib.suppress(Exception):
+                    stage.unlink()
             if tmp_upload and upload_path is not None:
                 with contextlib.suppress(Exception):
                     upload_path.unlink()
@@ -514,3 +528,53 @@ class MvsepClient:
                 async for chunk in stream.aiter_bytes():
                     fh.write(chunk)
         os.replace(tmp, target)
+
+
+def _swap_hosted_run(
+    dest_dir: Path,
+    output_prefix: str,
+    staged: list[tuple[Path, Path]],
+    job_hash: str,
+) -> None:
+    """Replace the previous hosted run's stems with a freshly staged set.
+
+    The old set is moved aside first, the new files are moved in, and only
+    then are the backups removed. If anything fails mid-move the old set is
+    restored and the staging files are dropped — a lane grid can therefore
+    never see stems from two different hosted runs mixed together (docs/14
+    M2).
+    """
+    dest_dir = Path(dest_dir)
+    backup_suffix = f".old-{job_hash[-8:]}"
+    old = sorted(dest_dir.glob(f"{output_prefix}{HOSTED_RAW_TOKEN}*.wav"))
+    backups: list[tuple[Path, Path]] = [
+        (p, p.with_name(f"{p.name}{backup_suffix}")) for p in old
+    ]
+    # The whole swap — backup, staging move-in, and restore — lives in one
+    # try/except. A failure while moving the old set aside (disk full, perms)
+    # restores exactly the files that were already moved; untouched originals
+    # stay at their names, so the old run is never left split across two
+    # naming schemes (docs/14 M2).
+    backed_up: list[tuple[Path, Path]] = []
+    try:
+        for path, backup in backups:
+            os.replace(path, backup)
+            backed_up.append((path, backup))
+        for stage, target in staged:
+            os.replace(stage, target)
+    except Exception:
+        for _stage, target in staged:
+            with contextlib.suppress(Exception):
+                target.unlink()
+        for stage, _target in staged:
+            with contextlib.suppress(Exception):
+                stage.unlink()
+        for path, backup in backed_up:
+            if backup.exists():
+                with contextlib.suppress(Exception):
+                    os.replace(backup, path)
+        raise
+    else:
+        for _path, backup in backups:
+            with contextlib.suppress(Exception):
+                backup.unlink()

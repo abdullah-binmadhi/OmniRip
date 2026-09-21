@@ -134,6 +134,14 @@ The lane grid stops being anonymous — and you stop guessing which stages ran:
 - **Hosted Separation, Opt-In Per Track (`☁ HOSTED SEPARATE`):** when the local models are not enough, one button uploads an excerpt to MVSEP, polls the job and files every returned stem as a real lane (`hosted (MVSEP)` provenance). It is deliberately **not** a preset and nothing hosted ever runs on its own — it is the only path that sends audio off your machine, and it only happens when you press the button for a specific track. The returned filename *is* the lane key, so a 4-, 21- or 53-stem model needs no per-model table; sum stems are skipped and unknown names still become lanes.
 - **Measured Speakers, Advisory (`👥 SPEAKERS`):** pyannote diarization measures how many voices the audio actually contains and reports `N speakers measured` **next to** the MusicBrainz credit count (`2 singers · 1 speakers measured`), naming credits as authoritative whenever they disagree. It never rewrites credits, never adds or removes a lane, and runs on CPU (Apple MPS fails on this pipeline). Optional: `uv pip install -e '.[diarize]'`.
 
+### 5d. Safety Rails & Product Polish
+The workbench treats every destructive or egress action as a decision, not a side effect:
+- **Per-Track Isolation:** switching tracks invalidates every in-flight worker (hosted separation, diarization, credits, layer build) through a per-track generation token, so a stale job can never touch the new track; unsaved layer edits are guarded by a discard confirmation on switch or quit.
+- **Identity-Checked Cache & Sidecars:** sidecars are per-track and fingerprinted (size + mtime + head/tail), so neither window ever edits another source's plan; cached stems are adopted only when their manifest matches the source — a re-downloaded "same" file with different bytes is re-separated, not silently reused.
+- **Hosted Separation is Explicit:** the MVSEP upload button opens a confirmation screen showing file, size and scope with a model picker — cancel means zero network activity; new hosted stems replace the old set atomically (rollback on failure), and every failure names its cause and its retry action.
+- **Repair & Diagnostics:** `♻ REBUILD` (forced timeline rebuild), `🏷 RE-TAGS` (CLAP re-run) and `🗑 CLEAR CACHE` (confirmed, per-track only) recover from stale caches; `🔍 DIAG` reports model versions, tool paths and credential *presence* — never values.
+- **Terminal Liveness:** the detached layer terminal writes a heartbeat, so a crashed window earns a one-time relaunch hint instead of silently desyncing; `f` cycles a lane provenance filter (all → audio → hosted → credits → tags) and each save reports files written, seconds edited and the mix-residual verdict.
+
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
 - **AcoustID Audio Fingerprinting:** Instead of relying on random filenames, OmniRip uses Chromaprint (`fpcalc`) to listen to the song's acoustic fingerprint—just like Shazam. It queries the open MusicBrainz database to retrieve the official canonical song title, artist name, album, release year, genre, and track number.
@@ -282,6 +290,7 @@ For engineers and contributors exploring the internal mechanics:
 | 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 7-Model on-device AI registry, weights management, PyTorch MPS |
 | 🎛️ [**12. Layer Studio & Surgical Edits**](docs/12-layers-studio.md) | FL Studio arrangement timeline, 10 per-second surgical DSP edits |
 | 🧬 [**13. Lane Expansion**](docs/13-lane-expansion.md) | Processing presets, lane provenance, MusicBrainz credits, 6-source guitar/piano lanes, CLAP tags, opt-in hosted MVSEP separation, advisory speaker measurement |
+| 🛡️ [**14. UI Hardening & Product Polish**](docs/14-ui-hardening.md) | Per-track state & operation lifecycle, sidecar/cache identity, hosted-run isolation, confirmations & diagnostics, cache repair, terminal heartbeat & lane filters |
 
 ---
 

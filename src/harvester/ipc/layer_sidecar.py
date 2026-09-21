@@ -17,6 +17,7 @@ Pure ``json``/``pathlib``/``dataclasses`` — no third-party dependencies.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -62,6 +63,53 @@ def transport_path(sidecar_path: Path) -> Path:
     """``…/layer_sidecar.json`` → ``…/layer_sidecar.transport.json``."""
     sidecar_path = Path(sidecar_path)
     return sidecar_path.with_name(f"{sidecar_path.stem}.transport.json")
+
+
+def terminal_path(sidecar_path: Path) -> Path:
+    """``…/layer_sidecar.json`` → ``…/layer_sidecar.terminal.json`` (heartbeat)."""
+    sidecar_path = Path(sidecar_path)
+    return sidecar_path.with_name(f"{sidecar_path.stem}.terminal.json")
+
+
+def write_terminal_heartbeat(sidecar_path: Path, pid: int | None = None) -> None:
+    """Terminal-owned liveness file (docs/14 M5): atomic, rewritten every ~5 s.
+
+    The terminal is the only writer; the main app only reads mtime/content to
+    decide whether its window is still alive.
+    """
+    path = terminal_path(sidecar_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"version": 1, "pid": int(pid or os.getpid()), "written_at": time.time()}
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_terminal_heartbeat(sidecar_path: Path) -> dict[str, object] | None:
+    """Read the terminal's last heartbeat, or None when missing/corrupt."""
+    path = terminal_path(sidecar_path)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def clear_terminal_heartbeat(sidecar_path: Path) -> None:
+    """Best-effort removal when the terminal exits cleanly."""
+    with contextlib.suppress(OSError):
+        terminal_path(sidecar_path).unlink(missing_ok=True)
+
+
+def terminal_heartbeat_age_s(sidecar_path: Path, now: float | None = None) -> float | None:
+    """Seconds since the last heartbeat (None = never beat)."""
+    data = read_terminal_heartbeat(sidecar_path)
+    written = data.get("written_at") if data else None
+    if not isinstance(written, (int, float)):
+        return None
+    return max(0.0, (now if now is not None else time.time()) - float(written))
 
 
 def write_transport(path: Path, state: TransportState) -> None:
@@ -189,7 +237,11 @@ def _encode_source(src: LayerSource) -> dict[str, object]:
 
 
 def write_sidecar(
-    track: LayerTrack, edit_plan: EditPlan | dict[tuple[str, int], str], path: Path
+    track: LayerTrack,
+    edit_plan: EditPlan | dict[tuple[str, int], str],
+    path: Path,
+    *,
+    source_path: Path | None = None,
 ) -> None:
     """Serialize a LayerTrack + pending edit plan to the JSON sidecar."""
     payload = {
@@ -216,9 +268,62 @@ def write_sidecar(
         "segments": [_encode_segment(seg) for seg in track.segments],
         "edit_plan": _encode_plan(edit_plan),
     }
+    if source_path is not None:
+        payload["source"] = _source_block(source_path)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    # Atomic: a polling reader never sees a half-written sidecar.
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _source_block(source_path: Path) -> dict[str, object]:
+    """Identity of the audio this sidecar belongs to (docs/14 M2)."""
+    from harvester.analysis.enhancement.stem_cache import source_fingerprint
+
+    source_path = Path(source_path)
+    stat = source_path.stat()
+    return {
+        "path": str(source_path),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "fingerprint": source_fingerprint(source_path),
+    }
+
+
+def sidecar_source_matches(sidecar_path: Path, source_path: Path) -> bool:
+    """Whether the sidecar provably belongs to ``source_path``.
+
+    Sidecars written before source identity existed carry no block and are
+    accepted as legacy; a sidecar whose recorded identity contradicts the
+    source is refused so a detached terminal can never edit another track's
+    plan.
+    """
+    sidecar_path = Path(sidecar_path)
+    source_path = Path(source_path)
+    if not sidecar_path.exists():
+        return False
+    try:
+        data = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    block = data.get("source") if isinstance(data, dict) else None
+    if not isinstance(block, dict):
+        return True  # legacy sidecar: nothing recorded to contradict
+    try:
+        if int(block.get("size", -1)) != source_path.stat().st_size:
+            return False
+        if int(block.get("mtime_ns", -1)) != source_path.stat().st_mtime_ns:
+            return False
+    except OSError:  # pragma: no cover - unreadable source
+        return False
+    stored = block.get("fingerprint")
+    if not stored:
+        return True
+    from harvester.analysis.enhancement.stem_cache import source_fingerprint
+
+    return str(stored) == source_fingerprint(source_path)
 
 
 def read_sidecar(path: Path) -> tuple[LayerTrack, dict[tuple[str, int], str]]:

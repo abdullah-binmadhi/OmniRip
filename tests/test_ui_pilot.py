@@ -5,14 +5,22 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from textual.widgets import Button
 
 textual = pytest.importorskip("textual")
 
 from harvester.config import load_config  # noqa: E402
 from harvester.models import Mode, State, TrackJob  # noqa: E402
-from harvester.ui.app import HarvesterApp, JobTable, QuitConfirmScreen  # noqa: E402
+from harvester.ui.app import (  # noqa: E402
+    DiscardEditsConfirmScreen,
+    HarvesterApp,
+    JobTable,
+    QuitConfirmScreen,
+    QuitDirtyConfirmScreen,
+)
 from harvester.ui.bridge import FlushPlan  # noqa: E402
 from harvester.ui.logconsole import LogConsole  # noqa: E402
+from harvester.ui.workbench import WorkbenchWidget  # noqa: E402
 
 
 class StubOrchestrator:
@@ -80,6 +88,68 @@ async def test_quit_confirms_when_jobs_active(tmp_path) -> None:
         await pilot.press("ctrl+q")
         await pilot.pause()
         assert isinstance(app.screen, QuitConfirmScreen)
+
+
+@pytest.mark.asyncio
+async def test_dirty_edits_confirm_before_switching_tracks(tmp_path) -> None:
+    """A dirty layer edit plan requires confirmation before another track loads."""
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+    first = TrackJob(mode=Mode.SINGLE_URL, input_path=tmp_path / "one.mp3")
+    first.id = "job-a"
+    first.state = State.COMPLETED
+    second = TrackJob(mode=Mode.SINGLE_URL, input_path=tmp_path / "two.mp3")
+    second.id = "job-b"
+    second.state = State.COMPLETED
+    (tmp_path / "one.mp3").write_bytes(b"a")
+    (tmp_path / "two.mp3").write_bytes(b"b")
+    app.orchestrator.jobs["job-a"] = first
+    app.orchestrator.jobs["job-b"] = second
+
+    async with app.run_test() as pilot:
+        wb = app.query_one("#workbench-widget", WorkbenchWidget)
+        table = app.query_one(JobTable)
+        table.update_job(first)
+        table.update_job(second)
+
+        app._load_job_into_workbench(first)
+        await pilot.pause()
+        assert wb.current_job is first
+
+        wb.mark_layer_dirty()
+        assert wb.dirty is True
+
+        table.move_cursor(row=1)  # job-b row
+        app._load_selected_into_workbench_and_player()
+        await pilot.pause()
+        assert isinstance(app.screen, DiscardEditsConfirmScreen)
+        assert wb.current_job is first  # not clobbered yet
+
+        confirm = app.screen
+        confirm.query_one("#confirm-start", Button).press()
+        await pilot.pause()
+        assert wb.current_job is second
+        assert wb.dirty is False
+
+
+@pytest.mark.asyncio
+async def test_quit_confirms_when_layer_edits_dirty(tmp_path) -> None:
+    """Quitting with unsaved layer edits asks for a discard confirmation."""
+    app = _app(tmp_path)
+    app.orchestrator = StubOrchestrator()
+
+    async with app.run_test() as pilot:
+        wb = app.query_one("#workbench-widget", WorkbenchWidget)
+        wb.mark_layer_dirty()
+
+        await pilot.press("ctrl+q")
+        await pilot.pause()
+        assert isinstance(app.screen, QuitDirtyConfirmScreen)
+
+        screen = app.screen
+        screen.query_one("#confirm-cancel", Button).press()
+        await pilot.pause()
+        assert not isinstance(app.screen, QuitDirtyConfirmScreen)
 
 
 @pytest.mark.asyncio

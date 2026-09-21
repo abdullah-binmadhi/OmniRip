@@ -12,6 +12,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal
 
 import platformdirs
@@ -50,6 +51,12 @@ from harvester.processing import (
 )
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
+from harvester.ui.operation_state import (
+    Operation,
+    OperationBusyError,
+    OperationToken,
+    WorkbenchOperationState,
+)
 from harvester.ui.visualizer import AudioVisualizer
 
 if TYPE_CHECKING:
@@ -779,7 +786,8 @@ class WorkbenchWidget(Widget):
         self.path_inst: Path | None = None
         self._is_generating_enh: bool = False
         self._is_generating_stems: bool = False
-        self._active_stem_tasks: set[Path] = set()
+        self._active_stem_tasks: set[tuple[Path, int]] = set()
+        self._operation_state = WorkbenchOperationState()
 
         # Layer Studio: separated per-source stems + their stem directory
         self.layer_track = None
@@ -794,6 +802,10 @@ class WorkbenchWidget(Widget):
         self._layer_terminal_launched: bool = False
         self._layer_terminal_pending: bool = False
         self._transport_timer: Timer | None = None
+        self._diarize_timer: Timer | None = None
+        self._diarize_started: float = 0.0
+        self._diarizer: object | None = None
+        self._terminal_stale_reported: bool = False
 
         # Processing preset (docs/13): which stages run for this session. The
         # engine fallback chain (neural → hdemucs → eco) is separate and always
@@ -810,6 +822,97 @@ class WorkbenchWidget(Widget):
         self.measured_speakers: int | None = None
         self._hosted_task_running: bool = False
         self._diarize_task_running: bool = False
+
+    @property
+    def track_generation(self) -> int:
+        """Monotonic context generation used to reject late worker results."""
+        return self._operation_state.generation
+
+    @property
+    def dirty(self) -> bool:
+        """Whether the current track has staged, unsaved layer edits."""
+        return self._operation_state.dirty
+
+    def _begin_operation(self, operation: Operation) -> OperationToken | None:
+        """Start an exclusive UI operation and report conflicts without raising."""
+        try:
+            return self._operation_state.begin(operation)
+        except (OperationBusyError, RuntimeError) as exc:
+            self._layer_status(f"Busy: {exc}")
+            return None
+
+    def _finish_operation(self, token: OperationToken, *, dirty: bool | None = None) -> bool:
+        """Finish an operation only if it still belongs to the visible track."""
+        return self._operation_state.finish(token, dirty=dirty)
+
+    def _is_current_operation(self, token: OperationToken) -> bool:
+        """Return false for a worker that belongs to an old track or operation."""
+        return self._operation_state.is_current(token)
+
+    def _is_current_track(self, source: Path | None, generation: int) -> bool:
+        """Guard UI mutations from late workers, including same-path track reloads."""
+        return generation == self.track_generation and source == self.path_mp3
+
+    def _cancel_track_workers(self) -> None:
+        """Cancel workers whose results are scoped to the current track."""
+        track_worker_names = {
+            "render-stream-enh",
+            "warm-mode-cache",
+            "stem-acoustic-detect",
+            "hosted-separation",
+            "speaker-measure",
+            "credits-lookup",
+            "layer-studio-build",
+            "layer-studio-commit",
+            "layer-terminal-launch",
+        }
+        for worker in list(self.workers):
+            if worker.name in track_worker_names:
+                worker.cancel()
+
+    def _reset_track_scoped_state(self, job: TrackJob) -> None:
+        """Invalidate workers and clear every result owned by the previous track."""
+        self._cancel_track_workers()
+        if self._transport_timer is not None:
+            self._transport_timer.stop()
+            self._transport_timer = None
+        self._operation_state.load_track(job.id or str(job.input_path or job.output_path or ""))
+        self._active_stem_tasks.clear()
+        self._is_generating_enh = False
+        self._is_generating_stems = False
+        self._is_building_layers = False
+        self._credits_task_running = False
+        self._hosted_task_running = False
+        self._diarize_task_running = False
+        self.path_mp3 = None
+        self.path_enh = None
+        self.path_voc = None
+        self.path_inst = None
+        self.layer_track = None
+        self.layer_stem_dir = None
+        self.layer_edit_plan = None
+        self.recording_credits = None
+        self.measured_speakers = None
+        self.vocal_flags = set()
+        self.inst_flags = set()
+        self.vocal_profile = "natural"
+        self.inst_profile = "natural"
+        self._layer_terminal_launched = False
+        self._layer_terminal_pending = False
+        self._terminal_stale_reported = False
+        self._diarize_started = 0.0
+        if self._diarize_timer is not None:
+            self._diarize_timer.stop()
+            self._diarize_timer = None
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-layer-status", Label).update("Loading track state…")
+            self.query_one("#wb-status", Label).update("Loading track…")
+
+    def mark_layer_dirty(self) -> None:
+        """Mark staged edits dirty so destructive navigation can be guarded."""
+        self._operation_state.mark_dirty()
+        with contextlib.suppress(Exception):
+            self.query_one("#wb-layer-status", Label).update("UNSAVED EDITS — save or clear before leaving.")
 
     def _render_fader_track(self, gain_db: float) -> str:
         """Render a 13-line vertical studio fader rail with center 0dB line,
@@ -1131,6 +1234,12 @@ class WorkbenchWidget(Widget):
                         "☁ HOSTED SEPARATE", id="wb-btn-hosted-separate", classes="wb-layers-btn"
                     )
                     yield Button("👥 SPEAKERS", id="wb-btn-detect-speakers", classes="wb-layers-btn")
+                    yield Button("🔍 DIAG", id="wb-btn-diagnostics", classes="wb-layers-btn")
+                with contextlib.suppress(Exception):
+                    with Horizontal(classes="wb-layers-row"):
+                        yield Button("♻ REBUILD", id="wb-btn-rebuild-layers", classes="wb-layers-btn")
+                        yield Button("🏷 RE-TAGS", id="wb-btn-retags", classes="wb-layers-btn")
+                        yield Button("🗑 CLEAR CACHE", id="wb-btn-clear-cache", classes="wb-layers-btn danger")
                 yield Label("", id="wb-preset-status", classes="wb-acoustic-status")
                 yield Label(
                     "Lanes are detected from the song and drawn in the detached layer terminal "
@@ -1170,6 +1279,7 @@ class WorkbenchWidget(Widget):
 
     def load_job(self, job: TrackJob) -> None:
         """Load a track job into the workbench, resolve streams, and pre-render ENH."""
+        self._reset_track_scoped_state(job)
         self.current_job = job
         cutoff = job.spectral.cutoff_hz if (job.spectral and job.spectral.cutoff_hz) else 15500.0
         self.cutoff_hz = cutoff
@@ -1188,14 +1298,51 @@ class WorkbenchWidget(Widget):
         self.path_voc = None
         self.path_inst = None
         if self.path_mp3:
-            stem_dir = (
-                Path.home()
-                / ".cache"
-                / "omnirip"
-                / "stems"
-                / f"{self.path_mp3.stem}_{self.path_mp3.stat().st_size}"
-            )
+            from harvester.analysis.enhancement.stem_separator import stem_dir_for
+
+            stem_dir = stem_dir_for(self.path_mp3)
+            stale_cache = False
             if stem_dir.exists():
+                from harvester.analysis.enhancement.stem_cache import (
+                    cache_matches,
+                    read_stage_meta,
+                )
+
+                if not cache_matches(stem_dir, self.path_mp3):
+                    # Same stem + size but provably different audio: adopting
+                    # these stems would show another song's lanes (docs/14 M2).
+                    stale_cache = True
+                    self._layer_status(
+                        "Cached stems belong to another source file — "
+                        "press ⚡ BUILD STEMS to replace them."
+                    )
+                else:
+                    # Advisory results persist beside the stems and come back
+                    # only when they belong to this exact source.
+                    restored: list[str] = []
+                    dia_meta = read_stage_meta(stem_dir, "diarization")
+                    if dia_meta and self.path_mp3.stat().st_size == int(
+                        dia_meta.get("source_size", -1)
+                    ):
+                        try:
+                            self.measured_speakers = int(dia_meta["speaker_count"])
+                            restored.append(
+                                f"speakers {self.measured_speakers} "
+                                f"({dia_meta.get('model', 'pyannote')}, {dia_meta.get('device', 'cpu')})"
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            self.measured_speakers = None
+                    tags_meta = read_stage_meta(stem_dir, "tags")
+                    if tags_meta and self.path_mp3.stat().st_size == int(
+                        tags_meta.get("source_size", -1)
+                    ):
+                        labels = [str(label) for label in (tags_meta.get("labels") or [])]
+                        model = str(tags_meta.get("model", "clap")).rsplit("/", 1)[-1]
+                        if labels:
+                            restored.append(f"tags ({model}): {', '.join(labels)}")
+                    if restored:
+                        self._layer_status("Restored from cache: " + " · ".join(restored))
+            if stem_dir.exists() and not stale_cache:
                 from harvester.analysis.enhancement.stem_separator import (
                     get_stem_cache_suffix,
                     load_stem_profile,
@@ -1254,7 +1401,7 @@ class WorkbenchWidget(Widget):
                 v_cand = stem_dir / f"{self.path_mp3.stem}_eco_vocals.wav"
                 i_cand = stem_dir / f"{self.path_mp3.stem}_eco_instrumental.wav"
 
-            if v_cand.exists() and i_cand.exists():
+            if not stale_cache and v_cand.exists() and i_cand.exists():
                 self.path_voc = v_cand
                 self.path_inst = i_cand
                 if stem_dir.exists():
@@ -1262,7 +1409,10 @@ class WorkbenchWidget(Widget):
 
         try:
             pb = self.query_one("#wb-stem-progress", ProgressBar)
-            if self.path_mp3 and self.path_mp3 in self._active_stem_tasks:
+            if self.path_mp3 and any(
+                source == self.path_mp3 and generation == self.track_generation
+                for source, generation in self._active_stem_tasks
+            ):
                 pb.styles.display = "block"
             else:
                 pb.styles.display = "none"
@@ -1591,19 +1741,31 @@ class WorkbenchWidget(Widget):
         """Initiate background stem separation for current track."""
         if not self.path_mp3 or not self.path_mp3.exists():
             return
-        if self.path_mp3 in self._active_stem_tasks:
+        generation = self.track_generation
+        task_key = (self.path_mp3, generation)
+        if task_key in self._active_stem_tasks:
             self.query_one("#wb-status", Label).update(
                 "Stem separation is already processing for this track..."
             )
             return
-        self._active_stem_tasks.add(self.path_mp3)
+        self._active_stem_tasks.add(task_key)
         self._is_generating_stems = True
-        asyncio.create_task(self._async_separate_stems(self.path_mp3, target_stream, force=force))
+        asyncio.create_task(
+            self._async_separate_stems(
+                self.path_mp3, target_stream, force=force, generation=generation
+            )
+        )
 
     async def _async_separate_stems(
-        self, source_path: Path, target_stream: str, force: bool = False
+        self,
+        source_path: Path,
+        target_stream: str,
+        force: bool = False,
+        generation: int | None = None,
     ) -> None:
         """Run stem separation asynchronously with live progress and route stream when ready."""
+        if generation is None:
+            generation = self.track_generation
         pb = None
         try:
             pb = self.query_one("#wb-stem-progress", ProgressBar)
@@ -1616,9 +1778,9 @@ class WorkbenchWidget(Widget):
         def on_progress(pct: float, step: str) -> None:
             def _ui() -> None:
                 try:
-                    if pb and self.path_mp3 == source_path:
+                    if pb and self._is_current_track(source_path, generation):
                         pb.progress = pct
-                    if self.path_mp3 == source_path:
+                    if self._is_current_track(source_path, generation):
                         self.query_one("#wb-status", Label).update(
                             f"Stem Separation [{int(pct)}%]: {step}"
                         )
@@ -1660,8 +1822,19 @@ class WorkbenchWidget(Widget):
                     vocal_flags=self.vocal_flags,
                     inst_flags=self.inst_flags,
                 )
+                from harvester.analysis.enhancement.stem_cache import (
+                    write_cache_manifest,
+                )
 
-            if self.path_mp3 == source_path:
+                write_cache_manifest(
+                    res.vocals_path.parent,
+                    source_path,
+                    engine=res.engine,
+                    mode=sep_mode,
+                    preset=self.processing_preset,
+                )
+
+            if self._is_current_track(source_path, generation):
                 self.path_voc = res.vocals_path
                 self.path_inst = res.instrumental_path
                 track_name = source_path.name
@@ -1681,12 +1854,16 @@ class WorkbenchWidget(Widget):
                     and sep_mode != "eco"
                     and self.layer_stem_dir is not None
                 ):
-                    await self._run_extra_lanes(source_path, self.layer_stem_dir, sep_mode)
+                    await self._run_extra_lanes(
+                        source_path, self.layer_stem_dir, sep_mode, generation=generation
+                    )
 
                 # NEURAL FULL also tags audible content (advisory lane rows); the
                 # tags are written next to the stems so the lane build reads them.
                 if preset.tags and self.layer_stem_dir is not None:
-                    await self._run_tagging_pass(source_path, self.layer_stem_dir)
+                    await self._run_tagging_pass(
+                        source_path, self.layer_stem_dir, generation=generation
+                    )
 
                 self._ensure_layers_built()
 
@@ -1729,7 +1906,7 @@ class WorkbenchWidget(Widget):
                 timeout=4.0,
             )
 
-            if pb and self.path_mp3 == source_path:
+            if pb and self._is_current_track(source_path, generation):
                 pb.progress = 100.0
                 await asyncio.sleep(0.6)
                 pb.styles.display = "none"
@@ -1741,10 +1918,10 @@ class WorkbenchWidget(Widget):
             display_msg = (
                 "⛔ Neural AI models unavailable — install torch & torchaudio."
                 if is_ai_unavailable
-                else f"Stem separation error: {err}"
+                else f"Stem separation error: {err} — press ⚡ BUILD STEMS to retry."
             )
             try:
-                if self.path_mp3 == source_path:
+                if self._is_current_track(source_path, generation):
                     self.query_one("#wb-status", Label).update(display_msg)
             except Exception:
                 pass
@@ -1757,10 +1934,10 @@ class WorkbenchWidget(Widget):
                 timeout=6.0 if is_ai_unavailable else 4.0,
             )
         finally:
-            self._active_stem_tasks.discard(source_path)
+            self._active_stem_tasks.discard((source_path, generation))
             self._is_generating_stems = bool(self._active_stem_tasks)
             try:
-                if pb and self.path_mp3 == source_path:
+                if pb and self._is_current_track(source_path, generation):
                     pb.styles.display = "none"
             except Exception:
                 pass
@@ -1892,9 +2069,16 @@ class WorkbenchWidget(Widget):
 
         preset = PRESETS.get(self.selected_preset_id) or PRESETS["conservative"]
         self._is_generating_enh = True
-        self.run_worker(self._async_render_enh(src, preset), name="render-stream-enh")
+        self.run_worker(
+            self._async_render_enh(src, preset, generation=self.track_generation),
+            name="render-stream-enh",
+        )
 
-    async def _async_render_enh(self, src: Path, preset) -> None:
+    async def _async_render_enh(
+        self, src: Path, preset, *, generation: int | None = None
+    ) -> None:
+        if generation is None:
+            generation = self.track_generation
         try:
             mode_tag = "neural" if self.neural_enabled else "eco"
             eq_tag = self._get_eq_cache_tag()
@@ -1907,13 +2091,18 @@ class WorkbenchWidget(Widget):
                 cutoff_hz=self.cutoff_hz,
                 eq_settings=self.eq_settings,
             )
-            if self.selected_preset_id == preset.id:
+            if self._is_current_track(src, generation) and self.selected_preset_id == preset.id:
                 self.path_enh = out_path
 
-            self._is_generating_enh = False
+            if self._is_current_track(src, generation):
+                self._is_generating_enh = False
 
             # If user has ENH active and is still on this preset, immediately switch playback!
-            if self.active_stream == "ENH" and self.selected_preset_id == preset.id:
+            if (
+                self._is_current_track(src, generation)
+                and self.active_stream == "ENH"
+                and self.selected_preset_id == preset.id
+            ):
                 self._route_to_player(
                     out_path,
                     title=f"[ENH] Restored ({preset.name})",
@@ -1923,13 +2112,19 @@ class WorkbenchWidget(Widget):
                 self.query_one("#wb-status", Label).update(
                     f"Auditioning [ENH]: Restored ({preset.name})"
                 )
-            self._update_inspector()
+            if self._is_current_track(src, generation):
+                self._update_inspector()
 
-            # Pre-warm remaining presets of the active mode in the background
-            self.run_worker(self._async_warm_remaining_presets(src), name="warm-mode-cache")
+                # Pre-warm remaining presets of the active mode in the background
+                self.run_worker(
+                    self._async_warm_remaining_presets(src), name="warm-mode-cache"
+                )
         except asyncio.CancelledError:
-            self._is_generating_enh = False
+            if self._is_current_track(src, generation):
+                self._is_generating_enh = False
         except Exception as exc:
+            if not self._is_current_track(src, generation):
+                return
             self._is_generating_enh = False
             try:
                 self.query_one("#wb-status", Label).update(f"Enhance failed: {exc}")
@@ -2225,6 +2420,16 @@ class WorkbenchWidget(Widget):
         elif btn_id == "wb-btn-detect-speakers":
             self._start_diarization()
 
+        elif btn_id == "wb-btn-diagnostics":
+            self._open_diagnostics()
+
+        elif btn_id == "wb-btn-rebuild-layers":
+            self._rebuild_layers()
+        elif btn_id == "wb-btn-retags":
+            self._rerun_tags()
+        elif btn_id == "wb-btn-clear-cache":
+            self._clear_track_cache()
+
         elif btn_id == "wb-btn-save-layers":
             self._commit_layers_async()
         elif btn_id == "wb-btn-clear-layers":
@@ -2452,18 +2657,27 @@ class WorkbenchWidget(Widget):
     # ------------------------------------------------------------------
     # Processing preset + lane provenance (docs/13)
     # ------------------------------------------------------------------
-    async def _run_extra_lanes(self, source_path: Path, stem_dir: Path, mode: str) -> None:
+    async def _run_extra_lanes(
+        self,
+        source_path: Path,
+        stem_dir: Path,
+        mode: str,
+        *,
+        generation: int | None = None,
+    ) -> None:
         """NEURAL FULL: persist guitar/piano raw stems for the lane grid.
 
         Writes the extras under the *same* mode suffix the 4-source run used, so
         ``dynamic_layers`` picks them up with no extra wiring. A missing model
         degrades to 4-source lanes and says so.
         """
+        if generation is None:
+            generation = self.track_generation
 
         def _on_progress(pct: float, step: str) -> None:
             def _ui() -> None:
                 with contextlib.suppress(Exception):
-                    if self.path_mp3 == source_path:
+                    if self._is_current_track(source_path, generation):
                         self.query_one("#wb-status", Label).update(
                             f"Extra lanes [{int(pct)}%]: {step}"
                         )
@@ -2491,19 +2705,27 @@ class WorkbenchWidget(Widget):
                 else "Extra lanes unavailable (6-source model missing) — 4-source lanes only."
             )
 
-    async def _run_tagging_pass(self, source_path: Path, stem_dir: Path) -> None:
+    async def _run_tagging_pass(
+        self,
+        source_path: Path,
+        stem_dir: Path,
+        *,
+        generation: int | None = None,
+    ) -> None:
         """NEURAL FULL: CLAP instrument/vocal tags → ``tags.json`` → plan rows.
 
         Advisory by design (docs/13 D25): tags only add provenance rows to the
         lane plan — never verdicts, never file metadata. A missing model or
         dependency leaves the track untagged instead of failing the run.
         """
+        if generation is None:
+            generation = self.track_generation
         from harvester.analysis.enhancement.tags import ClapTagger
 
         def _on_progress(pct: float, step: str) -> None:
             def _ui() -> None:
                 with contextlib.suppress(Exception):
-                    if self.path_mp3 == source_path:
+                    if self._is_current_track(source_path, generation):
                         self.query_one("#wb-layer-status", Label).update(
                             f"Tags [{int(pct)}%]: {step}"
                         )
@@ -2526,6 +2748,19 @@ class WorkbenchWidget(Widget):
                     "Tags unavailable (CLAP model not cached) — lanes stay as detected."
                 )
             else:
+                from harvester.analysis.enhancement.stem_cache import write_stage_meta
+
+                write_stage_meta(
+                    stem_dir,
+                    "tags",
+                    {
+                        "labels": list(result.labels),
+                        "scores": {k: float(v) for k, v in result.score_map.items()},
+                        "windows": int(result.windows),
+                        "model": str(result.model),
+                        "source_size": source_path.stat().st_size,
+                    },
+                )
                 self.query_one("#wb-layer-status", Label).update(result.describe())
 
     def _layer_work_target(self) -> tuple[Path, Path, str] | None:
@@ -2552,17 +2787,116 @@ class WorkbenchWidget(Widget):
                 return None
         return source, stem_dir, mode
 
+    def _open_diagnostics(self) -> None:
+        """🔍 DIAG — show a read-only environment/credentials overview (docs/14 M3)."""
+        app = self.app
+        if app is None:
+            return
+        from harvester.ui.diagnostics import DiagnosticsScreen
+
+        app.push_screen(DiagnosticsScreen(config=getattr(app, "config", None)))
+
+    def _rebuild_layers(self) -> None:
+        """♻ REBUILD — drop the cached grid and rebuild from stems (docs/14 M4)."""
+        self.layer_track = None
+        self._ensure_layers_built(force=True)
+
+    def _rerun_tags(self) -> None:
+        """🏷 RE-TAGS — re-run the CLAP pass and replan with fresh tags."""
+        target = self._layer_work_target()
+        if target is None:
+            return
+        source, stem_dir, _mode = target
+        generation = self.track_generation
+        self._layer_status("Re-running CLAP tags (advisory — lanes only)…")
+
+        async def _rerun() -> None:
+            await self._run_tagging_pass(source, stem_dir, generation=generation)
+            if self._is_current_track(source, generation):
+                self._ensure_layers_built(force=True)
+
+        self.run_worker(_rerun(), name="retag-pass")
+
+    def _clear_track_cache(self) -> None:
+        """🗑 CLEAR CACHE — confirm, then delete exactly this track's stem dir."""
+        app = self.app
+        target = self._layer_work_target()
+        if app is None or target is None:
+            return
+        _source, stem_dir, _mode = target
+        from harvester.analysis.enhancement.stem_separator import default_stem_cache_dir
+
+        # Safety: only delete directories that live under the stem cache root.
+        cache_root = default_stem_cache_dir()
+        if stem_dir.parent != cache_root:
+            self._layer_status("Refusing to delete outside the stem cache directory.")
+            return
+        if not stem_dir.exists():
+            self._layer_status("No cached stems for this track.")
+            return
+        from harvester.ui.app import CacheClearConfirmScreen
+
+        app.push_screen(
+            CacheClearConfirmScreen(lambda: self._do_clear_track_cache(stem_dir), str(stem_dir))
+        )
+
+    def _do_clear_track_cache(self, stem_dir: Path) -> None:
+        """Delete the stem dir and drop everything derived from it."""
+        import shutil
+
+        try:
+            shutil.rmtree(stem_dir)
+        except OSError as exc:
+            self._layer_status(f"Cache delete failed: {exc}")
+            return
+        self.path_voc = None
+        self.path_inst = None
+        self.layer_stem_dir = None
+        self.layer_track = None
+        self.layer_edit_plan = None
+        self._layer_status("Cache cleared — press ⚡ BUILD STEMS to separate again.")
+
     def _layer_status(self, text: str) -> None:
         """Write the LAYERS status line (never raises on a stale widget)."""
         with contextlib.suppress(Exception):
             self.query_one("#wb-layer-status", Label).update(text)
 
     def _start_hosted_separation(self) -> None:
-        """☁ HOSTED SEPARATE — the opt-in cloud run (docs/13 D26).
+        """☁ HOSTED SEPARATE — the opt-in cloud run (docs/13 D26, docs/14 M3).
 
-        Nothing is uploaded unless this is pressed: the preset never touches the
-        network, and a missing key is reported instead of queued.
+        Nothing is uploaded unless the confirmation screen's upload button is
+        pressed: the preset never touches the network, and a missing key is
+        reported instead of queued.
         """
+        if self._hosted_task_running:
+            self._layer_status("Hosted separation is already running for this track…")
+            return
+        target = self._layer_work_target()
+        if target is None:
+            return
+        source, _stem_dir, _mode = target
+        app = self.app
+        if app is None:
+            return
+        processing = getattr(getattr(app, "config", None), "processing", None)
+        sep_type = str(
+            getattr(processing, "hosted_sep_type", DEFAULT_SEP_TYPE) or DEFAULT_SEP_TYPE
+        )
+        max_seconds = float(getattr(processing, "hosted_max_seconds", 0.0) or 0.0)
+        from harvester.ui.hosted_screen import HostedSeparationScreen
+
+        app.push_screen(
+            HostedSeparationScreen(source, sep_type, max_seconds=max_seconds),
+            self._hosted_screen_done,
+        )
+
+    def _hosted_screen_done(self, choice: str | None) -> None:
+        """Callback from HostedSeparationScreen: None = cancelled."""
+        if choice:
+            self._launch_hosted_run(choice)
+
+    def _launch_hosted_run(self, sep_type: str) -> None:
+        """Start the MVSEP job with an explicitly chosen sep_type."""
         if self._hosted_task_running:
             self._layer_status("Hosted separation is already running for this track…")
             return
@@ -2572,8 +2906,10 @@ class WorkbenchWidget(Widget):
         source, stem_dir, mode = target
         from harvester.services.mvsep import SEP_TYPE_LABELS
 
+        token = self._begin_operation(Operation.HOSTED_SEPARATION)
+        if token is None:
+            return
         processing = getattr(getattr(self.app, "config", None), "processing", None)
-        sep_type = str(getattr(processing, "hosted_sep_type", DEFAULT_SEP_TYPE) or DEFAULT_SEP_TYPE)
         max_seconds = float(getattr(processing, "hosted_max_seconds", 0.0) or 0.0)
         self._hosted_task_running = True
         scope = f"up to {max_seconds:.0f}s" if max_seconds > 0 else "the whole track"
@@ -2582,7 +2918,9 @@ class WorkbenchWidget(Widget):
             f"({SEP_TYPE_LABELS.get(sep_type, sep_type)})…"
         )
         self.run_worker(
-            self._async_hosted_separation(source, stem_dir, mode, sep_type, max_seconds),
+            self._async_hosted_separation(
+                source, stem_dir, mode, sep_type, max_seconds, token
+            ),
             name="hosted-separation",
         )
 
@@ -2593,21 +2931,26 @@ class WorkbenchWidget(Widget):
         mode: str,
         sep_type: str,
         max_seconds: float,
+        token: OperationToken,
     ) -> None:
         """Upload → poll → download hosted stems, then rebuild the lane grid."""
+        def _status(text: str) -> None:
+            if self._is_current_track(source, token.generation):
+                self._layer_status(text)
+
         try:
             from harvester.services.mvsep import MvsepClient
 
             client = MvsepClient()
             if not client.available:
-                self._layer_status(
+                _status(
                     "Hosted separation needs an MVSEP key — add MVSEP_API_KEY to .env."
                 )
                 return
 
             def _on_progress(pct: float, step: str) -> None:
                 def _ui() -> None:
-                    self._layer_status(f"☁ Hosted [{int(pct)}%]: {step}")
+                    _status(f"☁ Hosted [{int(pct)}%]: {step}")
 
                 self.app.call_from_thread(_ui)
 
@@ -2624,19 +2967,39 @@ class WorkbenchWidget(Widget):
                 await client.close()
         except Exception as exc:
             logger.info("hosted separation failed: %s", exc)
-            self._layer_status(f"Hosted separation failed: {exc}")
+            _status(f"Hosted separation failed: {exc} — press ☁ HOSTED SEPARATE to retry.")
             return
         finally:
-            self._hosted_task_running = False
+            if self._is_current_operation(token):
+                self._hosted_task_running = False
+            self._finish_operation(token)
 
+        if not self._is_current_track(source, token.generation):
+            return
         if not result.stems:
-            self._layer_status(result.message or "Hosted separation produced no usable stems.")
+            _status(result.message or "Hosted separation produced no usable stems.")
             return
 
         note = result.describe()
         if result.skipped:
             note += f" · skipped {', '.join(result.skipped)}"
-        self._layer_status(note)
+        _status(note)
+        try:
+            from harvester.analysis.enhancement.stem_cache import write_stage_meta
+
+            write_stage_meta(
+                stem_dir,
+                "hosted_run",
+                {
+                    "sep_type": str(result.sep_type),
+                    "algorithm": str(result.algorithm),
+                    "lane_keys": list(result.lane_keys),
+                    "waited_s": round(float(result.waited_s), 1),
+                    "job_hash": str(result.job_hash),
+                },
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.info("hosted run meta not persisted: %s", exc)
         # The hosted stems are on disk now: rebuild the grid so they appear as
         # rows with `hosted (MVSEP)` provenance.
         self.layer_track = None
@@ -2651,23 +3014,62 @@ class WorkbenchWidget(Widget):
         target = self._layer_work_target()
         if target is None:
             return
-        source, _stem_dir, _mode = target
+        source, stem_dir, _mode = target
         audio = self.path_voc if self.path_voc and self.path_voc.exists() else source
+        token = self._begin_operation(Operation.DIARIZATION)
+        if token is None:
+            return
         processing = getattr(getattr(self.app, "config", None), "processing", None)
         max_seconds = float(getattr(processing, "diarize_max_seconds", 0.0) or 0.0)
         self._diarize_task_running = True
+        self._diarize_started = monotonic()
         self._layer_status(
             f"👥 Measuring speakers in {audio.name} (pyannote, CPU — this takes a while)…"
         )
-        self.run_worker(self._async_diarize(audio, max_seconds), name="speaker-measure")
+        if self._diarize_timer is not None:
+            self._diarize_timer.stop()
+        self._diarize_timer = self.set_interval(10.0, self._diarize_heartbeat)
+        self.run_worker(
+            self._async_diarize(source, audio, max_seconds, token, stem_dir),
+            name="speaker-measure",
+        )
 
-    async def _async_diarize(self, audio: Path, max_seconds: float) -> None:
-        """Diarize in a worker thread and fold the count into the plan (advisory)."""
+    def _diarize_heartbeat(self) -> None:
+        """Liveness tick: pyannote on CPU takes minutes, so show elapsed time."""
+        if not self._diarize_task_running:
+            if self._diarize_timer is not None:
+                self._diarize_timer.stop()
+                self._diarize_timer = None
+            return
+        elapsed = int(monotonic() - self._diarize_started)
+        self._layer_status(
+            f"👥 Measuring speakers… {elapsed}s elapsed "
+            "(pyannote on CPU — minutes are normal, it is still working)"
+        )
+
+    async def _async_diarize(
+        self,
+        source: Path,
+        audio: Path,
+        max_seconds: float,
+        token: OperationToken,
+        stem_dir: Path,
+    ) -> None:
+        """Diarize ``audio`` and fold the count into the plan (advisory).
+
+        ``source`` is the loaded track (path_mp3) and is what the staleness
+        guard keys on; ``audio`` may be the vocals stem, whose path never
+        equals the track's (docs/14 M4).
+        """
+        def _status(text: str) -> None:
+            if self._is_current_track(source, token.generation):
+                self._layer_status(text)
+
         try:
             from harvester.services.diarization import Diarizer, pyannote_available
 
             if not pyannote_available():
-                self._layer_status(
+                _status(
                     "Speaker measurement needs the optional extra: "
                     "uv pip install -e '.[diarize]'"
                 )
@@ -2675,22 +3077,55 @@ class WorkbenchWidget(Widget):
 
             def _on_progress(pct: float, step: str) -> None:
                 def _ui() -> None:
-                    self._layer_status(f"👥 Speakers [{int(pct)}%]: {step}")
+                    _status(f"👥 Speakers [{int(pct)}%]: {step}")
 
                 self.app.call_from_thread(_ui)
 
-            diarizer = Diarizer()
+            diarizer = getattr(self, "_diarizer", None)
+            if diarizer is None:
+                diarizer = Diarizer()
+                self._diarizer = diarizer
             result = await asyncio.to_thread(
                 diarizer.diarize, audio, max_seconds=max_seconds, progress=_on_progress
             )
         except Exception as exc:
             logger.info("speaker measurement failed: %s", exc)
-            self._layer_status(f"Speaker measurement failed: {exc}")
+            _status(f"Speaker measurement failed: {exc} — press 👥 SPEAKERS to retry.")
             return
         finally:
-            self._diarize_task_running = False
+            if self._is_current_operation(token):
+                self._diarize_task_running = False
+            if self._diarize_timer is not None:
+                self._diarize_timer.stop()
+                self._diarize_timer = None
+            self._finish_operation(token)
+
+        if not self._is_current_track(source, token.generation):
+            return
 
         self.measured_speakers = result.speaker_count
+        try:
+            from harvester.analysis.enhancement.stem_cache import (
+                source_fingerprint,
+                write_stage_meta,
+            )
+
+            write_stage_meta(
+                stem_dir,
+                "diarization",
+                {
+                    "speaker_count": int(result.speaker_count or 0),
+                    "model": str(result.model),
+                    "device": str(result.device),
+                    "elapsed_s": round(float(result.elapsed_s), 1),
+                    "speech_s": round(float(result.speech_s), 1),
+                    "source_path": str(audio),
+                    "source_size": audio.stat().st_size,
+                    "source_fingerprint": source_fingerprint(audio),
+                },
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.info("diarization meta not persisted: %s", exc)
         track = self.layer_track
         if track is not None and hasattr(track, "replan"):
             try:
@@ -2706,7 +3141,7 @@ class WorkbenchWidget(Widget):
             note += (
                 f" · MusicBrainz credits say {credited} — credits stay authoritative"
             )
-        self._layer_status(note)
+        _status(note)
 
     def _set_preset(self, name: str) -> None:
         """Apply a processing preset and report what it changes."""
@@ -2755,18 +3190,29 @@ class WorkbenchWidget(Widget):
                     "No active track loaded for a credits lookup."
                 )
             return
+        token = self._begin_operation(Operation.CREDITS)
+        if token is None:
+            return
         self._credits_task_running = True
         self.run_worker(
-            self._async_fetch_credits(target), name="credits-lookup", exclusive=True
+            self._async_fetch_credits(target, token), name="credits-lookup", exclusive=True
         )
 
-    async def _async_fetch_credits(self, target: Path) -> None:
+    async def _async_fetch_credits(
+        self, target: Path, token: OperationToken | None = None
+    ) -> None:
         """Resolve documented instruments/vocalists and feed the lane plan."""
+        if token is None:
+            token = self._begin_operation(Operation.CREDITS)
+            if token is None:
+                return
+        def _status(text: str) -> None:
+            if self._is_current_track(target, token.generation):
+                with contextlib.suppress(Exception):
+                    self.query_one("#wb-layer-status", Label).update(text)
+
         try:
-            with contextlib.suppress(Exception):
-                self.query_one("#wb-layer-status", Label).update(
-                    "Credits: fingerprinting the track…"
-                )
+            _status("Credits: fingerprinting the track…")
             from harvester.config import load_config
             from harvester.services.acoustid import AcoustidService
             from harvester.services.musicbrainz import CoverArtService
@@ -2778,31 +3224,32 @@ class WorkbenchWidget(Widget):
             finally:
                 await acoustid.close()
             mbid = getattr(meta, "mb_recording_id", None) if meta else None
+            if not self._is_current_track(target, token.generation):
+                return
             if not mbid:
-                with contextlib.suppress(Exception):
-                    self.query_one("#wb-layer-status", Label).update(
-                        "Credits: no MusicBrainz recording id (AcoustID miss) — "
-                        "lanes stay as detected."
-                    )
+                _status(
+                    "Credits: no MusicBrainz recording id (AcoustID miss) — "
+                    "lanes stay as detected."
+                )
                 return
             mb = CoverArtService(app_cfg)
             try:
                 credits = await mb.fetch_recording_credits(mbid)
             finally:
                 await mb.close()
+            if not self._is_current_track(target, token.generation):
+                return
             self.recording_credits = credits
             text = credits.summary() if credits is not None else "credits unavailable"
-            with contextlib.suppress(Exception):
-                self.query_one("#wb-layer-status", Label).update(f"CREDITS: {text}")
+            _status(f"CREDITS: {text}")
             self._apply_credits_to_plan()
         except Exception as exc:
             logger.info("credits lookup failed: %s", exc)
-            with contextlib.suppress(Exception):
-                self.query_one("#wb-layer-status", Label).update(
-                    f"Credits lookup failed: {exc}"
-                )
+            _status(f"Credits lookup failed: {exc} — press 🏷 CREDITS to retry.")
         finally:
-            self._credits_task_running = False
+            if self._is_current_operation(token):
+                self._credits_task_running = False
+            self._finish_operation(token)
 
     def _apply_credits_to_plan(self) -> None:
         """Recompute lane provenance with the credit inventory (no re-analysis)."""
@@ -2826,7 +3273,9 @@ class WorkbenchWidget(Widget):
     def _layer_sidecar_path(self) -> Path | None:
         if self.path_mp3 is None:
             return None
-        return self.path_mp3.parent / "layer_sidecar.json"
+        # Per-track sidecar (docs/14 M2): tracks in one folder can no longer
+        # share a single layer_sidecar.json and clobber each other's plans.
+        return self.path_mp3.parent / f".{self.path_mp3.stem}.layer_sidecar.json"
 
     def _publish_layer_transport(self) -> None:
         """Publish this app's playhead and apply the terminal's seek/play requests.
@@ -2842,6 +3291,7 @@ class WorkbenchWidget(Widget):
             from harvester.ipc.layer_sidecar import (
                 TransportState,
                 consume_requests,
+                terminal_heartbeat_age_s,
                 transport_path,
                 write_transport,
             )
@@ -2849,6 +3299,19 @@ class WorkbenchWidget(Widget):
             player: AudioPlayerWidget = self.app.query_one("#audio-player")  # type: ignore
         except Exception:
             return
+
+        # Dead-terminal detection (docs/14 M5): the terminal rewrites its
+        # heartbeat every 5 s; a silent window gets one visible hint.
+        if not self._terminal_stale_reported:
+            try:
+                age = terminal_heartbeat_age_s(sidecar_path)
+            except Exception:
+                age = None
+            if age is not None and age > 30.0:
+                self._terminal_stale_reported = True
+                self._layer_status(
+                    "Layer terminal not responding — press 🪟 OPEN LAYER TERMINAL to relaunch."
+                )
 
         seek_request, play_request = None, None
         try:
@@ -2895,6 +3358,7 @@ class WorkbenchWidget(Widget):
     def _clear_layer_edits(self) -> None:
         """Remove all staged edits (raw cache untouched)."""
         self.layer_edit_plan = EditPlan()
+        self._operation_state.clear_dirty()
         self.query_one("#wb-layer-status", Label).update(
             "Edits cleared. Nothing staged."
         )
@@ -2912,16 +3376,24 @@ class WorkbenchWidget(Widget):
                 "Layer timeline is busy — wait for the current build to finish."
             )
             return
+        token = self._begin_operation(Operation.SAVE_LAYERS)
+        if token is None:
+            return
         self._is_building_layers = True
         self.run_worker(
-            self._async_commit_layers(),
+            self._async_commit_layers(token),
             name="layer-studio-commit",
         )
 
-    async def _async_commit_layers(self) -> None:
+    async def _async_commit_layers(self, token: OperationToken) -> None:
         """Apply the staged EditPlan, then rebuild the grid from committed files."""
         from harvester.analysis.enhancement.layer_editor import commit_edit_plan
         from harvester.analysis.enhancement.layers import build_layer_sources
+
+        def _status(text: str) -> None:
+            if self._is_current_operation(token):
+                with contextlib.suppress(Exception):
+                    self.query_one("#wb-layer-status", Label).update(text)
 
         try:
             if (
@@ -2933,9 +3405,7 @@ class WorkbenchWidget(Widget):
             stem_dir = self.layer_stem_dir
             input_stem = self.path_mp3.stem if self.path_mp3 else ""
             mode = "ensemble" if self.neural_enabled else "eco"
-            self.query_one("#wb-layer-status", Label).update(
-                "Committing edits with 20ms crossfades…"
-            )
+            _status("Committing edits with 20ms crossfades…")
             sources = await asyncio.to_thread(
                 build_layer_sources,
                 stem_dir,
@@ -2953,6 +3423,8 @@ class WorkbenchWidget(Widget):
             written = await asyncio.to_thread(
                 commit_edit_plan, self.layer_edit_plan, sources, 44100
             )
+            if not self._is_current_operation(token):
+                return
             self.layer_edit_plan = EditPlan()
 
             # Rebuild the grid so the timeline reflects the committed edits.
@@ -2974,6 +3446,8 @@ class WorkbenchWidget(Widget):
                 sample_rate=44100,
                 crossover_hz=self.stem_crossover_hz,
             )
+            if not self._is_current_operation(token):
+                return
             self.layer_track = track
             residual_note = ""
             try:
@@ -2997,24 +3471,43 @@ class WorkbenchWidget(Widget):
                     )
             except Exception as res_exc:
                 logger.debug("mix residual verification skipped: %s", res_exc)
-            self.query_one("#wb-layer-status", Label).update(
-                f"Saved layers: {', '.join(sorted(written))} · "
-                f"timeline rebuilt ({track.n_segments}s).{residual_note}"
+            _status(
+                self._layer_save_summary(
+                    written=sorted(written),
+                    edited_cells=len(edited_cells),
+                    n_segments=track.n_segments,
+                    residual_note=residual_note,
+                )
             )
             await self._refresh_sidecar_after_commit()
+            self._operation_state.clear_dirty()
         except Exception as exc:
             logger.exception("Layer Studio commit failed: %s", exc)
-            try:
-                self.query_one("#wb-layer-status", Label).update(
-                    f"Layer save failed: {exc}"
-                )
-            except Exception:
-                pass
+            _status(f"Layer save failed: {exc}")
         finally:
-            self._is_building_layers = False
+            if self._is_current_operation(token):
+                self._is_building_layers = False
+            self._finish_operation(token)
 
-    def _ensure_layers_built(self) -> None:
+    def _layer_save_summary(
+        self,
+        *,
+        written: list[str],
+        edited_cells: int,
+        n_segments: int,
+        residual_note: str = "",
+    ) -> str:
+        """One-line save verification: files, edited seconds, rebuilt length, residual."""
+        files = ", ".join(written) if written else "no files"
+        return (
+            f"Saved layers: {files} · {edited_cells}s edited · "
+            f"timeline rebuilt ({n_segments}s).{residual_note}"
+        )
+
+    def _ensure_layers_built(self, force: bool = False) -> None:
         """Build the per-source layer timeline if stems exist and it isn't built yet."""
+        if force:
+            self.layer_track = None
         if self._is_building_layers or self.layer_track is not None:
             return
         if not self.path_mp3 or not self.path_mp3.exists():
@@ -3045,14 +3538,26 @@ class WorkbenchWidget(Widget):
         mode = "ensemble" if self.neural_enabled else "eco"
         self._is_building_layers = True
         self.run_worker(
-            self._async_build_layers(stem_dir, self.path_mp3.stem, mode),
+            self._async_build_layers(
+                stem_dir,
+                self.path_mp3.stem,
+                mode,
+                generation=self.track_generation,
+            ),
             name="layer-studio-build",
         )
 
     async def _async_build_layers(
-        self, stem_dir: Path, input_stem: str, mode: str
+        self,
+        stem_dir: Path,
+        input_stem: str,
+        mode: str,
+        *,
+        generation: int | None = None,
     ) -> None:
         """Run layer analysis in a background thread and hand the grid to the widget."""
+        if generation is None:
+            generation = self.track_generation
         try:
             from harvester.analysis.enhancement.layers import (
                 LayerTrack,
@@ -3072,6 +3577,8 @@ class WorkbenchWidget(Widget):
 
                 def _ui() -> None:
                     try:
+                        if generation != self.track_generation:
+                            return
                         self.query_one("#wb-layer-status", Label).update(
                             f"Building layer timeline… {int(pct)}% ({step}) — "
                             "the grid appears when ready."
@@ -3112,12 +3619,16 @@ class WorkbenchWidget(Widget):
                 )
 
             try:
+                if generation != self.track_generation:
+                    return
                 self.query_one("#wb-layer-status", Label).update(
                     "Building layer timeline… "
                 )
             except Exception:
                 pass
             track = await asyncio.to_thread(_build)
+            if generation != self.track_generation:
+                return
             if track is None or not track.segments:
                 raise RuntimeError("Layer analysis produced no timeline segments.")
 
@@ -3144,13 +3655,16 @@ class WorkbenchWidget(Widget):
         except Exception as exc:
             logger.exception("Layer analysis failed: %s", exc)
             try:
+                if generation != self.track_generation:
+                    return
                 self.query_one("#wb-layer-status", Label).update(
                     f"Layer analysis failed: {exc}"
                 )
             except Exception:
                 pass
         finally:
-            self._is_building_layers = False
+            if generation == self.track_generation:
+                self._is_building_layers = False
 
     # ------------------------------------------------------------------
     # Detached layer terminal (Option B)
@@ -3183,15 +3697,31 @@ class WorkbenchWidget(Widget):
     async def _async_launch_layer_terminal(self) -> None:
         """Write the sidecar and spawn the detached layer terminal process."""
         try:
-            from harvester.ipc.layer_sidecar import write_sidecar
+            from harvester.ipc.layer_sidecar import sidecar_source_matches, write_sidecar
             from harvester.ui.layer_terminal import launch_layer_terminal
 
             sidecar_path = self._layer_sidecar_path()
-            if sidecar_path is None:
+            if sidecar_path is None or self.path_mp3 is None or self.layer_track is None:
                 return
+            if sidecar_path.exists() and not sidecar_source_matches(
+                sidecar_path, self.path_mp3
+            ):
+                # The file at this path was replaced by another version: never
+                # hand a terminal a plan that belongs to different audio.
+                self._layer_terminal_launched = False
+                self.query_one("#wb-layer-status", Label).update(
+                    "Layer sidecar belongs to another version of this file — "
+                    "rebuild layers before opening the terminal."
+                )
+                return
+            self._terminal_stale_reported = False
             plan = self.layer_edit_plan.edits if self.layer_edit_plan else {}
             await asyncio.to_thread(
-                write_sidecar, self.layer_track, plan, sidecar_path
+                write_sidecar,
+                self.layer_track,
+                plan,
+                sidecar_path,
+                source_path=self.path_mp3,
             )
             proc = await asyncio.to_thread(launch_layer_terminal, sidecar_path)
             if proc is not None:
@@ -3228,6 +3758,16 @@ class WorkbenchWidget(Widget):
             return
         if not sidecar_path.exists():
             return
+        from harvester.ipc.layer_sidecar import sidecar_source_matches
+
+        if self.path_mp3 is not None and not sidecar_source_matches(
+            sidecar_path, self.path_mp3
+        ):
+            logger.warning(
+                "Ignoring layer sidecar that belongs to another source: %s",
+                sidecar_path,
+            )
+            return
         try:
             from harvester.ipc.layer_sidecar import read_sidecar
 
@@ -3242,6 +3782,8 @@ class WorkbenchWidget(Widget):
             # Do not clobber edits already staged locally in the workbench.
             plan.edits.setdefault(cell, op)
         self.layer_edit_plan = plan
+        if plan.count:
+            self.mark_layer_dirty()
         logger.info("Picked up %d edit(s) from the detached layer terminal.", plan.count)
 
     async def _refresh_sidecar_after_commit(self) -> None:
@@ -3256,7 +3798,11 @@ class WorkbenchWidget(Widget):
             from harvester.ipc.layer_sidecar import write_sidecar
 
             await asyncio.to_thread(
-                write_sidecar, self.layer_track, {}, sidecar_path
+                write_sidecar,
+                self.layer_track,
+                {},
+                sidecar_path,
+                source_path=self.path_mp3,
             )
         except Exception:
             pass

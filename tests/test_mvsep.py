@@ -188,6 +188,61 @@ async def test_invalid_key_error_never_echoes_the_key(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_hosted_run_replaces_previous_run_atomically(tmp_path: Path) -> None:
+    """A fresh run must not leave old-model stems mixed with new ones."""
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"ID3fake")
+    stem_dir = tmp_path / "stems"
+    stem_dir.mkdir()
+    stale = stem_dir / f"song_ensemble{HOSTED_RAW_TOKEN}old_lane.wav"
+    stale.write_bytes(b"OLDRUN")
+
+    files = [
+        {
+            "download_filename": "job_mt_6_vocals-lead.wav",
+            "url": "https://mvsep.com/files/lead.wav",
+        },
+    ]
+    client, http = _client(_job_handler(statuses=["done"], files=files))
+    try:
+        result = await client.separate(
+            source, stem_dir, output_prefix="song_ensemble", sep_type="karaoke_lead_back"
+        )
+    finally:
+        await client.close()
+        await http.aclose()
+
+    assert result.lane_keys == ("lead_vocals",)
+    new = stem_dir / f"song_ensemble{HOSTED_RAW_TOKEN}lead_vocals.wav"
+    assert new.read_bytes() == b"RIFFfake"
+    assert not stale.exists()  # old run replaced, not mixed in
+    assert list(stem_dir.glob("*.old-*")) == []  # backups cleaned up
+
+
+@pytest.mark.asyncio
+async def test_failed_hosted_run_keeps_previous_results(tmp_path: Path) -> None:
+    """A job that never reaches done must leave the old hosted stems intact."""
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"ID3fake")
+    stem_dir = tmp_path / "stems"
+    stem_dir.mkdir()
+    stale = stem_dir / f"song_ensemble{HOSTED_RAW_TOKEN}lead_vocals.wav"
+    stale.write_bytes(b"OLDRUN")
+
+    client, http = _client(_job_handler(statuses=["error"], files=[]))
+    try:
+        result = await client.separate(
+            source, stem_dir, output_prefix="song_ensemble", sep_type="karaoke_lead_back"
+        )
+    finally:
+        await client.close()
+        await http.aclose()
+
+    assert result.stems == ()
+    assert stale.read_bytes() == b"OLDRUN"
+
+
+@pytest.mark.asyncio
 async def test_account_check_rejects_bad_key() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, json={"success": False, "errors": ["invalid token"]})
@@ -199,3 +254,39 @@ async def test_account_check_rejects_bad_key() -> None:
     finally:
         await client.close()
         await http.aclose()
+
+
+def test_swap_hosted_run_mid_backup_failure_restores_old_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure while moving the old set aside must not split it across names."""
+    from harvester.services.mvsep import _swap_hosted_run
+
+    stem_dir = tmp_path / "stems"
+    stem_dir.mkdir()
+    old_a = stem_dir / "song_ensemble_hosted_raw_vocals.wav"
+    old_b = stem_dir / "song_ensemble_hosted_raw_drums.wav"
+    old_a.write_bytes(b"OLD-A")
+    old_b.write_bytes(b"OLD-B")
+    staged = [(tmp_path / "n1.wav", stem_dir / "song_ensemble_hosted_raw_new.wav")]
+    (tmp_path / "n1.wav").write_bytes(b"NEW")
+
+    real_replace = __import__("os").replace
+    calls = 0
+
+    def flaky_replace(src, dst):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # second old stem's backup move fails
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("harvester.services.mvsep.os.replace", flaky_replace)
+
+    with pytest.raises(OSError, match="disk full"):
+        _swap_hosted_run(stem_dir, "song_ensemble", staged, "job-12345678")
+
+    # Both old stems back under their original names; no backups left behind.
+    assert old_a.read_bytes() == b"OLD-A"
+    assert old_b.read_bytes() == b"OLD-B"
+    assert list(stem_dir.glob("*.old-*")) == []

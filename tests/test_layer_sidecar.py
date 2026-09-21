@@ -117,6 +117,32 @@ def test_sidecar_missing_file_raises(tmp_path) -> None:
         read_sidecar(tmp_path / "does_not_exist.json")
 
 
+def test_sidecar_records_and_checks_source_identity(tmp_path) -> None:
+    """A sidecar written for one source refuses to vouch for another."""
+    from harvester.ipc.layer_sidecar import sidecar_source_matches
+
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"audio-data")
+    sidecar = tmp_path / ".song.layer_sidecar.json"
+    write_sidecar(_build_track(tmp_path), EditPlan(), sidecar, source_path=source)
+
+    assert sidecar_source_matches(sidecar, source) is True
+
+    other = tmp_path / "other.mp3"
+    other.write_bytes(b"different-audio-bytes")  # same stem dir could collide
+    match = sidecar_source_matches(sidecar, other)
+    assert match is False
+
+
+def test_legacy_sidecar_without_source_identity_is_accepted(tmp_path) -> None:
+    """Pre-identity sidecars keep working (no source block to contradict)."""
+    from harvester.ipc.layer_sidecar import sidecar_source_matches
+
+    sidecar = tmp_path / "layer_sidecar.json"
+    write_sidecar(_build_track(tmp_path), EditPlan(), sidecar)
+    assert sidecar_source_matches(sidecar, tmp_path / "song.mp3") is True
+
+
 def test_sidecar_version_mismatch_raises(tmp_path) -> None:
     """A sidecar with an unsupported version raises ValueError."""
     stale = tmp_path / "stale_sidecar.json"

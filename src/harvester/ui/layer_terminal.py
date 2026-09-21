@@ -38,11 +38,13 @@ from harvester.analysis.enhancement.layer_editor import OP_LABELS, OPS, EditPlan
 from harvester.analysis.enhancement.layers import LayerTrack
 from harvester.ipc.layer_sidecar import (
     TransportState,
+    clear_terminal_heartbeat,
     read_sidecar,
     read_transport,
     request_play_state,
     request_seek,
     transport_path,
+    write_terminal_heartbeat,
 )
 from harvester.processing import engine_note
 from harvester.ui.layer_studio import LayerStudio
@@ -111,6 +113,7 @@ class LayerTerminalApp(App[None]):
         ("g", "edit('noise_gate')", "Gate"),
         ("t", "edit('transient_tame')", "Tame"),
         ("r", "edit_reset", "Reset cell"),
+        ("f", "cycle_filter", "Filter lanes"),
         ("space", "play_pause", "Play/pause (main app)"),
     ]
 
@@ -142,6 +145,13 @@ class LayerTerminalApp(App[None]):
                 yield Button("✕ CLOSE", id="lt-btn-close", variant="error")
             with VerticalScroll(id="lt-studio-scroll"):
                 yield LayerStudio(id="lt-studio")
+        # Ownership banner (docs/14 M5): selection is staged here, while the
+        # playhead and transport belong to the main window.
+        yield Static(
+            "Selection & edits live in this terminal · playhead/transport owned "
+            "by the main OmniRip window",
+            id="lt-ownership",
+        )
         yield Static(id="lt-status")
 
     async def on_mount(self) -> None:
@@ -149,6 +159,10 @@ class LayerTerminalApp(App[None]):
         # Playhead comes from the main app over the transport file, not from an
         # audio player this process does not own.
         studio.playhead_provider = lambda: self._transport.playhead_s
+        # Liveness heartbeat (docs/14 M5): the main app reads this file to know
+        # this window is still alive; rewritten every 5 s.
+        self._write_heartbeat()
+        self._heartbeat_timer = self.set_interval(5.0, self._write_heartbeat)
         try:
             track, plan_dict = await self._load()
             self.track = track
@@ -365,6 +379,23 @@ class LayerTerminalApp(App[None]):
     # ------------------------------------------------------------------
     def action_quit(self) -> None:
         self.exit()
+
+    def _write_heartbeat(self) -> None:
+        """Own the liveness file; the main app only reads it."""
+        with contextlib.suppress(Exception):
+            write_terminal_heartbeat(self.sidecar_path)
+
+    def on_unmount(self) -> None:
+        """Clean exit removes the heartbeat so the main app sees the window closed."""
+        clear_terminal_heartbeat(self.sidecar_path)
+        if getattr(self, "_heartbeat_timer", None) is not None:
+            self._heartbeat_timer.stop()  # type: ignore[attr-defined]
+            self._heartbeat_timer = None  # type: ignore[attr-defined]
+
+    def action_cycle_filter(self) -> None:
+        """f — cycle the lane provenance filter (docs/14 M5)."""
+        with contextlib.suppress(Exception):
+            self.query_one("#lt-studio", LayerStudio).cycle_provenance_filter()
 
     def action_edit(self, op: str) -> None:
         """Apply a per-cell op to the currently selected cell (palette parity)."""

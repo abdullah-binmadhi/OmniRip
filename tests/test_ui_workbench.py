@@ -1224,7 +1224,7 @@ async def test_workbench_layer_terminal_opens_only_via_new_window_button(
             for _ in range(6):
                 await pilot.pause()
             assert len(launch_calls) == 1
-            assert launch_calls[0] == dummy_mp3.parent / "layer_sidecar.json"
+            assert launch_calls[0] == wb._layer_sidecar_path()
 
             # A second press while a terminal is already open re-launches.
             wb.query_one("#wb-btn-layer-terminal", Button).press()
@@ -1612,20 +1612,22 @@ async def test_workbench_publishes_playhead_and_applies_terminal_requests(
         await pilot.pause()
 
         # 1. The playhead reaches the terminal's transport file.
+        sidecar = wb._layer_sidecar_path()
+        assert sidecar is not None
         wb._publish_layer_transport()
-        state = read_transport(transport_path(dummy_mp3.parent / "layer_sidecar.json"))
+        state = read_transport(transport_path(sidecar))
         assert state.playhead_s == pytest.approx(7.5)
         assert state.duration_s == pytest.approx(100.0)
 
         # 2. A seek request written by the terminal moves this app's player.
-        request_seek(dummy_mp3.parent / "layer_sidecar.json", 42.0)
+        request_seek(sidecar, 42.0)
         wb._publish_layer_transport()
         assert player.elapsed_s == pytest.approx(42.0)
-        assert consume_requests(dummy_mp3.parent / "layer_sidecar.json") == (None, None)
+        assert consume_requests(sidecar) == (None, None)
 
         # 3. A pause request pauses playback.
         player.is_playing = True
-        request_play_state(dummy_mp3.parent / "layer_sidecar.json", False)
+        request_play_state(sidecar, False)
         wb._publish_layer_transport()
         assert player.is_playing is False
 
@@ -1648,7 +1650,6 @@ async def test_workbench_stops_publishing_when_idle_off_the_layers_page(
 
     dummy_mp3 = tmp_path / "idle_dummy.mp3"
     dummy_mp3.write_bytes(b"mp3-data")
-    sidecar = dummy_mp3.parent / "layer_sidecar.json"
 
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
@@ -1659,6 +1660,8 @@ async def test_workbench_stops_publishing_when_idle_off_the_layers_page(
             output_path=dummy_mp3,
         ))
         await pilot.pause()
+        sidecar = wb._layer_sidecar_path()
+        assert sidecar is not None
         player = app.query_one("#audio-player", AudioPlayerWidget)
         player.duration_s = 100.0
         player.elapsed_s = 3.0
@@ -1746,7 +1749,9 @@ async def test_workbench_hosted_separation_reports_a_missing_key(tmp_path: Path,
         wb.switch_page("layers")
         await pilot.pause()
 
-        wb._start_hosted_separation()
+        # The confirmation screen is bypassed in this test: pressing the
+        # button only stages the screen, and the upload runs after YES.
+        wb._launch_hosted_run("vocals")
         await pilot.pause(0.2)
 
         status = str(wb.query_one("#wb-layer-status", Label).render())
@@ -1811,7 +1816,9 @@ async def test_workbench_hosted_separation_rebuilds_the_lane_grid(tmp_path: Path
         wb.switch_page("layers")
         await pilot.pause()
 
-        wb._start_hosted_separation()
+        # The confirmation screen is bypassed in this test: pressing the
+        # button only stages the screen, and the upload runs after YES.
+        wb._launch_hosted_run("vocals")
         await pilot.pause(0.2)
 
         assert calls.get("closed") is True

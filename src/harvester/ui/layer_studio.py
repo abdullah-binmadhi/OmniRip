@@ -19,6 +19,15 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
 
+from harvester.analysis.enhancement.lane_plan import (
+    ORIGIN_CREDIT,
+    ORIGIN_EXTRA,
+    ORIGIN_HOSTED,
+    ORIGIN_MIX,
+    ORIGIN_SEPARATOR,
+    ORIGIN_SPLIT,
+    ORIGIN_TAG,
+)
 from harvester.analysis.enhancement.layer_editor import (
     EditPlan,
 )
@@ -215,6 +224,40 @@ class LayerStudio(Widget):
         # only exists in the main OmniRip process.
         self.playhead_provider: Callable[[], float] | None = None
 
+    # Lane provenance filter (docs/14 M5): all → audio → hosted → credits → tags.
+    provenance_filter: reactive[str] = reactive("all")
+
+    def cycle_provenance_filter(self) -> None:
+        order = ("all", "audio", "hosted", "credits", "tags")
+        idx = order.index(self.provenance_filter) if self.provenance_filter in order else 0
+        self.provenance_filter = order[(idx + 1) % len(order)]
+        self.refresh()
+
+    def _filtered_layers(self) -> list[str]:
+        if self.track is None:
+            return []
+        filt = self.provenance_filter
+        plan = self.track.lane_plan
+        layers = self.track.active_layers
+        if filt == "all":
+            return layers
+        wanted: set[str] = set()
+        if filt == "audio":
+            wanted = {ORIGIN_SEPARATOR, ORIGIN_SPLIT, ORIGIN_EXTRA, ORIGIN_MIX}
+        elif filt == "hosted":
+            wanted = {ORIGIN_HOSTED}
+        elif filt == "credits":
+            wanted = {ORIGIN_CREDIT}
+        elif filt == "tags":
+            wanted = {ORIGIN_TAG}
+        visible: list[str] = []
+        for lane in layers:
+            entry = plan.entry(lane) if plan is not None else None
+            origin = entry.origin if entry is not None else None
+            if origin is not None and origin in wanted:
+                visible.append(lane)
+        return visible
+
     def on_mount(self) -> None:
         self._sync_timer = self.set_interval(0.20, self._sync_playhead)
 
@@ -285,7 +328,7 @@ class LayerStudio(Widget):
         return (self._first_visible_col() + grid_x) * self.track.segment_size_s
 
     def _grid_row_to_layer(self, row_in_click: int) -> str | None:
-        layers = self.track.active_layers if self.track else []
+        layers = self._filtered_layers()
         rel = row_in_click - HEADER_HEIGHT
         if rel < 0:
             return None
@@ -449,7 +492,7 @@ class LayerStudio(Widget):
             t.append("  └────────────────────────────────────────────────────────────────────────────┘\n", style="bold cyan")
             return t
 
-        layers = self.track.active_layers
+        layers = self._filtered_layers()
         visible = self._visible_cols()
         first_idx = self._first_visible_col()
         playhead_idx = int(self.playhead_s // self.track.segment_size_s)
@@ -597,4 +640,9 @@ class LayerStudio(Widget):
                 t.append(line)
                 t.append("\n")
 
+        filt = self.provenance_filter
+        t.append(
+            f"\n  filter: {filt} — press f to cycle (all → audio → hosted → credits → tags)",
+            style="dim #8899aa",
+        )
         return t
