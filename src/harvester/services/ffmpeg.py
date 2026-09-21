@@ -113,6 +113,7 @@ class FfmpegService:
             "sample_rate": None,
             "codec": None,
             "channels": None,
+            "bits": None,
         }
         try:
             binary = await self._resolve(self.config.ffmpeg.probe_binary)
@@ -121,7 +122,10 @@ class FfmpegService:
                 "-v",
                 "error",
                 "-show_entries",
-                "format=duration:stream=codec_name,sample_rate,channels",
+                (
+                    "format=duration:stream=codec_name,sample_rate,channels,"
+                    "bits_per_raw_sample,bits_per_sample"
+                ),
                 "-of",
                 "json",
                 str(path),
@@ -157,6 +161,15 @@ class FfmpegService:
                             info["channels"] = int(s["channels"])
                         except (ValueError, TypeError):
                             pass
+                    for key in ("bits_per_raw_sample", "bits_per_sample"):
+                        raw = s.get(key)
+                        if raw in (None, "", "N/A", 0):
+                            continue
+                        try:
+                            info["bits"] = int(raw)
+                        except (ValueError, TypeError):
+                            continue
+                        break
         except Exception:
             pass
 
@@ -238,10 +251,62 @@ class FfmpegService:
         offset_s: float = 0.0,
         duration_s: float | None = None,
         sample_rate: int = 48_000,
+        channels: int = 1,
         job_id: str | None = None,
     ) -> np.ndarray:
-        """Decode a mono excerpt to float32 PCM without blocking the loop."""
+        """Decode an excerpt to float32 PCM without blocking the loop.
 
+        ``channels=2`` keeps the native stereo image (interleaved L/R) for the
+        docs/16 mid/side rules; the default mono downmix is the v1 excerpt.
+        """
+
+        return await self._decode_pcm(
+            path,
+            fmt="f32le",
+            dtype=np.dtype(np.float32),
+            args=["-ac", str(channels), "-ar", str(sample_rate)],
+            offset_s=offset_s,
+            duration_s=duration_s,
+            job_id=job_id,
+        )
+
+    async def decode_s32(
+        self,
+        path: Path,
+        *,
+        offset_s: float = 0.0,
+        duration_s: float | None = None,
+        job_id: str | None = None,
+    ) -> np.ndarray:
+        """Decode an excerpt to int32 PCM at the file's own rate and channel count.
+
+        docs/16 R2 reads the *low bits* of this stream, so neither ``-ar`` nor
+        ``-ac`` is applied: resampling or channel mixing rewrites the low bits and
+        would destroy the very structure being measured (verified: ``-ac 2`` on a
+        mono file reports 32 bits for a 16-bit master).
+        """
+
+        return await self._decode_pcm(
+            path,
+            fmt="s32le",
+            dtype=np.dtype("<i4"),
+            args=[],
+            offset_s=offset_s,
+            duration_s=duration_s,
+            job_id=job_id,
+        )
+
+    async def _decode_pcm(
+        self,
+        path: Path,
+        *,
+        fmt: str,
+        dtype: np.dtype,
+        args: list[str],
+        offset_s: float,
+        duration_s: float | None,
+        job_id: str | None,
+    ) -> np.ndarray:
         binary = await self._resolve(self.config.ffmpeg.binary)
         command = [
             *binary,
@@ -256,12 +321,9 @@ class FfmpegService:
             [
                 "-i",
                 str(path),
-                "-ac",
-                "1",
-                "-ar",
-                str(sample_rate),
+                *args,
                 "-f",
-                "f32le",
+                fmt,
                 "-",
             ]
         )
@@ -289,7 +351,7 @@ class FfmpegService:
         if process.returncode != 0:
             detail = (stderr or b"").decode("utf-8", errors="replace").strip()
             raise ValidationError(f"FFmpeg decode failed: {detail or 'unknown error'}")
-        pcm = np.frombuffer(stdout, dtype=np.float32).copy()
+        pcm = np.frombuffer(stdout, dtype=dtype).copy()
         if pcm.size < 2:
             raise ValidationError("FFmpeg decode produced no samples")
         return pcm
@@ -324,6 +386,17 @@ class FfmpegService:
             return int(text)
         except ValueError:
             return None
+
+    async def probe_bit_depth(self, path: Path, *, job_id: str | None = None) -> int | None:
+        """Declared bit depth from the container (docs/16 R2), ``None`` when absent.
+
+        FLAC reports ``bits_per_raw_sample``; WAV/AIFF report ``bits_per_sample``.
+        Lossy codecs report neither, and the rule simply does not apply.
+        """
+
+        info = await self.probe_audio_info(path, job_id=job_id)
+        bits = info.get("bits")
+        return int(bits) if bits else None
 
     async def source_kind(self, path: Path, *, job_id: str | None = None) -> SourceKind:
         codec = await self.probe_codec(path, job_id=job_id)

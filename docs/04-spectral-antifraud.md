@@ -121,10 +121,13 @@ fn analyze(path, claimed_sample_rate) -> Verdict:
 Return a dataclass — never raise for expected outcomes; raise only `SpectralError`
 (decode/subprocess failure) which Phase 4 maps to INCONCLUSIVE.
 
-## 9. v2 extensions (out of scope, documented for later)
+## 9. v2 extensions (implemented in docs/16-spectral-v2.md)
 
 1. **Hi-res void rule (upgrade §6.5 to FRAUD):** if claimed SR ≥ 88.2 kHz and energy above
    22.05 kHz is within 6 dB of the noise floor across the whole excerpt.
+   *Refinement recorded in docs/16 §3:* the void must also sit ≥ 20 dB below the musical
+   baseline. On flat material (broadband noise, dense mixes) the 10th-percentile FLOOR sits
+   at the content level, so the floor test alone flags honest hi-res audio.
 2. **SBR/tonal-artifact scan:** narrowband tonal peaks (harmonically sparse "birdies") above
    `f_c` indicate encoder bandwidth-extension on top of an upcast.
 3. **Fake-24-bit test:** histogram of sample LSBs / quantization-noise spectrum → effective
@@ -143,7 +146,7 @@ Generate with scipy/soundfile in tests (no network, deterministic seeds):
 | `honest_rolloff.flac` | gentle 12 dB/oct natural roll-off above 12 kHz (no cliff) | PASS |
 | `near_silent.flac` | −60 dBFS noise floor only (no peak normalization) | INCONCLUSIVE |
 | `short.flac` | 5 s full-band | INCONCLUSIVE |
-| `up96_void.flac` | 44.1 kHz content upsampled to 96 kHz, written as 24/96 FLAC | INCONCLUSIVE (rule 5) |
+| `up96_void.flac` | 44.1 kHz content upsampled to 96 kHz (spectrum zero-padded), written as 24/96 FLAC | FRAUD (docs/16 R1) |
 
 **Deviation note (M4, recorded here):** the original recipe prescribed a Butterworth
 lowpass of order 8. Its rolloff (48 dB/octave) reaches only ≈ 15 dB attenuation 4 kHz above
@@ -153,6 +156,15 @@ cutoff is encoded to zero), so the fixtures now use a deterministic raised-cosin
 a 500 Hz transition band and a hard zero knee: encoder-faithful, seed-independent, and it
 triggers the dead-run rule exactly like real upscales. The detector thresholds in §6 were
 not changed; only the fixture recipes were revised.
+
+**Deviation note (M16, recorded here):** `up96_void.flac` never contained a void. The
+original recipe zero-padded the *time* domain (`irfft(rfft(signal, n=2N), 2N)`), which
+reinterprets 44.1 kHz samples at 88.2 kHz and shifts the whole spectrum up instead of
+interpolating — the top of the band stays full. Its INCONCLUSIVE verdict came from the void
+bands landing 3 dB under `FLOOR + 3`, i.e. from an artefact of FLOOR sitting at the content
+level, not from a detection. The recipe now zero-pads the *spectrum*
+(`irfft(rfft(signal), n=2N)`), producing a real −74 dB void and a FRAUD verdict under the
+docs/16 R1 rule.
 
 Tuning protocol: if any fixture verdict drifts after parameter changes, adjust thresholds
 in §6 (not the fixtures) and record the change here.

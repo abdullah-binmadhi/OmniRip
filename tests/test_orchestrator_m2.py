@@ -40,12 +40,16 @@ class FakeFfmpeg:
     async def probe_sample_rate(self, path: Path, *, job_id: str | None = None):
         return 44_100
 
+    async def probe_bit_depth(self, path: Path, *, job_id: str | None = None):
+        return None
+
     async def decode_f32(
         self,
         path: Path,
         *,
         offset_s: float = 0.0,
         duration_s: float = 5.0,
+        channels: int = 1,
         job_id: str | None = None,
     ):
         # Near-silent excerpt -> real analyzer answers INCONCLUSIVE -> lax default PASS.

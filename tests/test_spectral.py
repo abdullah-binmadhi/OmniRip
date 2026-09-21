@@ -89,8 +89,16 @@ def fixture_short(path: Path) -> Path:
 
 
 def fixture_up96_void(path: Path) -> Path:
+    """A 44.1 kHz master padded out to 96 kHz: nothing but a void above 22.05 kHz.
+
+    The spectrum is zero-padded before the inverse transform (true band-limited
+    interpolation). Zero-padding the *time* domain instead — ``rfft(signal, n=2N)``
+    — merely reinterprets the samples at twice the rate and fills the top of the
+    band with down-shifted content, which is no void at all.
+    """
+
     signal = _content(30.0, _FS, seed=17)
-    upsampled = np.fft.irfft(np.fft.rfft(signal, n=2 * len(signal)), 2 * len(signal))
+    upsampled = np.fft.irfft(np.fft.rfft(signal), n=2 * len(signal)) * 2.0
     return _write(path, upsampled, _FS * 2, subtype="PCM_24")
 
 
@@ -108,7 +116,7 @@ def _read(path: Path) -> tuple[np.ndarray, int]:
         (fixture_honest_rolloff, Verdict.PASS, _FS),
         (fixture_near_silent, Verdict.INCONCLUSIVE, _FS),
         (fixture_short, Verdict.INCONCLUSIVE, _FS),
-        (fixture_up96_void, Verdict.INCONCLUSIVE, 96_000),
+        (fixture_up96_void, Verdict.FRAUD, 96_000),
     ],
 )
 def test_fixture_verdicts(tmp_path: Path, builder, expected: Verdict, claimed: int) -> None:

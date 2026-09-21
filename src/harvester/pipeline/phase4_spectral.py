@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+
+import numpy as np
 
 from harvester.analysis import spectral as spectral_analysis
 from harvester.config import AppConfig
@@ -33,14 +36,17 @@ async def run_spectral_check(
     if not job.workspace_path or not job.workspace_path.is_file():
         raise ValidationError("spectral check requires the acquired file")
 
-    duration = await ffmpeg.probe_duration(job.workspace_path, job_id=job.id)
+    path = job.workspace_path
+    duration = await ffmpeg.probe_duration(path, job_id=job.id)
     offset, length = _excerpt_window(duration)
-    claimed_sr = await ffmpeg.probe_sample_rate(job.workspace_path, job_id=job.id)
+    claimed_sr = await ffmpeg.probe_sample_rate(path, job_id=job.id)
+    claimed_bits = await ffmpeg.probe_bit_depth(path, job_id=job.id)
     try:
-        pcm = await ffmpeg.decode_f32(
-            job.workspace_path,
+        stereo = await ffmpeg.decode_f32(
+            path,
             offset_s=offset,
             duration_s=length,
+            channels=2,
             job_id=job.id,
         )
     except ValidationError as exc:
@@ -48,12 +54,58 @@ async def run_spectral_check(
             verdict=Verdict.INCONCLUSIVE,
             detail=f"decode failure ({exc})",
         )
+    mid, side = mid_side(stereo)
+    native = await _native_samples(ffmpeg, path, job.id, claimed_bits, offset, length)
     return await asyncio.to_thread(
         spectral_analysis.analyze,
-        pcm,
+        mid,
         48_000.0,
         claimed_sample_rate=claimed_sr,
+        claimed_bits=claimed_bits,
+        side_pcm=side,
+        native_pcm=native,
     )
+
+
+async def _native_samples(
+    ffmpeg: FfmpegService,
+    path: Path,
+    job_id: str | None,
+    claimed_bits: int | None,
+    offset: float,
+    length: float,
+) -> np.ndarray | None:
+    """int32 excerpt at the file's own rate, only when a ≥24-bit claim needs it.
+
+    Best-effort: a failed native decode leaves the bit-depth rule to abstain
+    instead of failing a verdict the spectral rules already reached.
+    """
+
+    if not claimed_bits or claimed_bits < spectral_analysis.FAKE_BIT_CLAIM_MIN:
+        return None
+    try:
+        return await ffmpeg.decode_s32(
+            path,
+            offset_s=offset,
+            duration_s=length,
+            job_id=job_id,
+        )
+    except ValidationError:
+        return None
+
+
+def mid_side(interleaved: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Split an interleaved stereo decode into (mid, side) (docs/16 R3/R4)."""
+
+    samples = interleaved
+    if samples.size % 2:
+        samples = samples[:-1]
+    if samples.size < 2:
+        return samples.astype(np.float32), np.zeros(0, dtype=np.float32)
+    frames = samples.reshape(-1, 2).astype(np.float32)
+    left = frames[:, 0]
+    right = frames[:, 1]
+    return (left + right) / 2.0, (left - right) / 2.0
 
 
 def excerpt_window(duration_s: float) -> tuple[float, float]:
@@ -70,4 +122,4 @@ def _excerpt_window(duration_s: float) -> tuple[float, float]:
     return 0.3 * duration_s, _EXCERPT_S
 
 
-__all__ = ["excerpt_window", "run_spectral_check"]
+__all__ = ["excerpt_window", "mid_side", "run_spectral_check"]
