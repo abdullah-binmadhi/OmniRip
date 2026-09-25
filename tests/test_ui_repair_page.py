@@ -168,6 +168,7 @@ async def test_hosted_engine_defers_to_the_hosted_flow(tmp_path: Path) -> None:
         ):
             app.query_one("#rp-btn-apply-quick", Button).press()
             await pilot.pause()
+            await pilot.pause()
         hosted.assert_called_once()
         assert wb._pending_repair_plan is panel.plan
 
