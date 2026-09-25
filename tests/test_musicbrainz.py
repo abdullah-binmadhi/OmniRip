@@ -156,3 +156,80 @@ async def test_recording_credits_without_relations_is_empty_not_an_error(tmp_pat
     assert credits.singer_count is None
     assert "no credits documented" in credits.summary()
     await service.close()
+
+
+@pytest.mark.asyncio
+async def test_recording_credits_parses_genres_deduped_and_sorted_desc(tmp_path: Path) -> None:
+    """Genres and tags are deduped, count clamped to >= 1, and sorted descending."""
+    calls: list[httpx.Request] = []
+    payload = {
+        "id": "mbid-genre-1",
+        "title": "Genre Track",
+        "genres": [
+            {"name": "electronic", "count": 12},
+            {"name": "ambient", "count": 3},
+            {"name": "downtempo", "count": 0},
+            {"name": "  ", "count": 5},
+        ],
+        "tags": [
+            {"name": "electronic", "count": 99},  # duplicate, should be skipped
+            {"name": "trip hop", "count": 7},
+            {"name": "ambient", "count": 1},  # duplicate, should be skipped
+        ],
+        "relations": [],
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=payload)
+
+    service = _credits_service(tmp_path, handler)
+    credits = await service.fetch_recording_credits("mbid-genre-1")
+
+    assert credits is not None
+    assert credits.title == "Genre Track"
+    # Deduplication preserves first seen; count <= 0 is clamped to 1; sorted descending by count
+    assert credits.genres == (
+        ("electronic", 12),
+        ("trip hop", 7),
+        ("ambient", 3),
+        ("downtempo", 1),
+    )
+    assert calls and "inc=artist-rels%2Bgenres%2Btags" in str(calls[0].url) or "genres+tags" in str(calls[0].url)
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_recording_credits_caches_and_roundtrips_genres(tmp_path: Path) -> None:
+    """Cached credits persist genres on disk and restore them identically."""
+    hits = {"n": 0}
+    payload = {
+        "id": "mbid-genre-cache",
+        "title": "Cached Track",
+        "genres": [
+            {"name": "techno", "count": 25},
+            {"name": "house", "count": 15},
+        ],
+        "relations": [],
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        hits["n"] += 1
+        return httpx.Response(200, json=payload)
+
+    service = _credits_service(tmp_path, handler)
+    first = await service.fetch_recording_credits("mbid-genre-cache")
+    assert first is not None
+    assert first.genres == (("techno", 25), ("house", 15))
+
+    # Read second time — should hit disk cache without network call
+    second = await service.fetch_recording_credits("mbid-genre-cache")
+    assert hits["n"] == 1
+    assert second is not None
+    assert second.genres == (("techno", 25), ("house", 15))
+    assert second.genres == first.genres
+
+    cache_file = service.config.paths.cache / "credits" / "mbid-genre-cache.json"
+    assert cache_file.is_file()
+    await service.close()
+

@@ -57,6 +57,11 @@ class RecordingCredits:
     vocals: tuple[Credit, ...] = ()
     performers: tuple[Credit, ...] = ()
     producers: tuple[Credit, ...] = ()
+    genres: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def genre_names(self) -> tuple[str, ...]:
+        return tuple(name for name, _count in self.genres)
 
     @property
     def singer_count(self) -> int | None:
@@ -136,9 +141,27 @@ def _parse_credits(payload: dict[str, object], recording_id: str) -> RecordingCr
             elif rel_type in ("performer", "performance"):
                 performers.append(credit)
 
+    genres: dict[str, int] = {}
+    for field in ("genres", "tags"):
+        entries = payload.get(field)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name", "") or "").strip()
+            if not name or name in genres:
+                continue
+            try:
+                count = int(entry.get("count", 0) or 0)
+            except (TypeError, ValueError):
+                count = 0
+            genres[name] = max(1, count)
+
     title = str(payload.get("title", "") or "")
     return RecordingCredits(
         recording_id=recording_id,
+        genres=tuple(sorted(genres.items(), key=lambda item: item[1], reverse=True)),
         title=title,
         instruments=tuple(instruments),
         vocals=tuple(vocals),
@@ -194,7 +217,7 @@ class CoverArtService:
         try:
             response = await client.get(
                 _RECORDING_ENDPOINT.format(recording_id=recording_id),
-                params={"inc": "artist-rels", "fmt": "json"},
+                params={"inc": "artist-rels+genres+tags", "fmt": "json"},
                 headers={"User-Agent": _USER_AGENT},
             )
         except httpx.HTTPError as exc:
@@ -269,6 +292,7 @@ class CoverArtService:
         payload = {
             "id": recording_id,
             "title": credits.title,
+            "genres": [{"name": name, "count": count} for name, count in credits.genres],
             "relations": [
                 {
                     "type": c.relation_type,

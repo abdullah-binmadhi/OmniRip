@@ -9,69 +9,59 @@ import numpy as np
 # Standard ISO 10-band octave frequencies (Hz)
 EQ_FREQUENCIES: list[int] = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
-EQ_PRESETS: dict[str, dict[int, float]] = {
-    "Flat": {f: 0.0 for f in EQ_FREQUENCIES},
-    "Club Punch": {
-        31: 3.5,
-        63: 4.0,
-        125: 1.5,
-        250: -1.0,
-        500: 0.0,
-        1000: 0.0,
-        2000: 1.0,
-        4000: 2.0,
-        8000: 2.5,
-        16000: 3.0,
+EQ_TARGETS: dict[str, str] = {
+    "master": "MASTER",
+    "vocals": "VOCALS",
+    "instrumental": "INSTRUMENTAL",
+}
+
+EQ_PRESET_BANKS: dict[str, dict[str, dict[int, float]]] = {
+    "master": {
+        "Flat": {},
+        "Warm": {31: 0.5, 63: 2.0, 125: 1.5, 500: -0.5},
+        "Air": {4000: 0.5, 8000: 2.0, 16000: 2.5},
+        "Smile": {
+            31: 1.0,
+            63: 1.5,
+            125: 1.0,
+            500: -0.5,
+            1000: -0.5,
+            4000: 0.5,
+            8000: 1.5,
+            16000: 2.0,
+        },
+        "De-Box": {125: -1.0, 250: -2.0, 500: -1.0, 2000: 0.5},
+        "Soft Highs": {4000: -1.0, 8000: -1.5, 16000: -2.0},
     },
-    "Vocal Clarity": {
-        31: -2.0,
-        63: -1.0,
-        125: 0.0,
-        250: -2.0,
-        500: 1.0,
-        1000: 2.5,
-        2000: 3.5,
-        4000: 2.5,
-        8000: 1.5,
-        16000: 2.0,
+    "vocals": {
+        "Natural": {},
+        "Presence": {250: -1.0, 1000: 1.0, 2000: 2.0, 4000: 1.0},
+        "Warm Body": {125: 1.5, 250: 1.0, 500: -0.5},
+        "Air": {4000: 0.5, 8000: 1.5, 16000: 2.0},
+        "Tame Sibilance": {4000: 0.5, 8000: -2.0, 16000: -1.0},
+        "Intimate": {250: -1.5, 500: -0.5, 2000: 0.5, 4000: 1.5, 8000: 1.0},
     },
-    "Hi-Fi Air": {
-        31: 1.0,
-        63: 1.0,
-        125: 0.0,
-        250: -0.5,
-        500: 0.0,
-        1000: 0.0,
-        2000: 1.0,
-        4000: 2.0,
-        8000: 3.5,
-        16000: 5.0,
-    },
-    "Warm Vinyl": {
-        31: 2.0,
-        63: 2.5,
-        125: 2.0,
-        250: 1.0,
-        500: 0.0,
-        1000: -0.5,
-        2000: -1.0,
-        4000: -1.5,
-        8000: -2.0,
-        16000: -3.0,
-    },
-    "De-Mud": {
-        31: 0.0,
-        63: 0.0,
-        125: -1.5,
-        250: -3.5,
-        500: -1.5,
-        1000: 0.0,
-        2000: 0.5,
-        4000: 1.0,
-        8000: 1.0,
-        16000: 1.0,
+    "instrumental": {
+        "Natural": {},
+        "Punch": {31: 1.0, 63: 1.5, 125: 0.5, 250: -1.0, 2000: 0.5},
+        "Clarity": {250: -1.0, 500: -1.0, 2000: 1.5, 4000: 1.0},
+        "Sparkle": {4000: 0.5, 8000: 1.5, 16000: 2.0},
+        "Tight Sub": {31: -2.0, 63: -1.0, 125: 0.5},
     },
 }
+
+DEFAULT_EQ_PRESET: dict[str, str] = {
+    "master": "Flat",
+    "vocals": "Natural",
+    "instrumental": "Natural",
+}
+
+EQ_PRESETS: dict[str, dict[int, float]] = EQ_PRESET_BANKS["master"]
+
+
+def eq_bank(target: str) -> dict[str, dict[int, float]]:
+    """Preset bank for a target (falls back to the master bank)."""
+    return EQ_PRESET_BANKS.get(target, EQ_PRESETS)
 
 
 @dataclass
@@ -90,11 +80,14 @@ class MasteringEQSettings:
             self.bands[freq] = float(np.clip(gain_db, -12.0, 12.0))
             self.preset_name = "Custom"
 
-    def apply_preset(self, name: str) -> None:
-        """Apply a named preset profile."""
-        if name in EQ_PRESETS:
-            self.bands = dict(EQ_PRESETS[name])
-            self.preset_name = name
+    def apply_preset(self, name: str, bank: dict[str, dict[int, float]] | None = None) -> bool:
+        """Apply a named preset from ``bank`` (default: the master bank)."""
+        presets = EQ_PRESETS if bank is None else bank
+        if name not in presets:
+            return False
+        self.bands = {f: float(presets[name].get(f, 0.0)) for f in EQ_FREQUENCIES}
+        self.preset_name = name
+        return True
 
     def reset_flat(self) -> None:
         """Reset all bands to 0.0 dB flat and clear HPF / Trim / Bypass."""
@@ -103,6 +96,16 @@ class MasteringEQSettings:
         self.output_trim_db = 0.0
         self.hpf_30hz = False
         self.enabled = True
+
+    def cache_tag(self) -> str:
+        """Short deterministic tag of this curve for cache names ("" when flat)."""
+        if is_flat(self):
+            return ""
+        import hashlib
+
+        band_str = "_".join(f"{f}:{self.bands.get(f, 0.0):.1f}" for f in EQ_FREQUENCIES)
+        key = f"{band_str}_{self.hpf_30hz}_{self.output_trim_db}_{self.enabled}"
+        return f"_eq_{hashlib.md5(key.encode()).hexdigest()[:6]}"
 
     def to_ffmpeg_af(self) -> str:
         """Convert active EQ settings to an FFmpeg audio filter (-af) string
@@ -127,6 +130,15 @@ class MasteringEQSettings:
             filters.append(f"volume={sign}{self.output_trim_db:.2f}dB")
 
         return ",".join(filters)
+
+
+def is_flat(settings: MasteringEQSettings) -> bool:
+    """True when the settings would not change the audio at all."""
+    if settings.hpf_30hz or abs(settings.output_trim_db) > 0.01:
+        return False
+    if not settings.enabled:
+        return True
+    return all(abs(settings.bands.get(f, 0.0)) < 0.05 for f in EQ_FREQUENCIES)
 
 
 def apply_mastering_eq(
@@ -167,7 +179,7 @@ def apply_mastering_eq(
     sigma = 0.65  # Octave bell width
 
     for f_center in EQ_FREQUENCIES:
-        gain = float(settings.bands.get(f_center, 0.0))
+        gain = float(settings.bands.get(f_center, 0.0)) if settings.enabled else 0.0
         # Log2 distance in octaves
         dist_oct = np.log2(safe_freqs / float(f_center))
         w = np.exp(-0.5 * (dist_oct / sigma) ** 2).astype(np.float32)

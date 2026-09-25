@@ -63,7 +63,7 @@ TAGS_SCHEMA_VERSION = 1
 
 # (label, text prompt). CLAP is zero-shot: the prompt wording is the label.
 # Labels are deliberately coarse and mapped onto lane keys by
-# ``lane_plan.lane_for_credit`` so a tag annotates an existing row when one can
+# content labelling: advisory track-level labels shown in Track Info
 # render it, and becomes a "tags only" row when none can.
 LABEL_PROMPTS: tuple[tuple[str, str], ...] = (
     ("drums", "drums and percussion playing a beat"),

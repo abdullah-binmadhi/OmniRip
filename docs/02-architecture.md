@@ -37,7 +37,6 @@ harvester/
 │   ├── appdirs.py                   # workspace/cache/logs/reports paths (platformdirs)
 │   ├── processing.py                # processing presets: which stages run (docs/13 D21)
 │   ├── ipc/
-│   │   └── layer_sidecar.py         # workbench ⇄ detached terminal channels (docs/12 §6.3)
 │   ├── pipeline/
 │   │   ├── orchestrator.py          # queues, worker pools, cancellation, shutdown
 │   │   ├── phase1_analyze.py        # URL probe / directory scan
@@ -61,11 +60,10 @@ harvester/
 │   │   ├── spectral.py              # cutoff/brick-wall detector — pure numpy
 │   │   └── enhancement/
 │   │       ├── stem_separator.py    # BS-RoFormer → HDEMUCS ensemble, 6-source extras, eco fallback
-│   │       ├── dynamic_layers.py    # song-driven lanes: splits, extras, presence gates (docs/12 §6)
-│   │       ├── lane_plan.py         # lane provenance: origin / confidence / note (docs/13 D22)
 │   │       ├── tags.py              # CLAP zero-shot instrument + vocal tags (docs/13 D25)
-│   │       ├── layers.py            # LayerTrack assembly + per-second analysis
-│   │       ├── layer_editor.py      # the 10 surgical per-second ops + EditPlan
+│   │       ├── segment_analysis.py   # per-second issue scan + hot-spot suggestions
+│   │       ├── repair_plan.py        # symptom catalogue + detector-driven plan
+│   │       ├── repair_ops.py         # ranged DSP ops + reconstruction QC
 │   │       └── dsp.py               # LR4 crossovers, band splits
 │   ├── batch/
 │   │   ├── scanner.py               # directory walk + mutagen probe + skip rules
@@ -74,9 +72,9 @@ harvester/
 │   ├── ui/
 │   │   ├── app.py                   # HarvestApp(App)
 │   │   ├── bridge.py                # JobEvent queue → throttled widget updates
-│   │   ├── workbench.py             # 6-page workbench: tracks, visualizer, deck, EQ, stems, layers
-│   │   ├── layer_studio.py          # FL-style arrangement grid widget
-│   │   ├── layer_terminal.py        # detached layer terminal (docs/12 §6)
+│   │   ├── workbench.py             # 5-page workbench: tracks, visualizer, deck, EQ, repair
+│   │   ├── repair.py                # guided Repair page: Quick Fix, wizard, ranges
+│   │   ├── track_info.py            # Track Info modal (credits/tags/speakers/models)
 │   │   ├── screens/
 │   │   │   ├── main.py
 │   │   │   ├── dirpicker.py         # DirectoryTree modal

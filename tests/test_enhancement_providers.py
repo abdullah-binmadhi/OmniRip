@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from harvester.services.enhancement import (
     ConservativeDSPProvider,
@@ -10,6 +13,12 @@ from harvester.services.enhancement import (
     HybridCoOpProvider,
     NVSRProvider,
 )
+from harvester.services.model_manager import ModelManager
+
+
+def _offline_manager(tmp_path: Path) -> ModelManager:
+    """A ModelManager with an empty cache so providers stay on their fallbacks."""
+    return ModelManager(cache_dir=tmp_path / "empty-models")
 
 
 def test_conservative_dsp_provider():
@@ -54,9 +63,10 @@ def test_nvsr_provider_fallback_generation():
     assert np.max(res_fft[low_mask]) < 0.1 * np.max(res_fft)
 
 
-def test_flashsr_provider_air_band():
-    """Verify FlashSRProvider produces air-band residual (> 16 kHz)."""
-    provider = FlashSRProvider()
+def test_flashsr_provider_air_band(tmp_path: Path):
+    """Verify FlashSRProvider produces air-band residual (> 16 kHz) on its fallback engine."""
+    provider = FlashSRProvider(model_manager=_offline_manager(tmp_path))
+    assert not provider.is_available
     sr = 48000
     n = 24000
     signal = np.random.normal(0, 0.2, (2, n)).astype(np.float32)
@@ -70,9 +80,49 @@ def test_flashsr_provider_air_band():
     assert np.max(res_fft[low_mask]) < 0.05 * np.max(res_fft)
 
 
-def test_hybrid_provider_coop():
+def test_flashsr_neural_path_uses_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The neural path feeds the real pipeline and returns only the > cutoff band."""
+    import torch
+
+    cache = tmp_path / "models"
+    manager = ModelManager(cache_dir=cache)
+    from harvester.services.model_manager import SUPPORTED_MODELS
+
+    for name in ("flashsr", "flashsr_ldm", "flashsr_vae"):
+        path = cache / SUPPORTED_MODELS[name].filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"stub")
+
+    class IdentityPipeline(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.anchor = torch.nn.Parameter(torch.zeros(1))
+
+        def forward(self, tensor: torch.Tensor, lowpass_input: bool = False) -> torch.Tensor:
+            return tensor
+
+    provider = FlashSRProvider(model_manager=manager)
+    assert provider.is_available
+    monkeypatch.setattr(provider, "_load_pipeline", lambda: IdentityPipeline().eval())
+
+    sr = 48000
+    n = 24000
+    t = np.linspace(0, n / sr, n, endpoint=False)
+    signal = (0.3 * np.sin(2 * np.pi * 500 * t) + 0.3 * np.sin(2 * np.pi * 17000 * t)).astype(
+        np.float32
+    )
+    audio = np.stack([signal, signal])
+
+    res = provider.generate_residual(audio, sample_rate=sr, cutoff_hz=15000.0)
+    assert res.shape == audio.shape
+    freqs = np.fft.rfftfreq(n, 1.0 / sr)
+    res_fft = np.abs(np.fft.rfft(res[0]))
+    assert np.max(res_fft[freqs > 16000]) > 10.0 * np.max(res_fft[freqs < 14000])
+
+
+def test_hybrid_provider_coop(tmp_path: Path):
     """Verify HybridCoOpProvider correctly merges providers."""
-    hybrid = HybridCoOpProvider()
+    hybrid = HybridCoOpProvider(flashsr=FlashSRProvider(model_manager=_offline_manager(tmp_path)))
     sr = 48000
     n = 24000
     signal = np.random.normal(0, 0.2, (2, n)).astype(np.float32)
@@ -81,7 +131,7 @@ def test_hybrid_provider_coop():
     assert res.shape == (2, n)
 
 
-def test_all_providers_bandlimited_excitation():
+def test_all_providers_bandlimited_excitation(tmp_path: Path):
     """Verify that every provider actively synthesizes audible high-frequency overtones
     from strictly bandlimited audio (fc <= 14 kHz), where no high-frequency content exists."""
     sr = 48000
@@ -99,8 +149,8 @@ def test_all_providers_bandlimited_excitation():
     providers = [
         ConservativeDSPProvider(),
         NVSRProvider(),
-        FlashSRProvider(),
-        HybridCoOpProvider(),
+        FlashSRProvider(model_manager=_offline_manager(tmp_path)),
+        HybridCoOpProvider(flashsr=FlashSRProvider(model_manager=_offline_manager(tmp_path))),
     ]
 
     freqs = np.fft.rfftfreq(len(t), 1.0 / sr)

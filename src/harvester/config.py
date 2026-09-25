@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harvester.analysis.enhancement.genres import (
+    DEFAULT_GENRE_INTENSITY,
+    GENRE_INTENSITIES,
+    GENRE_PROFILES,
+)
 from harvester.appdirs import AppPaths
 from harvester.processing import DEFAULT_PRESET, DEFAULT_SEP_TYPE, TAG_THRESHOLD
 from harvester.processing import PRESETS as PROCESSING_PRESETS
@@ -58,6 +63,22 @@ class AcoustidConfig:
     api_key_env: str = "ACOUSTID_API_KEY"
     rate_limit_per_s: float = 3.0
     cache_ttl_days: int = 90
+
+
+@dataclass(frozen=True, slots=True)
+class JevConfig:
+    """TypeSafe Jev advisory candidate triage.
+
+    Opt-in: nothing is sent to TypeSafe unless ``enabled`` is true and the API
+    key named by ``api_key_env`` is present. Jev judges filenames only and never
+    replaces the deterministic scoring (docs/06 §7-§8) — it re-buckets
+    candidates its own judgments find implausible or counterfeit-like.
+    """
+
+    enabled: bool = False
+    api_key_env: str = "TYPESAFE_API_KEY"
+    model: str = "jev-latest"
+    max_candidates: int = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +131,7 @@ class TimeoutConfig:
     spectral_s: float = 30.0
     health_s: float = 5.0
     kill_grace_s: float = 5.0
+    jev_s: float = 15.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +149,8 @@ class ProcessingSettings:
     hosted_sep_type: str = DEFAULT_SEP_TYPE
     hosted_max_seconds: float = 0.0
     diarize_max_seconds: float = 0.0
+    genre: str = "auto"
+    genre_intensity: str = DEFAULT_GENRE_INTENSITY
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +182,7 @@ class AppConfig:
     general: GeneralConfig
     slskd: SlskdConfig
     acoustid: AcoustidConfig
+    jev: JevConfig
     restoration: RestorationSettings
     ytdlp: YtdlpConfig
     ffmpeg: FfmpegConfig
@@ -187,6 +212,7 @@ class AppConfig:
             ("acoustid.rate_limit_per_s", self.acoustid.rate_limit_per_s),
             ("spectral.excerpt_s", self.spectral.excerpt_s),
             ("ui.status_interval_s", self.ui.status_interval_s),
+            ("timeouts.jev_s", self.timeouts.jev_s),
         ):
             if value <= 0:
                 raise ConfigError(f"{label} must be greater than zero")
@@ -218,6 +244,16 @@ class AppConfig:
             raise ConfigError("processing.hosted_max_seconds cannot be negative")
         if self.processing.diarize_max_seconds < 0:
             raise ConfigError("processing.diarize_max_seconds cannot be negative")
+        if self.processing.genre not in {"auto", "mix", *GENRE_PROFILES}:
+            raise ConfigError(
+                "processing.genre must be auto, mix, or one of "
+                + ", ".join(sorted(GENRE_PROFILES))
+            )
+        if self.processing.genre_intensity not in GENRE_INTENSITIES:
+            raise ConfigError(
+                "processing.genre_intensity must be one of "
+                + ", ".join(sorted(GENRE_INTENSITIES))
+            )
         if self.batch.skip_bitrate_kbps < 1:
             raise ConfigError("batch.skip_bitrate_kbps must be at least 1")
         if self.batch.playlist_cap < 1:
@@ -233,9 +269,12 @@ class AppConfig:
         for label, value in (
             ("slskd.api_key_env", self.slskd.api_key_env),
             ("acoustid.api_key_env", self.acoustid.api_key_env),
+            ("jev.api_key_env", self.jev.api_key_env),
         ):
             if not _SECRET_NAME.fullmatch(value):
                 raise ConfigError(f"{label} must be an uppercase environment variable name")
+        if not 1 <= self.jev.max_candidates <= 50:
+            raise ConfigError("jev.max_candidates must be between 1 and 50")
         if self.obsidian.enabled and not str(self.obsidian.vault_dir):
             raise ConfigError("obsidian.vault_dir must be set when obsidian is enabled")
         return self
@@ -268,6 +307,12 @@ class AppConfig:
                 "api_key_env": self.acoustid.api_key_env,
                 "rate_limit_per_s": self.acoustid.rate_limit_per_s,
                 "cache_ttl_days": self.acoustid.cache_ttl_days,
+            },
+            "jev": {
+                "enabled": self.jev.enabled,
+                "api_key_env": self.jev.api_key_env,
+                "model": self.jev.model,
+                "max_candidates": self.jev.max_candidates,
             },
             "restoration": {
                 "enabled": self.restoration.enabled,
@@ -335,6 +380,12 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "p2p_timeout_s": 30.0,
     },
     "acoustid": {"api_key_env": "ACOUSTID_API_KEY", "rate_limit_per_s": 3.0, "cache_ttl_days": 90},
+    "jev": {
+        "enabled": False,
+        "api_key_env": "TYPESAFE_API_KEY",
+        "model": "jev-latest",
+        "max_candidates": 8,
+    },
     "restoration": {"enabled": False, "mode": "conservative", "preserve_original": True},
     "ytdlp": {
         "binary": "yt-dlp",
@@ -359,6 +410,8 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "hosted_sep_type": DEFAULT_SEP_TYPE,
         "hosted_max_seconds": 0.0,
         "diarize_max_seconds": 0.0,
+        "genre": "auto",
+        "genre_intensity": DEFAULT_GENRE_INTENSITY,
     },
     "timeouts": {
         "probe_s": 30.0,
@@ -370,6 +423,7 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "spectral_s": 30.0,
         "health_s": 5.0,
         "kill_grace_s": 5.0,
+        "jev_s": 15.0,
     },
     "ui": {"refresh_hz": 8, "max_log_lines": 2000, "status_interval_s": 10.0},
     "obsidian": {
@@ -494,6 +548,7 @@ def _build_config(
     general = section("general")
     slskd = section("slskd")
     acoustid = section("acoustid")
+    jev = section("jev")
     restoration = section("restoration")
     ytdlp = section("ytdlp")
     ffmpeg = section("ffmpeg")
@@ -540,6 +595,12 @@ def _build_config(
                 acoustid.get("rate_limit_per_s", 3.0), name="acoustid.rate_limit_per_s"
             ),
             cache_ttl_days=_int(acoustid.get("cache_ttl_days", 90), name="acoustid.cache_ttl_days"),
+        ),
+        jev=JevConfig(
+            enabled=_bool(jev.get("enabled", False), name="jev.enabled"),
+            api_key_env=str(jev.get("api_key_env", "TYPESAFE_API_KEY")),
+            model=str(jev.get("model", "jev-latest")),
+            max_candidates=_int(jev.get("max_candidates", 8), name="jev.max_candidates"),
         ),
         restoration=RestorationSettings(
             enabled=_bool(restoration.get("enabled", False), name="restoration.enabled"),
@@ -597,6 +658,10 @@ def _build_config(
             diarize_max_seconds=_float(
                 processing.get("diarize_max_seconds", 0.0), name="processing.diarize_max_seconds"
             ),
+            genre=str(processing.get("genre", "auto")),
+            genre_intensity=str(
+                processing.get("genre_intensity", DEFAULT_GENRE_INTENSITY)
+            ),
         ),
         timeouts=TimeoutConfig(
             probe_s=_float(timeouts.get("probe_s", 30.0), name="timeouts.probe_s"),
@@ -608,6 +673,7 @@ def _build_config(
             spectral_s=_float(timeouts.get("spectral_s", 30.0), name="timeouts.spectral_s"),
             health_s=_float(timeouts.get("health_s", 5.0), name="timeouts.health_s"),
             kill_grace_s=_float(timeouts.get("kill_grace_s", 5.0), name="timeouts.kill_grace_s"),
+            jev_s=_float(timeouts.get("jev_s", 15.0), name="timeouts.jev_s"),
         ),
         ui=UiConfig(
             refresh_hz=_int(ui.get("refresh_hz", 8), name="ui.refresh_hz"),
@@ -774,6 +840,7 @@ __all__ = [
     "BatchConfig",
     "FfmpegConfig",
     "GeneralConfig",
+    "JevConfig",
     "ObsidianConfig",
     "SlskdConfig",
     "SpectralConfig",

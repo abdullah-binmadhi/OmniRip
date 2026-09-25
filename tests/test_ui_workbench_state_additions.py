@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from textual.app import App, ComposeResult
 
-from harvester.models import Mode, State, TrackJob
+from harvester.models import Mode, TrackJob
 from harvester.ui.operation_state import Operation
 from harvester.ui.player import AudioPlayerWidget
 from harvester.ui.workbench import WorkbenchWidget
@@ -18,47 +18,6 @@ class StateTestApp(App[None]):
     def compose(self) -> ComposeResult:
         yield AudioPlayerWidget(id="audio-player")
         yield WorkbenchWidget(id="test-workbench")
-
-
-async def test_load_job_resets_all_track_scoped_layer_state(tmp_path: Path) -> None:
-    app = StateTestApp()
-    first_path = tmp_path / "first.mp3"
-    second_path = tmp_path / "second.mp3"
-    first_path.write_bytes(b"first")
-    second_path.write_bytes(b"second")
-    first = TrackJob(mode=Mode.SINGLE_URL, input_path=first_path)
-    first.id = "first-job"
-    first.state = State.COMPLETED
-    second = TrackJob(mode=Mode.SINGLE_URL, input_path=second_path)
-    second.id = "second-job"
-    second.state = State.COMPLETED
-
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        with patch.object(wb, "_trigger_enhancement_pregeneration"):
-            wb.load_job(first)
-        wb.layer_track = object()
-        wb.layer_stem_dir = tmp_path / "first-stems"
-        wb.layer_edit_plan = object()  # type: ignore[assignment]
-        wb.recording_credits = object()
-        wb.measured_speakers = 3
-        wb._layer_terminal_launched = True
-        wb._layer_terminal_pending = True
-        wb._layer_status("old track state")
-
-        with patch.object(wb, "_trigger_enhancement_pregeneration"):
-            wb.load_job(second)
-        await pilot.pause()
-
-        assert wb.current_job is second
-        assert wb.layer_track is None
-        assert wb.layer_stem_dir is None
-        assert wb.layer_edit_plan is None
-        assert wb.recording_credits is None
-        assert wb.measured_speakers is None
-        assert wb._layer_terminal_launched is False
-        assert wb._layer_terminal_pending is False
-        assert wb.track_generation == 2
 
 
 def test_stale_workbench_result_is_rejected_after_track_change() -> None:
@@ -108,7 +67,7 @@ async def test_load_job_rejects_stale_cross_track_cache(
         await pilot.pause()
         assert wb.path_voc is None
         assert wb.path_inst is None
-        assert wb.layer_stem_dir is None
+        assert wb.stem_cache_dir is None
 
 
 async def test_load_job_restores_measured_speakers_from_meta(

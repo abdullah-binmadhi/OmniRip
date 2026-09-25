@@ -5,9 +5,13 @@ from __future__ import annotations
 import numpy as np
 
 from harvester.analysis.enhancement.eq import (
+    DEFAULT_EQ_PRESET,
     EQ_FREQUENCIES,
+    EQ_PRESET_BANKS,
+    EQ_TARGETS,
     MasteringEQSettings,
     apply_mastering_eq,
+    is_flat,
 )
 
 
@@ -21,9 +25,13 @@ def test_eq_settings_defaults_and_presets():
     for f in EQ_FREQUENCIES:
         assert settings.bands[f] == 0.0
 
-    settings.apply_preset("Club Punch")
-    assert settings.preset_name == "Club Punch"
-    assert settings.bands[63] == 4.0
+    assert settings.apply_preset("Warm")
+    assert settings.preset_name == "Warm"
+    assert settings.bands[63] == 2.0
+
+    # Unknown preset in this bank is a no-op
+    assert settings.apply_preset("Presence") is False
+    assert settings.preset_name == "Warm"
 
     settings.set_band(1000, 5.0)
     assert settings.bands[1000] == 5.0
@@ -38,6 +46,57 @@ def test_eq_settings_defaults_and_presets():
     settings.reset_flat()
     assert settings.preset_name == "Flat"
     assert settings.bands[1000] == 0.0
+
+
+def test_eq_preset_banks_are_tasteful_and_target_scoped():
+    """Every bank stays gentle and each target resolves its own presets."""
+    assert set(EQ_PRESET_BANKS) == set(EQ_TARGETS)
+    for target, bank in EQ_PRESET_BANKS.items():
+        assert bank, target
+        assert DEFAULT_EQ_PRESET[target] in bank
+        limit = 3.0 if target == "master" else 2.5
+        for name, curve in bank.items():
+            for freq, gain in curve.items():
+                assert freq in EQ_FREQUENCIES, (target, name, freq)
+                assert abs(gain) <= limit, (target, name, freq, gain)
+
+    settings = MasteringEQSettings()
+    assert settings.apply_preset("Air", EQ_PRESET_BANKS["vocals"])
+    assert settings.bands[16000] == 2.0
+    assert settings.bands[8000] == 1.5
+    assert settings.preset_name == "Air"
+
+
+def test_eq_bypass_ignores_bands_in_numpy_render():
+    """BYPASS must bypass the band curve in exports too, not only in playback."""
+    sr = 48000
+    n = 48000
+    t = np.linspace(0, 1.0, n, endpoint=False)
+    tone = 0.4 * np.sin(2 * np.pi * 1000 * t).astype(np.float32)
+    audio = np.stack([tone, tone], axis=0)
+
+    settings = MasteringEQSettings(enabled=False)
+    settings.bands[1000] = 6.0
+    out = apply_mastering_eq(audio, settings, sample_rate=sr)
+    assert np.max(np.abs(out - audio)) < 1e-4
+
+
+def test_is_flat_detection():
+    settings = MasteringEQSettings()
+    assert is_flat(settings)
+    settings.set_band(1000, 1.0)
+    assert not is_flat(settings)
+    settings.reset_flat()
+    assert is_flat(settings)
+    settings.hpf_30hz = True
+    assert not is_flat(settings)
+    settings.hpf_30hz = False
+    settings.output_trim_db = -1.0
+    assert not is_flat(settings)
+    settings.output_trim_db = 0.0
+    settings.enabled = False
+    settings.bands[1000] = 6.0
+    assert is_flat(settings)
 
 
 def test_apply_mastering_eq_flat_identity():

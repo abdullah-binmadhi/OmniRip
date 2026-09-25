@@ -22,6 +22,7 @@ from harvester.models import (
     EventKind,
     JobEvent,
     Mode,
+    P2PCandidate,
     SkipReason,
     SourceKind,
     State,
@@ -30,6 +31,7 @@ from harvester.models import (
 )
 from harvester.pipeline.phase1_analyze import analyze_url
 from harvester.pipeline.phase2_hunt import (
+    apply_jev_triage,
     build_hunt_queries,
     hunt_and_score,
     prepare_fallback,
@@ -41,6 +43,7 @@ from harvester.pipeline.phase4_spectral import run_spectral_check
 from harvester.pipeline.phase5_polish import polish_batch, polish_stream
 from harvester.services.acoustid import AcoustidService
 from harvester.services.ffmpeg import FfmpegService
+from harvester.services.jev import JevService
 from harvester.services.musicbrainz import CoverArtService
 from harvester.services.slskd import SlskdService
 from harvester.services.tagging import MetadataTagger
@@ -76,6 +79,7 @@ class PipelineOrchestrator:
         tagger: MetadataTagger | None = None,
         slskd: SlskdService | None = None,
         acoustid: AcoustidService | None = None,
+        jev: JevService | None = None,
         cover: CoverArtService | None = None,
         registry: SubprocessRegistry | None = None,
         event_queue: asyncio.Queue[JobEvent] | None = None,
@@ -87,6 +91,7 @@ class PipelineOrchestrator:
         self.tagger = tagger or MetadataTagger()
         self.slskd = slskd or SlskdService(config)
         self.acoustid = acoustid or AcoustidService(config, registry=self.registry)
+        self.jev = jev or JevService(config)
         self.cover = cover or CoverArtService(config)
         self.events: asyncio.Queue[JobEvent] = event_queue or asyncio.Queue(maxsize=1000)
         self.jobs: dict[str, TrackJob] = {}
@@ -404,6 +409,7 @@ class PipelineOrchestrator:
             await self._emit_state(job)
             await self._queues["fallback"].put(job)
             return
+        candidates = await self._triage_candidates(job, queries[0], candidates)
         job.candidates = candidates
         job.candidate_cursor = 0
         await self._emit_log(
@@ -412,6 +418,30 @@ class PipelineOrchestrator:
         job.transition(State.P2P_DOWNLOADING, reason="candidate selected")
         await self._emit_state(job)
         await self._queues["p2p"].put(job)
+
+    async def _triage_candidates(
+        self,
+        job: TrackJob,
+        target: str,
+        candidates: list[P2PCandidate],
+    ) -> list[P2PCandidate]:
+        """Apply the opt-in Jev advisory layer; never change behavior on failure."""
+
+        if not self.jev.available or len(candidates) < 2:
+            return candidates
+        triage = await self.jev.triage_candidates(target, candidates)
+        if triage is None:
+            return candidates
+        ordered, summary = apply_jev_triage(candidates, triage)
+        job.probe_meta["jev_triage"] = summary
+        if summary["reordered"]:
+            await self._emit_log(
+                job,
+                "INFO",
+                f"Jev triage moved {len(summary['demoted'])} candidate(s) down; "
+                f"top: {ordered[0].filename}",
+            )
+        return ordered
 
     async def _p2p_stage(self, job: TrackJob) -> None:
         self._check_cancel(job)

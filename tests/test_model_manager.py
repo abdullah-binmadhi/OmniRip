@@ -44,19 +44,20 @@ def test_check_enhancement_available_returns_status():
 def test_model_manager_cache_lookup(tmp_path: Path):
     """Test model path resolution and caching checks in ModelManager."""
     mm = ModelManager(cache_dir=tmp_path)
-    assert not mm.is_cached("nvsr")
-    assert mm.get_model_path("nvsr") is None
+    assert not mm.is_cached("flashsr")
+    assert mm.get_model_path("flashsr") is None
     assert not mm.is_cached("dereverb")
     assert mm.get_model_path("dereverb") is None
 
     # Simulate cached file
-    nvsr_file = tmp_path / SUPPORTED_MODELS["nvsr"].filename
-    nvsr_file.write_bytes(b"dummy_weights")
+    flashsr_file = tmp_path / SUPPORTED_MODELS["flashsr"].filename
+    flashsr_file.parent.mkdir(parents=True, exist_ok=True)
+    flashsr_file.write_bytes(b"dummy_weights")
     dereverb_file = tmp_path / SUPPORTED_MODELS["dereverb"].filename
     dereverb_file.write_bytes(b"dummy_dereverb_weights")
 
-    assert mm.is_cached("nvsr")
-    assert mm.get_model_path("nvsr") == nvsr_file
+    assert mm.is_cached("flashsr")
+    assert mm.get_model_path("flashsr") == flashsr_file
     assert mm.is_cached("dereverb")
     assert mm.get_model_path("dereverb") == dereverb_file
     assert mm.get_model_path("nonexistent") is None
@@ -65,8 +66,9 @@ def test_model_manager_cache_lookup(tmp_path: Path):
 def test_model_manager_registry_lists_every_supported_model():
     """Verify every supported model is properly registered in SUPPORTED_MODELS."""
     expected = {
-        "nvsr",
         "flashsr",
+        "flashsr_ldm",
+        "flashsr_vae",
         "bs_roformer",
         "hdemucs",
         "htdemucs_6s",
@@ -98,7 +100,7 @@ def test_model_manager_download_mocked(tmp_path: Path):
 
     mm = ModelManager(cache_dir=tmp_path)
 
-    fake_file = tmp_path / "nvsr_resunet_48k.pt"
+    fake_file = tmp_path / "flashsr_vocoder.pt"
     fake_file.write_bytes(b"downloaded_model_bytes")
 
     mock_hf = MagicMock()
@@ -106,7 +108,7 @@ def test_model_manager_download_mocked(tmp_path: Path):
 
     with patch.dict(sys.modules, {"huggingface_hub": mock_hf}):
         progress_events = []
-        res = mm.download_model("nvsr", progress_callback=lambda p: progress_events.append(p))
+        res = mm.download_model("flashsr", progress_callback=lambda p: progress_events.append(p))
         assert res == fake_file
         assert 1.0 in progress_events
 
@@ -137,7 +139,7 @@ def test_model_manager_download_direct_http(tmp_path: Path):
         patch.dict(sys.modules, {"huggingface_hub": None}),
         patch("httpx.stream", return_value=mock_resp),
     ):
-        out = mm.download_model("nvsr", progress_callback=lambda p: progress.append(p))
+        out = mm.download_model("flashsr", progress_callback=lambda p: progress.append(p))
         assert out.exists()
         assert out.read_bytes() == b"chunk_1_chunk_2"
         assert 1.0 in progress

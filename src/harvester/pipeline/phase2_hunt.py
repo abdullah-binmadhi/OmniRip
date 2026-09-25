@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +13,11 @@ from mutagen.flac import FLAC
 from harvester.analysis.scoring import rank_candidates
 from harvester.analysis.titleclean import build_queries
 from harvester.models import P2PCandidate, TrackJob
+from harvester.services.jev import CandidateTriage, TriageBucket
 from harvester.services.slskd import SearchResponse, SlskdService
 from harvester.util.errors import ValidationError
+
+_BUCKET_RANK = {TriageBucket.KEEP: 0, TriageBucket.UNSURE: 1, TriageBucket.DEMOTE: 2}
 
 
 def build_hunt_queries(job: TrackJob) -> tuple[str, ...]:
@@ -104,6 +108,40 @@ async def hunt_and_score(
     return ranked
 
 
+def apply_jev_triage(
+    candidates: Sequence[P2PCandidate],
+    triage: Sequence[CandidateTriage],
+) -> tuple[list[P2PCandidate], dict[str, Any]]:
+    """Stably re-bucket ranked candidates by Jev's advisory verdict.
+
+    The deterministic score order (docs/06 §7-§8) survives inside every bucket;
+    only candidates Jev clearly judges mismatched or counterfeit-like move
+    below the rest. Candidates the service did not judge (the shortlist tail)
+    keep the ``unsure`` bucket, and ties keep their original order.
+
+    Returns the reordered list plus a JSON-safe summary for ``probe_meta``.
+    """
+
+    judged = list(triage[: len(candidates)])
+    buckets = [
+        *judged,
+        *[CandidateTriage(TriageBucket.UNSURE) for _ in range(len(candidates) - len(judged))],
+    ]
+    order = sorted(range(len(candidates)), key=lambda index: _BUCKET_RANK[buckets[index].bucket])
+    ordered = [candidates[index] for index in order]
+    summary = {
+        "considered": len(judged),
+        "demoted": [
+            candidates[index].filename
+            for index, result in enumerate(judged)
+            if result.bucket is TriageBucket.DEMOTE
+        ],
+        "unsure": sum(1 for result in buckets if result.bucket is TriageBucket.UNSURE),
+        "reordered": ordered != list(candidates),
+    }
+    return ordered, summary
+
+
 def _number(value: Any) -> float | None:
     try:
         return float(value)
@@ -112,6 +150,7 @@ def _number(value: Any) -> float | None:
 
 
 __all__ = [
+    "apply_jev_triage",
     "build_hunt_queries",
     "hunt_and_score",
     "prepare_fallback",

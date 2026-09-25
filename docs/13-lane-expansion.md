@@ -1,5 +1,8 @@
 # 13 — Lane Expansion: Presets, Provenance, Credits & 6-Source Extras
 
+> **Superseded by docs/01 D35 (guided Repair, M18).** The lane grid, provenance rows and per-second editing are removed from the app; credits, CLAP tags, speaker measurement and hosted MVSEP survive inside Track Info and the Repair engine. This document is kept as the historical detail for D21–D27.
+
+
 Status: **implemented (M11.5 + M11.6)**. Decisions D21–D27 in
 [`docs/01-requirements.md`](01-requirements.md) §5 are the normative summary; this document
 holds the detail, the budgets and the acceptance criteria.
@@ -43,7 +46,7 @@ config layer and the tests can all share one definition:
 | --- | --- | --- | --- | --- | --- | --- |
 | `fetch_only` | — | — | — | — | — | 0.2 GB |
 | `standard` (default) | 4-source | — | ✓ | — | — | 1.7 GB |
-| `neural_full` | 4-source | ✓ | ✓ | ✓ | ✓ | 2.5 GB (7 GB with NVSR) |
+| `neural_full` | 4-source | ✓ | ✓ | ✓ | ✓ | 2.5 GB (+3.2 GB with the FlashSR pipeline) |
 
 Rules:
 

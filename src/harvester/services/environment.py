@@ -195,6 +195,14 @@ async def detect_environment(
         False,
         detail="API key configured" if acoustid_available else "API key not configured",
     )
+    jev_available = config.jev.enabled and bool(os.environ.get(config.jev.api_key_env))
+    if not config.jev.enabled:
+        jev_detail = "disabled by configuration"
+    elif not jev_available:
+        jev_detail = "API key not configured"
+    else:
+        jev_detail = "advisory triage enabled"
+    dependencies["jev"] = DependencyStatus("jev", jev_available, False, detail=jev_detail)
     return EnvironmentStatus(dependencies)
 
 

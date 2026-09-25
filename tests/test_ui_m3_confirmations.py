@@ -141,7 +141,7 @@ async def test_hosted_failure_status_names_the_cause_and_retry(
         wb._launch_hosted_run("vocals")
         await pilot.pause(0.4)
 
-        status = str(wb.query_one("#wb-layer-status", Label).render())
+        status = str(wb.query_one("#wb-task-status", Label).render())
         assert "boom: job rejected" in status
         assert "retry" in status.lower()
         assert wb._hosted_task_running is False
@@ -164,7 +164,7 @@ async def test_diarization_heartbeat_reports_elapsed_and_stops_when_done(
         wb._diarize_started = monotonic() - 65.0
         wb._diarize_heartbeat()
 
-        status = str(wb.query_one("#wb-layer-status", Label).render())
+        status = str(wb.query_one("#wb-task-status", Label).render())
         assert "65s" in status
 
         stopped: list[str] = []

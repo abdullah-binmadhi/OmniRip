@@ -24,6 +24,19 @@ api_key_env = "ACOUSTID_API_KEY"
 rate_limit_per_s = 3
 cache_ttl_days = 90
 
+[jev]
+# TypeSafe Jev advisory triage of P2P candidates (optional, off by default).
+# Jev reads filenames only — it never hears audio, never touches the spectral
+# verdict, and never replaces the deterministic candidate scoring (docs/06 §7-§8).
+# When enabled, candidates it clearly judges mismatched or counterfeit-like are
+# moved down the queue; everything else keeps its deterministic order.
+# Needs TYPESAFE_API_KEY in the environment (or a local .env).
+enabled = false
+api_key_env = "TYPESAFE_API_KEY"
+model = "jev-latest"
+# How many ranked candidates to judge per search (2 questions each, one request).
+max_candidates = 8
+
 [restoration]
 enabled = false
 mode = "conservative"
@@ -46,7 +59,7 @@ use_credits = true
 # Raise it for fewer, safer tags. Only used by presets with tags = true.
 tag_threshold = 0.15
 # Hosted separation (MVSEP, docs/13 D26). Opt-in PER TRACK: nothing here runs from a
-# preset, a job or startup — the ☁ HOSTED SEPARATE button on the LAYERS page is the only
+# preset, a job or startup — the Hosted engine choice on the REPAIR page is the only
 # trigger, because it is the only path that uploads audio off this machine.
 # Needs MVSEP_API_KEY in the environment (or a local .env). Names come from SEP_TYPES:
 #   karaoke_lead_back = MVSep Karaoke (lead/back vocals, 4 stems, cheap — the default)
@@ -60,6 +73,13 @@ hosted_max_seconds = 0.0
 # MusicBrainz credit count. Needs the optional extra: uv pip install -e '.[diarize]'.
 # Seconds to measure (0 = whole track). Runs on CPU by design (Apple MPS fails here).
 diarize_max_seconds = 0.0
+# Genre intent colouring (docs/01 D38). auto = suggest from the file's tags and, when
+# the track has a MusicBrainz id, from MusicBrainz genres; neutral = no colour; a profile
+# key (hip_hop_trap, house, jazz, ...) pins one; mix opens the manual mix picker.
+# The genre curve is a small, test-capped mastering layer applied to the enhanced master.
+genre = "auto"
+# subtle | balanced | bold — scales the genre curve (subtle is the default).
+genre_intensity = "subtle"
 
 [ytdlp]
 binary = "yt-dlp"
@@ -95,6 +115,7 @@ ffprobe_s = 15
 spectral_s = 30
 health_s = 5
 kill_grace_s = 5
+jev_s = 15
 
 [ui]
 refresh_hz = 8

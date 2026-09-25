@@ -12,7 +12,6 @@ Multi-Stage Studio Pipeline:
 
 from __future__ import annotations
 
-import contextlib
 import gc
 import hashlib
 import json
@@ -933,6 +932,21 @@ def _apply_dereverb_isolation(
         return vocals_stem.copy(), np.zeros_like(vocals_stem)
 
     intensity = max(0.0, min(1.0, float(intensity)))
+
+    # Neural de-reverb (anvuew/dereverb_bs_roformer) when the checkpoint and the
+    # vendored MSST architecture are available; spectral kurtosis engine otherwise.
+    try:
+        from harvester.analysis.enhancement.dereverb import NeuralDereverb
+
+        neural = NeuralDereverb()
+        if neural.is_available:
+            dry_neural = neural.enhance(vocals_stem, sr)
+            dry = vocals_stem + intensity * (dry_neural - vocals_stem)
+            reverb = vocals_stem - dry
+            return dry.astype(np.float32), reverb.astype(np.float32)
+    except Exception as exc:
+        logger.warning("Neural de-reverb failed (%s); using spectral engine", exc)
+
     dry = np.zeros_like(vocals_stem)
     reverb = np.zeros_like(vocals_stem)
 
@@ -1512,7 +1526,6 @@ class StemSeparator:
                 torch.mps.empty_cache()
             except Exception:
                 pass
-        import gc
 
         gc.collect()
 
@@ -1823,7 +1836,6 @@ class StemSeparator:
                 torch.mps.empty_cache()
             except Exception:
                 pass
-        import gc
 
         gc.collect()
 
@@ -1867,121 +1879,6 @@ class StemSeparator:
     # ------------------------------------------------------------------
     # Extra lane sources (docs/13): guitar / piano from a 6-source model
     # ------------------------------------------------------------------
-
-    def separate_extra_lanes(
-        self,
-        input_path: Path,
-        output_dir: Path | None = None,
-        *,
-        mode: str = "neural6",
-        progress_callback: Callable[[float, str], None] | None = None,
-        force: bool = False,
-    ) -> dict[str, Path]:
-        """Persist the 6-source extras (guitar / piano) as raw lane stems.
-
-        ``neural_full`` runs this *after* the 4-source separation: HTDemucs-6s
-        is loaded on its own, writes ``{stem}_{mode}_raw_guitar.wav`` and
-        ``{stem}_{mode}_raw_piano.wav`` next to the other raw stems, and is
-        unloaded again. The lane engine picks those files up generically
-        (``dynamic_layers.EXTRA_LANE_SOURCES``), so no lane code changes.
-
-        Returns the source name → WAV path map. An unavailable model, a failed
-        download or a missing torch degrades to an empty map — extra lanes are
-        an enhancement, never a failure.
-        """
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input file does not exist: {input_path}")
-
-        stem_dir = output_dir or stem_dir_for(input_path, self.cache_dir)
-        stem_dir.mkdir(parents=True, exist_ok=True)
-
-        targets = {
-            name: stem_dir / f"{input_path.stem}_{mode}_raw_{name}.wav"
-            for name in ("guitar", "piano")
-        }
-        if not force and all(p.exists() and p.stat().st_size > 44 for p in targets.values()):
-            if progress_callback:
-                progress_callback(100.0, "Extra lanes: loaded from cache.")
-            return targets
-
-        model = self._load_extra_source_model()
-        if model is None:
-            if progress_callback:
-                progress_callback(100.0, "Extra lanes unavailable — 4-source lanes only.")
-            return {}
-
-        import torch
-
-        try:
-            from demucs.apply import apply_model
-        except Exception as exc:  # pragma: no cover - dependency guard
-            logger.info("demucs.apply unavailable (%s); skipping extra lanes.", exc)
-            return {}
-
-        device = get_safe_neural_device()
-        saved: dict[str, Path] = {}
-        if progress_callback:
-            progress_callback(5.0, "Extra lanes: loading guitar/piano model...")
-        try:
-            target_sr = int(getattr(model, "samplerate", 44100) or 44100)
-            audio, sr = load_audio_numpy(input_path, target_sr=target_sr)
-            waveform = torch.from_numpy(np.ascontiguousarray(audio)).float()
-
-            def _cb(state: dict[str, Any]) -> None:
-                if progress_callback is None:
-                    return
-                total = float(state.get("total") or 0.0) or 1.0
-                done = float(state.get("prog") or 0.0)
-                progress_callback(
-                    8.0 + 82.0 * min(1.0, done / total),
-                    "Extra lanes: separating guitar / piano...",
-                )
-
-            with _neural_inference_lock:
-                model.to(device)
-                model.eval()
-                stems = apply_model(
-                    model,
-                    waveform[None],
-                    device=device,
-                    shifts=0,
-                    split=True,
-                    overlap=0.25,
-                    progress=False,
-                    num_workers=0,
-                    callback=_cb,
-                )[0]
-
-            names = list(getattr(model, "sources", ()))
-            for name, path in targets.items():
-                if name not in names:
-                    continue
-                index = names.index(name)
-                try:
-                    stem = stems[index].detach().cpu().numpy().astype(np.float32)
-                    save_audio_numpy(stem, path, sr)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.debug("extra lane save failed for %s: %s", name, exc)
-                    continue
-                saved[name] = path
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.info("extra lane separation failed: %s", exc)
-        finally:
-            with contextlib.suppress(Exception):
-                model.to("cpu")
-            del model
-            gc.collect()
-            with contextlib.suppress(Exception):
-                if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
-            with contextlib.suppress(Exception):
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-        if progress_callback:
-            ready = "/".join(sorted(saved)) or "none"
-            progress_callback(100.0, f"Extra lanes ready: {ready}.")
-        return saved
 
     def _load_extra_source_model(self) -> Any | None:
         """Load HTDemucs-6s from the OmniRip model cache (single download)."""

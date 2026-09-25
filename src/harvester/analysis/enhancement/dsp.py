@@ -27,6 +27,19 @@ def ensure_2d_audio(audio: np.ndarray) -> tuple[np.ndarray, bool]:
     raise ValueError(f"Expected 1D or 2D audio array, got shape {audio.shape}")
 
 
+def resample_audio(audio: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
+    """Polyphase resample of a (channels, samples) array."""
+    if source_sr == target_sr:
+        return np.asarray(audio, dtype=np.float32)
+    from math import gcd
+
+    from scipy.signal import resample_poly
+
+    factor = gcd(int(source_sr), int(target_sr))
+    up, down = int(target_sr) // factor, int(source_sr) // factor
+    return resample_poly(audio, up, down, axis=1).astype(np.float32)
+
+
 def apply_progressive_mono(
     audio: np.ndarray,
     sample_rate: int = 48000,

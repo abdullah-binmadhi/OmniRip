@@ -69,8 +69,11 @@ Anyone on the internet can take a muffled 128 kbps MP3 file, rename its extensio
 ### 3. Curation & Enhancement Workbench with 10-Band Studio Equalizer
 A professional mixing desk right inside your terminal console. Tweak, audition, and sculpt your sound in real time:
 - **Precision 13-Line Vertical Studio Fader Rails:** Press <kbd>w</kbd> to open the workbench. You are greeted by 10 calibrated vertical sliders representing standard octave bands: **31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, and 16 kHz**. Each slider can boost or cut frequencies from $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in exact $2.0\text{ dB}$ increments, complete with glowing sliders (`─█─`), a bright yellow center zero mark (`─┼─`) for neutral gain, and $\pm 6\text{ dB}$ reference ticks.
-- **Zero-Latency Live DSP Playback:** Adjusting any slider changes what you hear in your headphones in under 50 milliseconds! There is zero waiting and no need to re-encode the file to disk. The equalizer works seamlessly across **all four** audition streams: **`[1] ♫ MP3`** (Original Baseband), **`[2] ✦ ENH`** (Restored Derivative), **`[3] ✦ VOC`** (Isolated Vocal Stem), and **`[4] ✦ INST`** (Bleed-Free Instrumental). You can toggle between streams with a single keypress (<kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>, <kbd>4</kbd>) to sculpt each element individually in real time.
-- **Instant Acoustic Presets & Output Protection:** Don't want to adjust sliders manually? Choose from built-in acoustic presets like *Club Punch* (deep, powerful bass kick), *Vocal Clarity* (brings vocals forward), *Hi-Fi Air* (adds silky high-end shimmer), *Warm Vinyl* (smooth vintage tone), and *De-Mud* (cleans up boomy lower frequencies). It also includes a **30 Hz High-Pass Filter (HPF)** to eliminate speaker rumble and an **Output Trim** to prevent audio distortion.
+- **Zero-Latency Live DSP Playback:** Adjusting any slider changes what you hear in your headphones in under 50 milliseconds — no re-encode, no waiting. The filter follows whatever stream the target selects: **`[1] ♫ MP3`** (Original Baseband), **`[2] ✦ ENH`** (Restored Derivative), or the separated **vocals / instrumental** stems.
+- **Target-Aware Tasteful Presets:** Pick a **Target** — `MASTER`, `VOCALS`, `INSTRUMENTAL` — and the preset list swaps to that target's bank; each target remembers its own curve, HPF and trim. Master presets stay gentle (`Warm`, `Air`, `Smile`, `De-Box`, `Soft Highs`, `Flat`, all within ±3 dB); stem banks (≤2.5 dB) fine-tune the separated acapella/karaoke (`Presence`, `Warm Body`, `Tame Sibilance`, `Intimate`, `Punch`, `Clarity`, `Sparkle`, `Tight Sub`). When you export, the matching target curve is baked into that file — the master curve into the enhanced/repaired master, the vocal curve into the acapella, the instrumental curve into the karaoke.
+- **Genre-Aware Mastering:** A `GENRE` control on the Deck (`Auto` / `Neutral` / any of **20 profiles** / `Mix…`) adds curated, capped colour — at most four bands, at most ±2.5 dB — from Hip-Hop/Trap to Classical/Orchestral. Mixing up to six genres averages them by weighted mean, so conflicting intentions cancel instead of stacking, and a **Subtle / Balanced / Bold** intensity scales the whole curve. Detection is automatic: local genre tags first (titles and comments can never masquerade as genres), then a background MusicBrainz refinement while the mode is `Auto` — a manual pick is never overridden. The genre curve layers on top of your master EQ everywhere the master is used (playback, ENH cache, every export and the Repair master), and a recipe line states the moves, intensity and limiter in plain language.
+- **Lossless Masters on Demand:** Beside the default 320 kbps MP3, the Deck export menu writes the enhanced master as **24-bit/48 kHz WAV** or **FLAC** through the exact same render chain, so what you heard is what you get. Provenance lands as Vorbis comments (FLAC) or an ID3 chunk (WAV), the original file is never touched, and the MP3 remains the one-press default.
+- **Output Protection:** A **30 Hz High-Pass Filter** removes speaker rumble and the **Output Trim** prevents clipping.
 
 ### 4. Acoustic Restoration Engine: Eco DSP vs. Neural AI
 What about rare live concert recordings, underground mixtapes, and vintage vinyl rips where no lossless master exists anywhere? OmniRip breathes new life into them without ruining the original performance:
@@ -78,69 +81,23 @@ What about rare live concert recordings, underground mixtapes, and vintage vinyl
 - **Synthesizing High-Frequency Air (>15.5 kHz):** OmniRip analyzes the musical harmonies of the original track and mathematically generates natural overtone shimmer above the cutoff. It uses a **384-tap linear-phase crossover filter** so no phase cancellation occurs, stabilizes the sub-bass below 100 Hz into solid mono, and protects against distortion with an **ITU-R BS.1770 True-Peak Limiter** set at $-0.1\text{ dBFS}$.
 - **Two Restoration Engines to Choose From:**
   - **Eco DSP Mode:** Pure mathematical signal processing using vectorized NumPy algorithms. It runs instantaneously, consumes almost no battery, generates zero computer heat, and works on any laptop without needing a graphics card.
-  - **Neural AI Mode:** Uses deep learning residual neural networks (FlashSR with harmonic envelope gating and NVSR) to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors.
+  - **Neural AI Mode:** Uses deep learning residual neural networks — the real **FlashSR** distilled-diffusion pipeline (student LDM + VAE + SR vocoder, run chunk-wise at 48 kHz) and the **NVSR** harmonic high-band engine — to intelligently predict and synthesize acoustic air and sparkle for high-end audiophile headphones and studio monitors. When the FlashSR weights are not cached, the provider degrades to its harmonic air-band generator.
 
-### 5. 5-Stage Neural Ensemble Separation, De-Reverb & Surgical Remediation Studio
-Extract clean acapellas for sampling or generate pristine backing tracks for DJ sets and karaoke. OmniRip features an end-to-end SOTA stem separation and forensic restoration studio built right into the workstation:
+### 5. Neural Ensemble Separation & Guided Repair Studio
+
+Extract clean acapellas for sampling or generate pristine backing tracks for DJ sets and karaoke — then let the guided **REPAIR** page fix what you hear, no DAW knowledge required.
+
 - **Dual-Model Ensemble Architecture (BS-RoFormer + HDEMUCS v4):** OmniRip pairs **BS-RoFormer** (Band-Split Rotary Position Attention transformer) for vocal and harmonic isolation (>300 Hz) with **HDEMUCS v4** (Hybrid Demucs) for low-end bass and sub precision (<300 Hz).
-- **Phase-Aligned 4th-Order Linkwitz-Riley (LR4) Crossover Recombination:** Combines the two neural models using a zero-phase 24 dB/octave Linkwitz-Riley crossover (`filtfilt`). This achieves a 0 dB completely flat summed magnitude response with no phase distortion, preserving kick drum punch and bass clarity. The crossover frequency can be adjusted in real time in the Workbench (250–500 Hz).
-- **Anechoic De-Reverb Isolation Engine:** Uses the dedicated `dereverb_bs_roformer` neural engine to perform dry/reverb STFT spectral decomposition. It strips room reflections, hall acoustics, and artificial reverb tails from vocals, yielding dry acapellas ready for studio re-mixing. De-reverb intensity is continuously adjustable (0%–100%).
-- **Residual Inversion 2.0 & Continuous Blend Math:** Rather than a destructive linear fade, OmniRip implements continuous residual-additive blending: $\text{final} = \text{inversion} + w \cdot (\text{model} - \text{inversion})$. Setting the blend to $0\%$ guarantees pure phase-inverted separation (cleanest mathematical isolation with zero vocal bleed). Increasing to $100\%$ layers the full neural instrumental texture over the inversion base.
-- **20 Multi-Choice Surgical Stem Remediations (10 Vocal + 10 Instrumental):**
-  - **10 Vocal Remediations:** Volume Pumping Fix, De-Robotize (Phase Polish & Anti-Flange), Acoustic Bleed Shield (Synth/Guitar Rejection), Room Reverb Stripper (Tail Decay Suppression), Dynamic De-Esser (5.5k-8.5k Sibilance Tamer), Sub-Plosive Cut (80Hz High-Pass Pop Filter), Silk & Air Exciter (+2.5dB >10kHz Sheen), Chest Warmth & Body (280Hz Fundamental), Phantom Center Pin (Stereo Bleed Collapse), and Presence & Articulation (+2dB 3.2kHz) / Adaptive VAD Gate.
-  - **10 Instrumental Remediations:** Kill Ghost Whispers (Side-Vocal Attenuation), Transient Drum Preserver (Snare/Kick Punch), Kick & Bass Center Punch (Mono Sub <120Hz), Pure Phase Inversion (Bit-Exact Subtraction), Formant Bleed Notch (1k-2.8k Vocal Masking), Low-Mid De-Mud (300Hz Boxiness Cut), Sub-Bass Tightener (30Hz Subsonic Cut), Spatial Stereo Widener (Immersion Boost), Cymbal & Air Sparkle (+2.5dB >12kHz), and RMS Leveler & Dip Fix.
-  - One-click profile buttons: **`STUDIO`** (calibrated mastering defaults), **`ALL`** (full defense suite), and **`CLEAR`** (bypass).
-- **Automated Acoustic Defect Detector:** Built-in acoustic analyzer that measures mid/side dominance, spectral flatness, and vocal core frequency energy. It automatically identifies **Pure Instrumental** tracks to bypass vocal bleed gating and preserves sub-bass punch, or detects vocals and auto-tunes recommended remediation flags and blend weights.
-- **5-Model On-Device AI Registry:** Press the **`MODELS`** button in the workbench to inspect and verify all five on-device neural engines (**BS-RoFormer**, **HDEMUCS**, **De-Reverb**, **FlashSR**, and **NVSR**). OmniRip checks local caches, verifies dependencies, reclaims PyTorch Metal memory pools, and automatically downloads missing weights on demand.
+- **Phase-Aligned 4th-Order Linkwitz-Riley (LR4) Crossover Recombination:** Combines the two neural models using a zero-phase 24 dB/octave Linkwitz-Riley crossover (`filtfilt`). This achieves a 0 dB completely flat summed magnitude response with no phase distortion.
+- **Anechoic De-Reverb Isolation Engine:** Runs the **`dereverb_bs_roformer`** neural checkpoint (vendored MSST BS-RoFormer architecture, 51 M params) over the isolated vocal stem in overlapping 10 s windows to separate the dry anechoic vocal from the diffuse room tail. When the checkpoint or Torch is unavailable it falls back to the spectral dry/reverb decomposition.
 
-### 5b. FL Studio Multi-Track Arrangement & 10 Surgical Stem Edit Operations
-Take complete timeline command of separated stems with OmniRip's terminal DAW arrangement studio, inspired by FL Studio:
-- **6-Page Studio Layout (<kbd>F1</kbd>–<kbd>F6</kbd>):** A clean full-width workspace with zero screen crowding:
-  - **`[F1] ≡ TRACKS & LOGS`**: Live P2P queue, download telemetry, and track inspection.
-  - **`[F2] ◈ VISUALIZER`**: Dedicated multi-panel audio visualization studio featuring a dual-channel calibrated VU meter, 10-band octave real-time spectrum analyzer, phase correlation stereo meter, and full-width braille waveform scrubber.
-  - **`[F3] ⎈ DECK`**: Mastering deck overview, loudness radar, and anti-fraud spectral diagnostics.
-  - **`[F4] 🎚 EQ`**: 10-band studio mastering equalizer with $\pm 12\text{ dB}$ vertical fader rails and real-time DSP auditioning.
-  - **`[F5] 𝄢 STEMS`**: 5-stage neural ensemble separation control with Linkwitz-Riley LR4 crossover, de-reverb, and 20 forensic remediations. Includes a one-click **`[ ▤ OPEN IN LAYERS ]`** bridge.
-  - **`[F6] ▤ LAYERS`**: FL Studio multi-track arrangement studio with timeline editing and surgical tools.
-- **FL Studio Multi-Track Timeline:**
-  - **Track Header Cards (24-char width):** Each stem has a dedicated header with track badge, glowing Mute `[●]` LED indicator, Solo `[S]` button, and distinct stem color accents (Vocals: Neon Pink `#ff3399`, Drums: Crimson Red `#ff4444`, Bass: Royal Blue `#3388ff`, Instruments: Amber `#ffaa00`).
-  - **3-Row High-Density Braille Waveforms:** Real multi-track arrangement visualizer with per-cell Braille waveform envelopes showing transient activity across time.
-  - **Dual Musical Time Ruler:** Displays both musical **Bars & Beats** (e.g. `BAR 1.1`, `BAR 2.1` calibrated to track BPM) and exact wall-clock time (`00:00`, `00:05`, `00:10`).
-- **10 Per-Second Surgical DSP Edit Tools:**
-  Apply precise mathematical DSP fixes to any individual 1-second cell on any stem:
-  - **`[M] MUTE` (<kbd>m</kbd>):** Zeroes amplitude in the selected second.
-  - **`[B] BLEED` (<kbd>b</kbd>):** Attenuates sideband vocal/instrument bleed.
-  - **`[S] DE-ESS` (<kbd>s</kbd>):** Cuts harsh $5.5\text{–}8.5\text{ kHz}$ sibilance spikes.
-  - **`[U] DE-MUD` (<kbd>u</kbd>):** Cuts boomy $250\text{–}400\text{ Hz}$ boxiness.
-  - **`[P] PUNCH` (<kbd>p</kbd>):** Transient compressor and dynamic punch exciter.
-  - **`[H] DE-HUM` (<kbd>h</kbd>):** 50/60 Hz notch filter plus 30–120 Hz sub-rumble attenuation ($-18\text{ dB}$).
-  - **`[A] AIR+` (<kbd>a</kbd>):** High-shelf sheen boost ($+4\text{ dB}$) from $10\text{–}20\text{ kHz}$ for presence and sparkle.
-  - **`[C] DE-CLICK` (<kbd>c</kbd>):** Outlier transient derivative spike detector with median interpolation.
-  - **`[G] GATE` (<kbd>g</kbd>):** Soft downward expander for low-level noise floors ($< -38\text{ dBFS}$).
-  - **`[T] TAME` (<kbd>t</kbd>):** Soft tanh peak compression limiter for hot transients ($> -3\text{ dBFS}$).
-  - **`[R] RESET` (<kbd>r</kbd>):** Reverts the selected cell back to the original unedited stem.
-- **Coherent Stems-to-Layers Pipeline:**
-  - One-click **`[ ▤ OPEN IN LAYERS ]`** button on the `STEMS` page seamlessly loads newly separated stems directly into the multi-track timeline.
-  - If stems are not yet separated, the **`[ ⚡ BUILD STEMS ]`** button inside `LAYERS` initiates the neural pipeline on demand.
-  - Dedicated mouse-clickable tool buttons on the Layers action bar provide instant access to all 10 surgical operations, plus **`[ 💾 SAVE LAYERS ]`** (exports 320 kbps mastered layer stems with 20 ms clickless crossfades) and **`[ CLEAR ]`**.
-
-### 5c. Processing Presets, Lane Provenance & Instrument Intelligence
-The lane grid stops being anonymous — and you stop guessing which stages ran:
-- **Three Processing Presets (`[processing] preset`):** `FETCH ONLY` (acquire + tag only — no separation, no lanes, ~0.2 GB), `STANDARD` (4-source neural separation + song-driven lanes, ~1.7 GB, default) and `NEURAL FULL` (adds 6-source guitar/piano lanes, MusicBrainz credits and CLAP tagging, ~2.5 GB). The preset decides *which* stages run; the separator's engine chain only decides *how* they run — and any fallback to the 2-layer eco DSP is announced with a warning, never applied silently.
-- **Provenance on Every Lane Row:** each row carries an origin (`separator`, `DSP split`, `6-source model`, `credits only`, `tags only`), a confidence and a plain-language note (`DRUMS [separator, high] · kept whole — no audible split in this song`). Content that is documented or tagged but has no stem — a credited sax, a tagged string section, a second singer — is **listed without an audio row** rather than faked.
-- **Song-Driven Lanes (more than 4 rows when the song supports it):** the drum bus splits into `KICK / SNARE / HATS`, the bass bus into `SUB_BASS / BASS`, and the 6-source model adds `GUITAR` / `PIANO` lanes — each gated by a presence test (≥5 % active seconds above −45 dBFS and mean RMS ≥ −50 dBFS), so bleed does not invent rows. A full-band track renders up to 8 lanes.
-- **MusicBrainz Credit Inventory (`🏷 CREDITS`):** fingerprints the loaded track (AcoustID → recording MBID) and pulls the documented instrument/vocal credits and singer count — the *authoritative* inventory, cached locally, annotated straight onto the matching lanes.
-- **CLAP Instrument/Vocal Tagging:** a zero-shot audio tagger (`laion/clap-htsat-unfused`) scores evenly spaced windows against 12 instrument/vocal prompts and reports what no stem renders (strings, sax, choir, a second voice). Advisory by design: tags only add provenance rows — they never touch the spectral verdict or your file metadata.
-- **Hosted Separation, Opt-In Per Track (`☁ HOSTED SEPARATE`):** when the local models are not enough, one button uploads an excerpt to MVSEP, polls the job and files every returned stem as a real lane (`hosted (MVSEP)` provenance). It is deliberately **not** a preset and nothing hosted ever runs on its own — it is the only path that sends audio off your machine, and it only happens when you press the button for a specific track. The returned filename *is* the lane key, so a 4-, 21- or 53-stem model needs no per-model table; sum stems are skipped and unknown names still become lanes.
-- **Measured Speakers, Advisory (`👥 SPEAKERS`):** pyannote diarization measures how many voices the audio actually contains and reports `N speakers measured` **next to** the MusicBrainz credit count (`2 singers · 1 speakers measured`), naming credits as authoritative whenever they disagree. It never rewrites credits, never adds or removes a lane, and runs on CPU (Apple MPS fails on this pipeline). Optional: `uv pip install -e '.[diarize]'`.
-
-### 5d. Safety Rails & Product Polish
-The workbench treats every destructive or egress action as a decision, not a side effect:
-- **Per-Track Isolation:** switching tracks invalidates every in-flight worker (hosted separation, diarization, credits, layer build) through a per-track generation token, so a stale job can never touch the new track; unsaved layer edits are guarded by a discard confirmation on switch or quit.
-- **Identity-Checked Cache & Sidecars:** sidecars are per-track and fingerprinted (size + mtime + head/tail), so neither window ever edits another source's plan; cached stems are adopted only when their manifest matches the source — a re-downloaded "same" file with different bytes is re-separated, not silently reused.
-- **Hosted Separation is Explicit:** the MVSEP upload button opens a confirmation screen showing file, size and scope with a model picker — cancel means zero network activity; new hosted stems replace the old set atomically (rollback on failure), and every failure names its cause and its retry action.
-- **Repair & Diagnostics:** `♻ REBUILD` (forced timeline rebuild), `🏷 RE-TAGS` (CLAP re-run) and `🗑 CLEAR CACHE` (confirmed, per-track only) recover from stale caches; `🔍 DIAG` reports model versions, tool paths and credential *presence* — never values.
-- **Terminal Liveness:** the detached layer terminal writes a heartbeat, so a crashed window earns a one-time relaunch hint instead of silently desyncing; `f` cycles a lane provenance filter (all → audio → hosted → credits → tags) and each save reports files written, seconds edited and the mix-residual verdict.
+#### Guided Repair (F5) — Quick Fix or a 10-question interview
+- **Quick Fix (zero questions):** acoustic analysis detects sibilance, low-mid mud, sub rumble and synth bleed, pre-ticks the matching symptoms and applies them in one press.
+- **Not happy? Improve it:** a sequential MCQ wizard walks the Vocals → Instrumental blocks ("Do you hear instruments bleeding into the vocals?", "Faint ghost vocals in the instrumental?", …). Every question shows what the analysis already found, and "Not sure" defers to it.
+- **Sections with `+`:** any fix can target the whole track or specific `min:sec → min:sec` sections you add, and **✨ Suggest spots** proposes the hot-spot ranges it detects in the audio.
+- **Engine choice:** Local (free) or **Hosted MVSEP** — opt-in, per track, with an explicit upload confirmation; nothing hosted ever runs on its own.
+- **Three deliverables every run:** an enhanced repaired master (the edited stems recombined, then the enhancement chain), a clean **acapella**, and a clean **instrumental (karaoke)** — each written with provenance tags while the original stays untouched.
+- **Track Info (`i`):** credits, CLAP tags, measured speakers, model-cache status and upkeep actions live in one modal instead of crowding the workbench header.
 
 ### 6. Canonical Fingerprinting & Atomic Library Upgrade
 Say goodbye to misspelled track titles, missing album art, and corrupt music files:
@@ -164,10 +121,10 @@ graph TD
     P4 -->|"Valid Lossless Master"| P5["Phase 5: Tag & Polish"]
     P4 -->|"Counterfeit Detected"| S2
     P5 --> WB["Curation Workbench"]
-    WB -->|"Quad-Stream [1] MP3 / [2] ENH / [3] VOC / [4] INST"| PL["Studio Audio Player & 10-Band EQ"]
+    WB -->|"Dual-Stream [1] MP3 / [2] ENH"| PL["Studio Audio Player & 10-Band EQ"]
     WB -->|"Acoustic Detector"| DET["Acoustic Music & Vocal Scan"]
     DET -->|"Auto-Tune Flags"| STM["5-Stage Ensemble Separation<br>(BS-RoFormer + HDEMUCS + LR4 + DeReverb)"]
-    STM -->|"20 Surgical Remediations"| PL
+    STM -->|"Guided Repair (Quick Fix + wizard)"| PL
     WB -->|"Export Master"| OUT["320kbps Mastered Library"]
 ```
 
@@ -191,7 +148,7 @@ uv sync --extra dev --extra restore
 ```
 
 > [!TIP]
-> The `--extra restore` flag installs PyTorch, Demucs, and TorchAudio for on-device Neural Stem Separation (BS-RoFormer & HDEMUCS) and AI Super-Resolution (FlashSR & NVSR). If you prefer a lightweight installation, omit `--extra restore` to run in Eco DSP mode.
+> The `--extra restore` flag installs PyTorch, Demucs, TorchAudio and Transformers for on-device Neural Stem Separation (BS-RoFormer & HDEMUCS), neural de-reverb, and AI Super-Resolution. The `--extra flashsr` flag adds the FlashSR runtime dependencies (librosa, psutil, …); FlashSR weights are downloaded on demand. If you prefer a lightweight installation, omit both extras to run in Eco DSP mode.
 
 ### 3. Connect Your Soulseek Account (Recommended)
 To hunt lossless FLAC and WAV audio across the Soulseek P2P network:
@@ -231,22 +188,15 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | Key | Action | Description |
 |:---:|:---|:---|
 | <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
-| <kbd>F1</kbd>–<kbd>F6</kbd> | **Page Navigation** | Switch studio pages: `[F1]` Tracks & Logs, `[F2]` Visualizer, `[F3]` Deck, `[F4]` EQ, `[F5]` Stems, `[F6]` Layers |
+| <kbd>F1</kbd>–<kbd>F5</kbd> | **Page Navigation** | Switch studio pages: `[F1]` Tracks & Logs, `[F2]` Visualizer, `[F3]` Deck, `[F4]` Repair, `[F5]` EQ |
 | <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
 | <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
-| <kbd>3</kbd> | **Audition [3] ✦ VOC** | Switch playback to Isolated Studio Acapella / Vocal stem with live 10-band EQ |
-| <kbd>4</kbd> | **Audition [4] ✦ INST** | Switch playback to Bleed-Free Instrumental stem with live 10-band EQ |
-| <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to sculpt EQ, stems, and audition modes |
-| <kbd>m</kbd> / <kbd>b</kbd> / <kbd>s</kbd> / <kbd>u</kbd> / <kbd>p</kbd> | **Surgical Stem Ops** | Apply Mute, Bleed, De-Ess, De-Mud, or Drum Punch to selected 1-second cell |
-| <kbd>h</kbd> / <kbd>a</kbd> / <kbd>c</kbd> / <kbd>g</kbd> / <kbd>t</kbd> | **Advanced Surgical Ops**| Apply De-Hum, Air+, De-Click, Noise Gate, or Transient Tame to selected cell |
-| <kbd>r</kbd> | **Reset Cell** | Revert active timeline cell back to unedited stem audio |
-| <kbd>x</kbd> / <kbd>z</kbd> | **Mute / Solo Track** | Toggle Mute `[●]` LED or Solo `[S]` state on selected stem track |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | **Track Select** | Navigate active stem track in Layers studio |
-| <kbd>←</kbd> / <kbd>→</kbd> | **Scrub / Seek** | Scrub playhead across timeline / Move per-second surgical cursor |
-| <kbd>+</kbd> / <kbd>-</kbd> | **Stem Texture Blend** | Fine-tune neural stem blend weight ($0\% = \text{Cleanest} \leftrightarrow 100\% = \text{Richest}$) |
+| <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to sculpt EQ, preview and export |
+| <kbd>i</kbd> / <kbd>d</kbd> | **Info & Doctor** | Open the Track Info modal / the diagnostics doctor |
+| <kbd>F5</kbd> | **Repair** | Guided Repair: Quick Fix, the MCQ wizard, section ranges, Local/Hosted engine |
 | <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
 | <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry levels: `INFO` → `DEBUG` → `WARN+ERROR` |
-| <kbd>e</kbd> | **Download Enhanced** | Export and download the enhanced, mastered 320 kbps MP3 to your library |
+| <kbd>e</kbd> | **Download Enhanced** | Export the enhanced master to your library — 320 kbps MP3 by default, or WAV/FLAC from the deck's export menu |
 | <kbd>q</kbd> | **Quit** | Gracefully disconnect Soulseek P2P sessions and exit the workstation |
 
 ---
@@ -260,12 +210,12 @@ OmniRip is designed for terminal velocity. Keep your hands on the home row:
 | **P2P Transport** | Soulseek (`slskd`) | REST client with queue guards and peer scoring |
 | **Stream Engine** | `yt-dlp` | Adaptive format prioritization (`bestaudio[ext=webm]`) |
 | **Forensic DSP** | NumPy + SciPy | 2048-point STFT, Hanning window, -60 dBFS noise floor |
-| **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`) |
+| **Mastering EQ** | FFmpeg Live Filter | 10-band octave parametric filters (`width_type=o:w=1`), target-scoped master/vocals/instrumental banks with per-target memory; curves baked into exports |
 | **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, de-reverb, 20 surgical FX |
-| **Layer Studio** | FL Studio Timeline | 24-char track headers, Mute/Solo LEDs, 3-row braille waveforms, 10 DSP tools |
+| **Guided Repair** | Symptom → ranged fixes | Quick Fix from acoustic detection, 10-question MCQ wizard, `min:sec` sections with hot-spot suggestions, Local/Hosted MVSEP, three deliverables |
 | **Acoustic Detector**| Spectral Analysis | Real-time mid/side dominance, tonality, vocal presence auto-tuning |
-| **Restoration** | FlashSR + NVSR + Eco | Sub-cutoff bit-exact invariance, 384-tap linear-phase crossover |
-| **AI Model Registry**| ModelManager (5 Models) | Automatic download & verification: `bs_roformer`, `hdemucs`, `dereverb`, `flashsr`, `nvsr` |
+| **Restoration** | FlashSR (LDM+VAE+vocoder) + NVSR harmonic + Eco | Sub-cutoff bit-exact invariance, 384-tap linear-phase crossover |
+| **AI Model Registry**| ModelManager (4 engines) | Automatic download & verification: `bs_roformer`, `hdemucs`, `htdemucs_6s`, `dereverb`, `flashsr`+`flashsr_ldm`+`flashsr_vae`, `clap` |
 | **Fingerprinting**| Chromaprint (`fpcalc`) | AcoustID audio fingerprinting + MusicBrainz API |
 | **Tagging** | Mutagen | Complete ID3v2.4 unicode provenance tagging + album art |
 
@@ -288,9 +238,8 @@ For engineers and contributors exploring the internal mechanics:
 | 🛡️ [**09. Testing & Resilience**](docs/09-resilience-testing.md) | Circuit breakers, retry policies, and test matrix |
 | 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M10 |
 | 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | 7-Model on-device AI registry, weights management, PyTorch MPS |
-| 🎛️ [**12. Layer Studio & Surgical Edits**](docs/12-layers-studio.md) | FL Studio arrangement timeline, 10 per-second surgical DSP edits |
-| 🧬 [**13. Lane Expansion**](docs/13-lane-expansion.md) | Processing presets, lane provenance, MusicBrainz credits, 6-source guitar/piano lanes, CLAP tags, opt-in hosted MVSEP separation, advisory speaker measurement |
-| 🛡️ [**14. UI Hardening & Product Polish**](docs/14-ui-hardening.md) | Per-track state & operation lifecycle, sidecar/cache identity, hosted-run isolation, confirmations & diagnostics, cache repair, terminal heartbeat & lane filters |
+| 🧬 [**13. Lane Expansion (superseded)**](docs/13-lane-expansion.md) | Historical detail for D21–D27; the guided Repair flow (docs/01 D35) replaces the lane UI — credits, tags, speakers and hosted MVSEP now live in Track Info and the Repair engine |
+| 🛡️ [**14. UI Hardening & Product Polish (superseded in part)**](docs/14-ui-hardening.md) | Still-current per-track state, hosted-run isolation, confirmations and diagnostics; layer-terminal/cache-repair sections are historical (D35) |
 
 ---
 

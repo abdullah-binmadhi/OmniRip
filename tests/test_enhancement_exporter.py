@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import soundfile as sf
 from mutagen.id3 import ID3
 
 from harvester.analysis.enhancement.presets import PRESETS
@@ -65,7 +66,7 @@ def test_apply_provenance_tags(tmp_path: Path):
 
     comm_frames = saved_id3.getall("COMM")
     assert len(comm_frames) > 0
-    assert "OmniRip M10 Enhanced Derivative" in comm_frames[0].text[0]
+    assert "OmniRip Enhanced Derivative" in comm_frames[0].text[0]
 
 
 def test_export_preserves_original_master(tmp_path: Path):
@@ -208,3 +209,114 @@ def test_export_progress_callback_granularity(tmp_path: Path):
     all_msgs_str = " ".join(messages)
     assert "AI Core" in all_msgs_str or "AI Engine" in all_msgs_str
     assert "Spectral Balancer" in all_msgs_str or "Mastering Limiter" in all_msgs_str
+
+
+def _write_source(tmp_path: Path, seconds: float = 2.0, sr: int = 48000) -> Path:
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    tone = 0.3 * np.sin(2 * np.pi * 1000.0 * t)
+    source = tmp_path / "lossless_src.wav"
+    sf.write(source, np.stack([tone, tone], axis=1), sr)
+    return source
+
+
+def test_export_enhanced_lossless_writes_24bit_flac_and_wav(tmp_path: Path):
+    """FLAC/WAV exports are 24-bit 48 kHz and carry provenance tags."""
+    from mutagen.flac import FLAC
+    from mutagen.wave import WAVE
+
+    source = _write_source(tmp_path)
+    exporter = EnhancementExporter(neural_enabled=False)
+    preset = PRESETS["conservative"]
+
+    extra = {"GENRE": "House", "GENRE_MIX": "house,disco", "GENRE_INTENSITY": "bold"}
+    flac_path = exporter.export_enhanced_lossless(source, preset, fmt="flac", extra_tags=extra)
+    wav_path = exporter.export_enhanced_lossless(source, preset, fmt="wav", extra_tags=extra)
+
+    assert flac_path.name == "lossless_src.enhanced.flac"
+    assert wav_path.name == "lossless_src.enhanced.wav"
+    for path in (flac_path, wav_path):
+        info = sf.info(str(path))
+        assert info.samplerate == 48000
+        assert info.subtype == "PCM_24"
+
+    flac = FLAC(flac_path)
+    assert flac["DERIVED_FROM_LOSSY"] == ["true"]
+    assert flac["LOSSLESS_SOURCE"] == ["false"]
+    assert flac["SYNTHETIC_HIGH_BAND"] == ["true"]
+    assert flac["ENHANCEMENT_PRESET"] == [preset.name]
+    assert flac["GENRE"] == ["House"]
+    assert flac["GENRE_MIX"] == ["house,disco"]
+    assert flac["GENRE_INTENSITY"] == ["bold"]
+
+    wave_tags = WAVE(wav_path).tags
+    assert wave_tags is not None
+    txxx = {str(frame.desc): frame.text for frame in wave_tags.getall("TXXX")}
+    assert txxx["DERIVED_FROM_LOSSY"] == ["true"]
+    assert txxx["ENHANCEMENT_PRESET"] == [preset.name]
+    assert txxx["GENRE"] == ["House"]
+    assert txxx["GENRE_MIX"] == ["house,disco"]
+    assert txxx["GENRE_INTENSITY"] == ["bold"]
+
+
+def test_export_enhanced_derivative_mp3_carries_extra_tags_in_txxx(tmp_path: Path):
+    from mutagen.id3 import ID3
+
+    source = _write_source(tmp_path)
+    exporter = EnhancementExporter(neural_enabled=False)
+    preset = PRESETS["conservative"]
+    mp3_path = tmp_path / "out.mp3"
+    extra = {"GENRE": "Techno", "GENRE_MIX": "techno,acid", "GENRE_INTENSITY": "subtle"}
+    out = exporter.export_enhanced_derivative(
+        source, preset, output_path=mp3_path, extra_tags=extra
+    )
+    assert out.exists()
+    id3 = ID3(out)
+    txxx = {str(frame.desc): frame.text for frame in id3.getall("TXXX")}
+    assert txxx["DERIVED_FROM_LOSSY"] == ["true"]
+    assert txxx["ENHANCEMENT_PRESET"] == [preset.name]
+    assert txxx["GENRE"] == ["Techno"]
+    assert txxx["GENRE_MIX"] == ["techno,acid"]
+    assert txxx["GENRE_INTENSITY"] == ["subtle"]
+
+
+def test_export_enhanced_lossless_rejects_unknown_format(tmp_path: Path):
+    source = _write_source(tmp_path)
+    exporter = EnhancementExporter(neural_enabled=False)
+    try:
+        exporter.export_enhanced_lossless(source, PRESETS["conservative"], fmt="mp4")
+    except ValueError as exc:
+        assert "Unsupported lossless format" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
+
+
+def test_export_enhanced_lossless_decodes_through_ffmpeg_and_renders_once(tmp_path: Path):
+    """The shared render helper is used once and EQ is applied to the written master."""
+    from harvester.analysis.enhancement.eq import MasteringEQSettings
+
+    source = _write_source(tmp_path)
+    exporter = EnhancementExporter(neural_enabled=False)
+    eq = MasteringEQSettings()
+    eq.set_band(16000, 3.0)
+
+    with patch.object(exporter, "_render_enhanced", wraps=exporter._render_enhanced) as render:
+        out = exporter.export_enhanced_lossless(
+            source, PRESETS["conservative"], fmt="flac", eq_settings=eq
+        )
+    assert render.call_count == 1
+    assert render.call_args[0][3] is eq
+    assert out.exists()
+
+
+def test_generate_lossless_path_preserves_requested_format():
+    exporter = EnhancementExporter(neural_enabled=False)
+    # Standard source file
+    src = Path("/music/track.mp3")
+    assert exporter.generate_lossless_path(src, "wav") == Path("/music/track.enhanced.wav")
+    assert exporter.generate_lossless_path(src, "flac") == Path("/music/track.enhanced.flac")
+
+    # Source stem ending in .enhanced
+    src_enh = Path("/music/track.enhanced.mp3")
+    assert exporter.generate_lossless_path(src_enh, "wav") == Path("/music/track.enhanced.wav")
+    assert exporter.generate_lossless_path(src_enh, "flac") == Path("/music/track.enhanced.flac")
+

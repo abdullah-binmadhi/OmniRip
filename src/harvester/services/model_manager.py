@@ -28,13 +28,25 @@ class ModelSpec:
 
 # Default registry of supported models
 SUPPORTED_MODELS: dict[str, ModelSpec] = {
-    "nvsr": ModelSpec(
-        name="nvsr",
-        repo_id="haoheliu/wellsolve_audio_super_resolution_48k",
-        filename="basic.pth",
+    # FlashSR is a three-file pipeline (docs/10, M10): the distilled latent
+    # diffusion model, the VAE, and the SR vocoder. All three are required for
+    # a real FlashSR pass; the provider degrades to its harmonic engine when
+    # any file is missing.
+    "flashsr_ldm": ModelSpec(
+        name="flashsr_ldm",
+        repo_id="laion/FlashSR_One-step_Versatile_Audio_Super-resolution",
+        filename="weights/student_ldm.pth",
         target_sample_rate=48000,
-        expected_sha256=None,  # Verified dynamically if provided
-        description="NVSR non-diffusion base stabilization model (48kHz)",
+        expected_sha256=None,
+        description="FlashSR distilled latent diffusion model (one-step, 48kHz)",
+    ),
+    "flashsr_vae": ModelSpec(
+        name="flashsr_vae",
+        repo_id="laion/FlashSR_One-step_Versatile_Audio_Super-resolution",
+        filename="weights/vae.pth",
+        target_sample_rate=48000,
+        expected_sha256=None,
+        description="FlashSR variational autoencoder (mel/latent front-end, 48kHz)",
     ),
     "flashsr": ModelSpec(
         name="flashsr",
@@ -42,7 +54,7 @@ SUPPORTED_MODELS: dict[str, ModelSpec] = {
         filename="weights/sr_vocoder.pth",
         target_sample_rate=48000,
         expected_sha256=None,
-        description="FlashSR distilled diffusion air-band generator (>16kHz)",
+        description="FlashSR super-resolution vocoder (latent -> 48kHz waveform)",
     ),
     "bs_roformer": ModelSpec(
         name="bs_roformer",
@@ -151,7 +163,8 @@ class ModelManager:
         Download a model checkpoint to the local cache directory.
 
         Args:
-            model_name: Name of supported model ('nvsr', 'flashsr', 'bs_roformer', 'hdemucs', 'dereverb').
+            model_name: Name of supported model ('flashsr', 'flashsr_ldm', 'flashsr_vae',
+                'bs_roformer', 'hdemucs', 'htdemucs_6s', 'dereverb', 'clap').
             progress_callback: Optional callback receiving float progress (0.0 to 1.0).
             force_download: Re-download even if file is already cached.
 

@@ -1,133 +1,178 @@
-"""
-Layer Studio Editor — per-second surgical stem editing (M2).
+"""Repair ops: apply defect fixes to arbitrary time ranges of a stereo file.
 
-Non-destructive edit plan over the Layer Studio timeline: each cell edit is a
-small structured op (mute / de_bleed / de_ess / de_mud / drum_punch / reset)
-applied to one fixed 1-second window of one layer's WAV. Edits never touch the
-raw neural cache; they ride on the blended per-layer files and are committed
-with ~20 ms equal-power crossfades at segment boundaries so neighbours stay
-click-free and (sample-)identical. Export runs a soft-knee limiter at -1 dBFS
-and writes 32-bit PCM so nothing clips.
+The guided Repair flow (docs/01 D35) replaces per-second layer editing with
+plain time ranges: each symptom maps to one DSP operation applied to the
+vocals and/or instrumental stem, whole-track or over the sections the user
+picked. Whole-track rendering calls the operation once; ranged rendering
+slices the file, renders each window and equal-power crossfades the edges so
+the result stays click-free.
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import numpy as np
 
-from harvester.analysis.enhancement.dsp import apply_limiter
-from harvester.analysis.enhancement.layers import (
+from harvester.analysis.enhancement.segment_analysis import (
     MUD_BAND,
     SEGMENT_SIZE_S,
     SIBILANCE_BAND,
     VOCAL_CORE_BAND,
-    LayerTrack,
-    build_layer_track,
 )
-
-logger = logging.getLogger(__name__)
 
 FADE_MS: float = 20.0
 LIMITER_CEILING_DBFS: float = -1.0
-
-# Band-attack depths per op. DE_BLEED is ≥24 dB so a committed de-bleed cell
-# (injected vocal-band leakage) demonstrably drops ≥20 dB residual — the M3
-# acceptance threshold — even past raised-cosine edge rounding and dithering.
 DE_BLEED_ATTEN_DB: float = -24.0
 DE_ESS_ATTEN_DB: float = -14.0
 DE_MUD_ATTEN_DB: float = -10.0
 DE_HUM_ATTEN_DB: float = -18.0
-
-# Mix reconstruction residual budget (dBFS) for verify_mix_residual.
 RECONSTRUCTION_BUDGET_DB: float = -40.0
+Range = tuple[float, float]
+SegmentFn = Callable[[np.ndarray, int], np.ndarray]
 
-# Available per-cell operations (the Layer Studio action menu)
-OPS: tuple[str, ...] = (
-    "mute",
-    "de_bleed",
-    "de_ess",
-    "de_mud",
-    "drum_punch",
-    "de_hum",
-    "air_boost",
-    "de_click",
-    "noise_gate",
-    "transient_tame",
-    "reset",
-)
-
-OP_LABELS: dict[str, str] = {
-    "mute": "Mute",
-    "de_bleed": "De-bleed",
-    "de_ess": "De-ess",
-    "de_mud": "De-mud",
-    "drum_punch": "Drum-punch",
-    "de_hum": "De-hum",
-    "air_boost": "Air-boost",
-    "de_click": "De-click",
-    "noise_gate": "Noise-gate",
-    "transient_tame": "Transient-tame",
-    "reset": "Reset",
-}
-
-OP_KEYS: dict[str, str] = {
-    "m": "mute",
-    "b": "de_bleed",
-    "s": "de_ess",
-    "u": "de_mud",
-    "p": "drum_punch",
-    "h": "de_hum",
-    "a": "air_boost",
-    "c": "de_click",
-    "g": "noise_gate",
-    "t": "transient_tame",
-    "r": "reset",
-}
+MIN_WINDOW_S: float = 0.10
+MERGE_GAP_S: float = 0.25
 
 
-@dataclass
-class EditPlan:
-    """Non-destructive set of per-cell edits keyed by (layer, segment_idx).
+def normalise_ranges(
+    ranges: Iterable[Range],
+    duration_s: float,
+    *,
+    merge_gap_s: float = MERGE_GAP_S,
+    min_window_s: float = MIN_WINDOW_S,
+) -> list[Range]:
+    """Sort, clamp and merge user ranges into a clean, non-overlapping list."""
+    cleaned: list[Range] = []
+    for raw in ranges:
+        try:
+            t0, t1 = float(raw[0]), float(raw[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not (np.isfinite(t0) and np.isfinite(t1)) or t1 <= t0:
+            continue
+        t0 = max(0.0, t0)
+        t1 = min(float(duration_s), t1)
+        if t1 - t0 < min_window_s:
+            continue
+        cleaned.append((t0, t1))
+    cleaned.sort(key=lambda item: item[0])
+    merged: list[Range] = []
+    for t0, t1 in cleaned:
+        if merged and t0 <= merged[-1][1] + merge_gap_s:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], t1))
+        else:
+            merged.append((t0, t1))
+    return merged
 
-    A `reset` op removes the cell's entry so the original blended audio is
-    restored. Re-rendering always starts from the on-disk blended layer file.
-    """
 
-    edits: dict[tuple[str, int], str] = field(default_factory=dict)
+def render_ranges(
+    audio: np.ndarray,
+    sr: int,
+    ranges: Iterable[Range] | None,
+    fn: SegmentFn,
+    *,
+    fade_ms: float = FADE_MS,
+) -> np.ndarray:
+    """Apply ``fn`` to ``ranges`` (None/empty = whole track) of a (2, n) signal."""
+    source = np.asarray(audio, dtype=np.float32)
+    if ranges is None:
+        return np.asarray(fn(source, sr), dtype=np.float32)
 
-    def add(self, layer: str, segment_idx: int, op: str) -> None:
-        if op == "reset":
-            self.edits.pop((layer, segment_idx), None)
-            return
-        if op not in OPS:
-            raise ValueError(f"Unknown edit op: {op!r}")
-        if self.edits.get((layer, segment_idx)) == op:
-            del self.edits[(layer, segment_idx)]  # toggle off
-            return
-        self.edits[(layer, segment_idx)] = op
+    windows = normalise_ranges(ranges, source.shape[1] / float(sr))
+    if not windows:
+        return np.asarray(fn(source, sr), dtype=np.float32)
 
-    def get(self, layer: str, segment_idx: int) -> str | None:
-        return self.edits.get((layer, segment_idx))
+    out = source.copy()
+    for t0, t1 in windows:
+        start = max(0, int(round(t0 * sr)))
+        end = min(out.shape[1], int(round(t1 * sr)))
+        if end - start < 32:
+            continue
+        original = out[:, start:end]
+        edited = np.asarray(fn(original, sr), dtype=np.float32)
+        edited = _crossfade_edges(original, edited, sr, fade_ms)
+        out[:, start:end] = edited
+    return out
 
-    def clear(self) -> None:
-        self.edits.clear()
 
-    def cells(self) -> list[tuple[str, int, str]]:
-        return sorted((layer, idx, op) for (layer, idx), op in self.edits.items())
+def load_stereo(path: Path) -> tuple[np.ndarray, int]:
+    """Load an audio file as (channels, samples) float32; stereo is preserved."""
+    import soundfile as sf
 
-    @property
-    def count(self) -> int:
-        return len(self.edits)
+    data, sr = sf.read(str(path), dtype="float32", always_2d=True)
+    return data.T, int(sr)
 
-    @property
-    def layers(self) -> list[str]:
-        return sorted({layer for layer, _ in self.edits})
 
-    def changed_paths(self, sources: dict[str, Path]) -> list[Path]:
-        return [sources[layer] for layer in self.layers if layer in sources]
+def write_pcm32(audio: np.ndarray, path: Path, sr: int) -> Path:
+    """Write 32-bit PCM with the -1 dBFS ceiling."""
+    return save_pcm32(audio, path, sr)
+
+
+def verify_reconstruction(
+    reference_mix: np.ndarray,
+    layer_files: dict[str, Path],
+    sample_rate: int = 44100,
+    budget_db: float = RECONSTRUCTION_BUDGET_DB,
+) -> tuple[float, list[int]]:
+    """Worst per-second residual of the reconstructed mix vs the source mix."""
+    per_seg = mix_residual_db(
+        reference_mix,
+        reconstruct_mix(layer_files, sample_rate=sample_rate),
+        sample_rate=sample_rate,
+    )
+    worst = float(np.max(per_seg)) if per_seg.size else float("-inf")
+    violating = [int(i) for i, value in enumerate(per_seg) if value > budget_db]
+    return worst, violating
+
+
+def op_de_bleed(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "de_bleed", sr)
+
+
+def op_de_ess(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "de_ess", sr)
+
+
+def op_de_mud(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "de_mud", sr)
+
+
+def op_de_hum(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "de_hum", sr)
+
+
+def op_de_click(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "de_click", sr)
+
+
+def op_air_boost(segment: np.ndarray, sr: int) -> np.ndarray:
+    return apply_op(segment, "air_boost", sr)
+
+
+def op_fix_pumping(segment: np.ndarray, sr: int) -> np.ndarray:
+    from harvester.analysis.enhancement.stem_separator import apply_adaptive_spectral_gate
+
+    return apply_adaptive_spectral_gate(segment, sr, profile="fix_pumping")
+
+
+def op_kill_whispers(segment: np.ndarray, sr: int) -> np.ndarray:
+    from harvester.analysis.enhancement.stem_separator import apply_mid_side_vocal_suppression
+
+    return apply_mid_side_vocal_suppression(segment, sr, profile="kill_whispers")
+
+
+def make_dereverb_op(intensity: float) -> SegmentFn:
+    """Dereverb op factory: keeps only the dry half of the isolation split."""
+
+    def _op(segment: np.ndarray, sr: int) -> np.ndarray:
+        from harvester.analysis.enhancement.stem_separator import _apply_dereverb_isolation
+
+        dry, _reverb = _apply_dereverb_isolation(segment, sr, intensity=float(intensity))
+        return dry
+
+    return _op
 
 
 def _apply_band_attenuation(
@@ -297,37 +342,6 @@ def _crossfade_edges(
     return out
 
 
-def render_edited_layer(
-    path: Path,
-    edits_for_layer: list[tuple[int, str]],
-    sample_rate: int = 44100,
-) -> np.ndarray:
-    """Render one layer file with its cell edits, cross-faded at boundaries.
-
-    Only the edited 1-second windows change; every other sample is preserved
-    exactly (same float32 values round-trip to identical 16-bit samples).
-    """
-    import soundfile as sf
-
-    audio, file_sr = sf.read(str(path), dtype="float32", always_2d=True)
-    audio = audio.T
-    if sample_rate != file_sr:
-        sample_rate = file_sr
-
-    seg_len = int(SEGMENT_SIZE_S * sample_rate)
-    for seg_idx, op in sorted(edits_for_layer):
-        start = seg_idx * seg_len
-        end = min(audio.shape[1], start + seg_len)
-        if start >= audio.shape[1]:
-            continue
-        original = audio[:, start:end].copy()
-        edited = apply_op(original, op, sample_rate)
-        edited = _crossfade_edges(original, edited, sample_rate)
-        audio[:, start:end] = edited.astype(np.float32, copy=False)
-
-    return apply_limiter(audio, ceiling_dbfs=LIMITER_CEILING_DBFS)
-
-
 def save_pcm32(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
     """Write 32-bit PCM WAV with a final -1 dBFS soft ceiling."""
     import soundfile as sf
@@ -340,58 +354,6 @@ def save_pcm32(audio: np.ndarray, path: Path, sample_rate: int) -> Path:
     data = out.T if out.ndim == 2 else out
     sf.write(str(path), data, sample_rate, subtype="PCM_32")
     return path
-
-
-def commit_edit_plan(
-    plan: EditPlan,
-    sources: dict[str, Path],
-    sample_rate: int = 44100,
-) -> dict[str, Path]:
-    """Commit an EditPlan onto the blended layer files in-place.
-
-    ``sources`` maps layer name -> current per-layer WAV path (from
-    ``build_layer_sources``). Returns layer name -> written path. The raw
-    neural cache is never touched, so a later re-separation is always available.
-
-    Raises:
-        ValueError: if any cell references a layer missing from ``sources``.
-    """
-    if plan.count == 0:
-        return {}
-
-    by_layer: dict[str, list[tuple[int, str]]] = {}
-    for layer, idx, op in plan.cells():
-        if layer not in sources:
-            raise ValueError(f"Cannot commit edits: layer {layer!r} has no source file.")
-        by_layer.setdefault(layer, []).append((idx, op))
-
-    written: dict[str, Path] = {}
-    for layer, edits in by_layer.items():
-        path = sources[layer]
-        rendered = render_edited_layer(path, edits, sample_rate=sample_rate)
-        save_pcm32(rendered, path, sample_rate)
-        written[layer] = path
-        logger.info("Layer Studio: committed %d edit(s) to %s", len(edits), path)
-    return written
-
-
-def rebuild_track_after_commit(
-    stem_dir: Path,
-    input_stem: str,
-    mode: str,
-    duration_s: float,
-    sample_rate: int = 44100,
-    crossover_hz: float = 300.0,
-) -> LayerTrack:
-    """Re-run the layer analysis so the grid reflects committed edits."""
-    return build_layer_track(
-        stem_dir,
-        input_stem,
-        mode,
-        duration_s=duration_s,
-        sample_rate=sample_rate,
-        crossover_hz=crossover_hz,
-    )
 
 
 def reconstruct_mix(layer_files: dict[str, Path], sample_rate: int = 44100) -> np.ndarray:
@@ -464,3 +426,26 @@ def verify_mix_residual(
     worst = float(np.max(per_seg)) if per_seg.size else float("-inf")
     violating = [int(i) for i, v in enumerate(per_seg) if v > budget_db]
     return per_seg, worst, violating
+
+__all__ = [
+    "FADE_MS",
+    "MIN_WINDOW_S",
+    "MERGE_GAP_S",
+    "Range",
+    "SegmentFn",
+    "load_stereo",
+    "make_dereverb_op",
+    "normalise_ranges",
+    "op_air_boost",
+    "op_de_bleed",
+    "op_de_click",
+    "op_de_ess",
+    "op_de_hum",
+    "op_de_mud",
+    "op_fix_pumping",
+    "op_kill_whispers",
+    "reconstruct_mix",
+    "render_ranges",
+    "verify_reconstruction",
+    "write_pcm32",
+]

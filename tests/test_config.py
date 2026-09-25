@@ -174,3 +174,53 @@ def test_obsidian_section_is_read_from_file(tmp_path: Path) -> None:
     assert config.obsidian.library == "Albums"
     assert config.obsidian.wants == "Wants"
 
+
+def test_processing_genre_defaults_and_validation(tmp_path: Path) -> None:
+    """Default genre is auto, subtle intensity; invalid values are rejected."""
+    config = load_config(environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+    assert config.processing.genre == "auto"
+    assert config.processing.genre_intensity == "subtle"
+
+    # Invalid genre rejected
+    with pytest.raises(ConfigError, match="processing.genre must be"):
+        load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.genre": "unknown_future_genre"},
+        )
+
+    # Invalid intensity rejected
+    with pytest.raises(ConfigError, match="processing.genre_intensity must be"):
+        load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.genre_intensity": "extreme"},
+        )
+
+
+def test_processing_genre_all_profiles_and_intensities_valid(tmp_path: Path) -> None:
+    """auto, mix, and every defined profile and intensity load cleanly."""
+    from harvester.analysis.enhancement.genres import GENRE_INTENSITIES, GENRE_PROFILES
+
+    for g in ("auto", "mix", *GENRE_PROFILES):
+        cfg = load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.genre": g},
+        )
+        assert cfg.processing.genre == g
+
+    for intensity in GENRE_INTENSITIES:
+        cfg = load_config(
+            environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")},
+            cli_overrides={"processing.genre_intensity": intensity},
+        )
+        assert cfg.processing.genre_intensity == intensity
+
+
+def test_config_example_matches_genre_keys(tmp_path: Path) -> None:
+    """config.example.toml defines genre and genre_intensity and loads validly."""
+    example_path = Path("config.example.toml")
+    assert example_path.is_file()
+    cfg = load_config(example_path, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+    assert cfg.processing.genre == "auto"
+    assert cfg.processing.genre_intensity == "subtle"
+
+

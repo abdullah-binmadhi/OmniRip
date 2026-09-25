@@ -15,7 +15,7 @@ from harvester.ui.operation_state import (
 def test_loading_a_track_invalidates_old_operations_and_clears_dirty_state() -> None:
     state = WorkbenchOperationState()
     first = state.load_track("track-a")
-    token = state.begin(Operation.SEPARATING)
+    token = state.begin(Operation.DIARIZATION)
     state.mark_dirty(token)
 
     second = state.load_track("track-b")
@@ -54,11 +54,11 @@ def test_only_one_operation_can_run_and_stale_tokens_cannot_finish() -> None:
 def test_finish_keeps_dirty_state_only_when_requested() -> None:
     state = WorkbenchOperationState()
     state.load_track("track-a")
-    token = state.begin(Operation.SAVE_LAYERS)
+    token = state.begin(Operation.HOSTED_SEPARATION)
     assert state.finish(token, dirty=False) is True
     assert state.dirty is False
 
-    token = state.begin(Operation.LAYER_BUILD)
+    token = state.begin(Operation.CREDITS)
     assert state.finish(token, dirty=True) is True
     assert state.dirty is True
     state.clear_dirty()

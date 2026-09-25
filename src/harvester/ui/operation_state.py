@@ -23,13 +23,9 @@ class Operation(StrEnum):
     """Mutually exclusive Workbench operations."""
 
     IDLE = "idle"
-    SEPARATING = "separating"
-    LAYER_BUILD = "layer_build"
     CREDITS = "credits"
-    TAGGING = "tagging"
     HOSTED_SEPARATION = "hosted_separation"
     DIARIZATION = "diarization"
-    SAVE_LAYERS = "save_layers"
 
 
 class OperationBusyError(RuntimeError):
@@ -47,7 +43,7 @@ class OperationToken:
 
 @dataclass(slots=True)
 class WorkbenchOperationState:
-    """Track identity, current operation, cancellation and dirty edit state."""
+    """Track identity and the currently running exclusive operation."""
 
     generation: int = 0
     track_key: str = ""

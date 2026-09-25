@@ -30,14 +30,27 @@ dev = [
   "soundfile>=0.12",
 ]
 restore = [
+  "beartype>=0.18",
   "demucs>=4.0.0",
   "huggingface_hub>=0.20",
+  "rotary_embedding_torch>=0.6",
   "torch>=2.2",
   "torchaudio>=2.2",
   "torchvision>=0.17",
+  "transformers>=4.40",
 ]
 diarize = [
   "pyannote.audio>=4.0",
+]
+# FlashSR runs the upstream inference code from a managed HF snapshot (the
+# redistribution's packaging misses the namespace subpackages, so it is not
+# pip-installable as-is). The extra carries the runtime deps that code needs.
+flashsr = [
+  "librosa>=0.10",
+  "matplotlib>=3.8",
+  "psutil>=5.9",
+  "pyyaml>=6.0",
+  "tqdm>=4.66",
 ]
 
 [project.scripts]
@@ -62,6 +75,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+# Third-party code kept as close to upstream as possible (GPL-3.0 MSST).
+extend-exclude = ["src/harvester/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

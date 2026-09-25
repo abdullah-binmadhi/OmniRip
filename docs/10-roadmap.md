@@ -162,9 +162,10 @@ not automatable without those binaries.
 
 **Specs:** `m10_enhancement_workbench_plan.md`, band-limited residual isolation, sub-$f_c$ invariance.
 **Build:**
-- Optional dependencies extra `restore = ["huggingface_hub>=0.20", "torch>=2.2", "torchaudio>=2.2"]` in `pyproject.toml`.
+- Optional dependencies extras in `pyproject.toml`: `restore = ["torch", "torchaudio", "demucs", "transformers", "beartype", "rotary_embedding_torch", …]`, `flashsr = ["librosa", "matplotlib", "psutil", "pyyaml", "tqdm"]`.
 - `ModelManager` with automated Hugging Face checkpoint download and SHA-256 validation.
-- `EnhancementProvider` protocol and 4 providers: `ConservativeDSPProvider` (pure NumPy), `NVSRProvider` (Apple Silicon MPS / CPU), `FlashSRProvider` (distilled diffusion air-band), `HybridCoOpProvider`.
+- `EnhancementProvider` protocol and 4 providers: `ConservativeDSPProvider` (pure NumPy), `NVSRProvider` (harmonic high-band engine, Torch on MPS/CPU with a NumPy fallback), `FlashSRProvider` (the real FlashSR pipeline — student LDM + VAE + SR vocoder over 5.12 s windows at 48 kHz — with the harmonic air-band generator as its offline fallback), `HybridCoOpProvider`.
+- The `nvsr` registry slot was removed: its checkpoint (`haoheliu/wellsolve` `basic.pth`) is the AudioSR latent-diffusion bundle, not a one-shot SR model, and upstream `audiosr` pins `numpy<=1.23.5` / `transformers==4.30.2`, so it cannot coexist with this project (see docs/01 D34).
 - DSP engine (`split_bands` zero-phase crossover, `apply_progressive_mono` sub-100Hz mono blend, `match_spectral_slope`, `apply_limiter` soft-knee ceiling at -0.1 dBFS).
 - 5 deterministic presets (`conservative`, `fast_balanced`, `de_sizzle`, `extended_air`, `narrow_stereo`).
 - `EnhancementExporter` rendering 320k MP3 derivatives with Mutagen ID3 provenance tags (`TXXX:DERIVED_FROM_LOSSY=true`, `TXXX:SYNTHETIC_HIGH_BAND=true`, etc.) while leaving original master untouched.
@@ -173,8 +174,38 @@ not automatable without those binaries.
 - Headless CLI flags: `harvester --enhance FILE [--preset PRESET] [--bitrate BITRATE]`.
 
 **Status:** ✅ Implementation complete. Validated with 28 passing unit and integration tests across DSP, providers, exporter, presets, previews, and UI pilot (`tests/test_model_manager.py`, `tests/test_enhancement_dsp.py`, `tests/test_enhancement_providers.py`, `tests/test_enhancement_exporter.py`, `tests/test_enhancement_workbench.py`, `tests/test_main.py`, `tests/test_ui_pilot.py`). Zero regressions on full project test suite (205 passed).
+## M18 — Guided Repair (Stems/Layers removal)
 
-## M11 — Layer Studio (M1: visualize & inspect + M2: per-second editing)
+Status: **implemented**. Replaces the Stems and Layers pages with one guided
+**REPAIR** flow (docs/01 D35): zero-question Quick Fix from acoustic detection,
+a sequential MCQ wizard for refinement, per-symptom `min:sec` sections with hot-spot
+suggestions, Local/Hosted-MVSEP engine choice, three deliverables (enhanced repaired
+master, acapella, instrumental), Track Info modal (`i`) for credits/tags/speakers/models,
+diagnostics on `d`. Deletes the detached layer terminal, sidecar channel, lane plans and
+per-second editing wholesale; D16–D19, D21–D27, D31 and D33 are superseded.
+
+## M19 — Lossless Enhanced Exports (D37)
+
+Status: **implemented**. Adds 24-bit 48 kHz WAV and FLAC masters beside the 320 kbps MP3 default.
+Extracted the shared audio render and composed EQ pipeline into a unified helper. Exports embed
+full provenance tags (`DERIVED_FROM_LOSSY=true`, `LOSSLESS_SOURCE=false`, `SYNTHETIC_HIGH_BAND=true`,
+`ENHANCEMENT_PRESET`, and genre tags) via FLAC Vorbis comments and WAV ID3 TXXX frames.
+Deck export menu routes WAV and FLAC masters, updating the export button dynamically.
+
+## M20 — Genre Intent Engine (D38)
+
+Status: **implemented**. Genre-aware mastering with 20 sparse, test-capped profiles (Hip-Hop/Trap,
+House, Techno, Jazz, Pop, etc.) + Neutral. Features 150+ aliases for automatic ID3 tag and probe
+metadata resolution, non-blocking background MusicBrainz credit/genre integration, hybrid weighted
+averaging (blend_curves cancels conflicting intentions without additive boost), intensity scaling
+(Subtle 0.6×, Balanced 1.0×, Bold 1.4×), and multi-select Genre Mix modal (up to 6 profiles).
+Composed curves feed playback, audition cache, MP3/WAV/FLAC exports, and the Repair master while
+keeping isolated stems uncolored. Validated with 515 passing unit and integration tests (1 skipped).
+
+
+
+## M11 — Layer Studio (M1: visualize & inspect + M2: per-second editing)  
+_Superseded by M18 (guided Repair) — kept for history._
 
 **Specs:** docs/12-layers-studio.md (M1, M2), D14.
 **Build:**
@@ -221,7 +252,8 @@ docs/12 §5.
 
 ---
 
-## M11.5 — Lane expansion: presets, provenance, credits, extras & tags
+## M11.5 — Lane expansion: presets, provenance, credits, extras & tags  
+_Superseded by M18 (guided Repair) — kept for history._
 
 **Goal:** stop guessing. Every lane row says what it is, every stage that runs is a
 user-visible choice, and the instrument inventory comes from documented data plus an

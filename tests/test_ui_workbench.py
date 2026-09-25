@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Label, ProgressBar, Select
+from textual.widgets import Button, Label, ProgressBar, Select, SelectionList
 
-from harvester.analysis.enhancement.acoustic_detector import AcousticAnalysisResult
-from harvester.analysis.enhancement.stem_separator import VOCAL_REMEDIATIONS
+from harvester.analysis.enhancement.eq import EQ_PRESET_BANKS
 from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
 from harvester.ui.visualizer import AudioVisualizer
@@ -108,12 +108,7 @@ async def test_workbench_stream_switching_and_metrics(tmp_path: Path) -> None:
             assert expected["stereo"] in str(stereo_label.render())
             assert expected["engine"] in str(engine_label.render())
 
-        # Switch to Neural AI Mode: reveals the 3 AI presets
-        btn_neural = app.query_one("#wb-btn-neural-toggle", Button)
-        btn_neural.press()
-        await pilot.pause()
         assert wb.neural_enabled is True
-
         ai_metrics = {
             "de_sizzle": {
                 "gain": "-2.5 dB",
@@ -229,55 +224,36 @@ async def test_workbench_explicit_download_enhanced_button(tmp_path: Path) -> No
         assert "Downloaded" in str(status_label.render())
 
 
-async def test_workbench_neural_toggle_and_models_button() -> None:
-    """Verify that user can toggle between Eco DSP mode and Neural AI mode,
-    and access the AI models download button."""
+async def test_workbench_minimal_header_and_track_info_actions() -> None:
+    """The header keeps only MP3/ENH; upkeep actions live in the Track Info modal."""
+    from harvester.ui.track_info import TrackInfoScreen
+
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
-        btn_toggle = app.query_one("#wb-btn-neural-toggle", Button)
-        btn_download = app.query_one("#wb-btn-models-download", Button)
-        engine_label = app.query_one("#wb-spec-engine")
 
-        # Initially in Eco Mode (keeps device cool)
-        assert wb.neural_enabled is False
-        assert "ECO DSP" in str(btn_toggle.label)
-        assert "Eco DSP" in str(engine_label.render())
+        # Header minimisation: legacy buttons are gone, the two streams remain.
+        assert len(app.query("#btn-stream-mp3")) == 1
+        assert len(app.query("#btn-stream-enh")) == 1
+        assert len(app.query("#btn-stream-voc")) == 0
+        assert len(app.query("#btn-stream-inst")) == 0
+        assert len(app.query("#wb-btn-neural-toggle")) == 0
+        assert len(app.query("#wb-btn-models-download")) == 0
 
-        # Click to switch to Neural AI mode
-        btn_toggle.press()
+        # Track Info modal opens and dispatches upkeep actions.
+        wb.open_track_info()
         await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, TrackInfoScreen)
+        body = str(screen.query_one("#ti-body").render())
+        assert "Models" in body
 
-        assert wb.neural_enabled
-        assert "NEURAL AI" in str(btn_toggle.label)
-        assert "Neural AI" in str(engine_label.render())
-
-        # Click again to switch back to Eco DSP mode
-        btn_toggle.press()
-        await pilot.pause()
-
-        assert wb.neural_enabled is False
-        assert "ECO DSP" in str(btn_toggle.label)
-        assert "Eco DSP" in str(engine_label.render())
-
-        # Models download button exists on Deck page
-        assert "MODELS" in str(btn_download.label)
         with patch.object(wb, "trigger_models_download") as mock_dl:
-            btn_download.press()
+            screen.query_one("#ti-models", Button).press()
             await pilot.pause()
             mock_dl.assert_called_once()
 
-        # Stems page AI models button also exists and triggers trigger_models_download
-        wb.switch_page("stems")
-        await pilot.pause()
-        btn_stem_models = app.query_one("#wb-btn-stem-models", Button)
-        assert "AI MODELS" in str(btn_stem_models.label)
-        with patch.object(wb, "trigger_models_download") as mock_stem_dl:
-            btn_stem_models.press()
-            await pilot.pause()
-            mock_stem_dl.assert_called_once()
-
-        # Test trigger_models_download when models are already cached — shows all 4 models
+        # Test trigger_models_download when models are already cached — shows all engines
         with (
             patch("harvester.services.model_manager.ModelManager.is_cached", return_value=True),
             patch("importlib.util.find_spec", return_value=object()),
@@ -288,7 +264,7 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             assert "AI Model Registry" in status_text
             assert "BS-RoFormer" in status_text
             assert "HDEMUCS" in status_text
-            assert "NVSR" in status_text
+            assert "DeReverb" in status_text
             assert "FlashSR" in status_text
 
         # Test trigger_models_download when demucs is missing triggers background install worker
@@ -301,12 +277,8 @@ async def test_workbench_neural_toggle_and_models_button() -> None:
             mock_worker.assert_called_once()
 
 
-async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) -> None:
-    """Verify that:
-    1. Eco Mode reveals only the first 2 options (Conservative DSP and Fast Neural).
-    2. AI Mode reveals only the last 3 options (Milder Highs, Extended Air, Narrow Residual).
-    3. Switching between the 3 AI options updates the audio stream and player immediately.
-    """
+async def test_preset_select_offers_all_presets_and_switches_immediately(tmp_path: Path) -> None:
+    """Every preset is always selectable; switching routes the pre-rendered ENH file."""
     from textual.widgets import Select
 
     app = WorkbenchTestApp()
@@ -314,64 +286,40 @@ async def test_mode_dependent_presets_and_immediate_switching(tmp_path: Path) ->
         wb = app.query_one("#test-workbench", WorkbenchWidget)
         player = app.query_one("#audio-player", AudioPlayerWidget)
         sel = app.query_one("#wb-preset-select", Select)
-        btn_toggle = app.query_one("#wb-btn-neural-toggle", Button)
         btn_enh = app.query_one("#btn-stream-enh", Button)
 
-        # 1. Initially in Eco Mode: only 2 options revealed
-        assert wb.neural_enabled is False
-        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
+        assert wb.neural_enabled is True
+        option_ids = [opt[1] for opt in sel._options if opt[1] != Select.NULL]
+        assert option_ids == [
             "conservative",
             "fast_balanced",
-        ]
-        assert wb.selected_preset_id == "conservative"
-
-        # 2. Toggle to Neural AI Mode: reveals only the 3 AI options
-        btn_toggle.press()
-        await pilot.pause()
-
-        assert wb.neural_enabled
-        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
             "de_sizzle",
             "extended_air",
             "narrow_stereo",
         ]
-        assert wb.selected_preset_id in ("extended_air", "de_sizzle", "narrow_stereo")
+        assert wb.selected_preset_id == "conservative"
 
-        # 3. Setup mock audio and audition files for all 3 AI options
         dummy_mp3 = tmp_path / "track.mp3"
         dummy_mp3.write_bytes(b"base-audio")
         wb.path_mp3 = dummy_mp3
 
-        ai_files = {}
+        enh_files = {}
         for pid in ["de_sizzle", "extended_air", "narrow_stereo"]:
             enh_file = wb.audition_cache_dir / f"{dummy_mp3.stem}_{pid}_neural.mp3"
             enh_file.parent.mkdir(parents=True, exist_ok=True)
             enh_file.write_bytes(f"audio-{pid}".encode())
-            ai_files[pid] = enh_file
+            enh_files[pid] = enh_file
 
-        # Activate ENH stream
         btn_enh.press()
         await pilot.pause()
         assert wb.active_stream == "ENH"
 
-        # 4. Switch between the 3 AI options and verify immediate sound/player routing
         for pid in ["de_sizzle", "extended_air", "narrow_stereo"]:
             sel.value = pid
             await pilot.pause()
             assert wb.selected_preset_id == pid
-            assert wb.path_enh == ai_files[pid]
-            assert player.current_track == ai_files[pid]
-
-        # 5. Toggle back to Eco Mode: returns to the 2 Eco options
-        btn_toggle.press()
-        await pilot.pause()
-
-        assert wb.neural_enabled is False
-        assert [opt[1] for opt in sel._options if opt[1] != Select.NULL] == [
-            "conservative",
-            "fast_balanced",
-        ]
-        assert wb.selected_preset_id in ("conservative", "fast_balanced")
+            assert wb.path_enh == enh_files[pid]
+            assert player.current_track == enh_files[pid]
 
 
 async def test_workbench_dead_space_elements_and_cached_download(tmp_path: Path) -> None:
@@ -570,16 +518,45 @@ async def test_workbench_paging_and_10band_eq(tmp_path: Path) -> None:
             assert wb.eq_settings.output_trim_db == 0.0
             assert "0.0dB" in str(val_16k.render())
 
-        # 9. Test Preset selection
+        # 9. Test Preset selection (tasteful master bank)
         sel_preset = app.query_one("#wb-eq-preset-select", Select)
         with patch.object(wb, "_schedule_eq_render"):
-            sel_preset.value = "Hi-Fi Air"
+            sel_preset.value = "Air"
             await pilot.pause()
-            assert wb.eq_settings.preset_name == "Hi-Fi Air"
-            assert wb.eq_settings.bands[16000] == 5.0
-            assert "+5.0dB" in str(val_16k.render())
+            assert wb.eq_settings.preset_name == "Air"
+            assert wb.eq_settings.bands[16000] == 2.5
+            assert "+2.5dB" in str(val_16k.render())
 
-        # 10. Switch back to Deck page
+        # 10. Target switching: bank swap, per-target memory, stem hint
+        sel_target = app.query_one("#wb-eq-target-select", Select)
+        task_status = app.query_one("#wb-task-status", Label)
+        sel_target.value = "vocals"
+        await pilot.pause()
+        assert wb.eq_target == "vocals"
+        assert wb.active_stream not in ("VOC", "INST")
+        assert "No separated vocals yet" in str(task_status.render())
+        assert "VOCALS" in str(app.query_one("#wb-eq-title", Label).render())
+        vocal_options = [opt[1] for opt in sel_preset._options if opt[1] != Select.NULL]
+        assert vocal_options == list(EQ_PRESET_BANKS["vocals"])
+        with patch.object(wb, "_schedule_eq_render"):
+            sel_preset.value = "Tame Sibilance"
+            await pilot.pause()
+        assert wb.eq_settings_by_target["vocals"].bands[8000] == -2.0
+
+        sel_target.value = "master"
+        await pilot.pause()
+        assert wb.eq_target == "master"
+        assert wb.eq_settings is wb.eq_settings_by_target["master"]
+        assert wb.eq_settings.preset_name == "Air"
+        assert wb.eq_settings.bands[16000] == 2.5  # master curve remembered
+
+        sel_target.value = "vocals"
+        await pilot.pause()
+        assert wb.eq_settings.preset_name == "Tame Sibilance"  # vocal curve remembered
+        sel_target.value = "master"
+        await pilot.pause()
+
+        # 11. Switch back to Deck page
         wb.switch_page("deck")
         await pilot.pause()
         assert wb.active_page == "deck"
@@ -631,20 +608,20 @@ async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
         assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
         assert "equalizer=f=63:width_type=o:w=1:g=1.00" in player.audio_filter
 
-        # 4. Apply 'Club Punch' preset while on ENH
+        # 4. Apply the 'Smile' preset while on ENH
         sel_preset = app.query_one("#wb-eq-preset-select", Select)
-        sel_preset.value = "Club Punch"
+        sel_preset.value = "Smile"
         await pilot.pause()
-        assert "equalizer=f=31:width_type=o:w=1:g=3.50" in player.audio_filter
-        assert "equalizer=f=63:width_type=o:w=1:g=4.00" in player.audio_filter
+        assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=1.50" in player.audio_filter
 
         # 5. Switch back to MP3 -> active EQ filter must still apply!
         btn_mp3 = app.query_one("#btn-stream-mp3", Button)
         btn_mp3.press()
         await pilot.pause()
         assert wb.active_stream == "MP3"
-        assert "equalizer=f=31:width_type=o:w=1:g=3.50" in player.audio_filter
-        assert "equalizer=f=63:width_type=o:w=1:g=4.00" in player.audio_filter
+        assert "equalizer=f=31:width_type=o:w=1:g=1.00" in player.audio_filter
+        assert "equalizer=f=63:width_type=o:w=1:g=1.50" in player.audio_filter
 
         # 6. Toggle HPF 30Hz
         btn_hpf = app.query_one("#wb-btn-eq-hpf", Button)
@@ -657,87 +634,6 @@ async def test_realtime_eq_player_synchronization(tmp_path: Path) -> None:
         btn_reset.press()
         await pilot.pause()
         assert player.audio_filter == ""
-
-
-async def test_workbench_stem_separation_and_auditioning(tmp_path: Path) -> None:
-    """Verify Workbench vocal and instrumental stem switching and export."""
-    from harvester.analysis.enhancement.stem_separator import StemResult
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        dummy_mp3 = tmp_path / "stem_song.mp3"
-        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
-
-        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
-        job.id = "job-stem-test"
-        job.output_path = dummy_mp3
-
-        with patch.object(wb, "_trigger_enhancement_pregeneration"):
-            wb.load_job(job)
-
-        btn_voc = app.query_one("#btn-stream-voc", Button)
-        btn_inst = app.query_one("#btn-stream-inst", Button)
-        assert "[3] VOC" in str(btn_voc.label)
-        assert "[4] INST" in str(btn_inst.label)
-
-        # Mock stem separator result
-        voc_file = tmp_path / "stem_song_vocals.wav"
-        inst_file = tmp_path / "stem_song_instrumental.wav"
-        voc_file.write_bytes(b"RIFFdummyvocalswav")
-        inst_file.write_bytes(b"RIFFdummyinstwav")
-
-        mock_res = StemResult(
-            vocals_path=voc_file,
-            instrumental_path=inst_file,
-            mode="eco",
-            sample_rate=44100,
-            duration_s=2.5,
-            engine="eco",
-        )
-
-        with patch(
-            "harvester.analysis.enhancement.stem_separator.StemSeparator.separate_file",
-            return_value=mock_res,
-        ):
-            # Enable Neural AI mode first — VOC/INST buttons are gated behind it
-            btn_neural = app.query_one("#wb-btn-neural-toggle", Button)
-            btn_neural.press()
-            await pilot.pause()
-            assert wb.neural_enabled, "Neural mode must be active to use stem separation"
-            assert not btn_voc.disabled, "VOC button should be enabled after neural toggle"
-            assert not btn_inst.disabled, "INST button should be enabled after neural toggle"
-
-            # Press [3] VOC
-            btn_voc.press()
-            await pilot.pause()
-
-            assert wb.active_stream == "VOC"
-            assert btn_voc.variant == "primary"
-            assert wb.path_voc == voc_file
-
-            # Press [4] INST
-            btn_inst.press()
-            await pilot.pause()
-
-            assert wb.active_stream == "INST"
-            assert btn_inst.variant == "primary"
-            assert wb.path_inst == inst_file
-
-            # Export while on INST
-            exported_inst = tmp_path / "stem_song_instrumental.wav"
-            btn_export = app.query_one("#wb-btn-export", Button)
-            btn_export.press()
-            for _ in range(25):
-                await pilot.pause(0.05)
-                if exported_inst.exists():
-                    break
-
-            assert exported_inst.exists()
-
-            # Verify stem progress bar is present in workbench DOM
-            pb_stem = app.query_one("#wb-stem-progress", ProgressBar)
-            assert pb_stem is not None
 
 
 @pytest.mark.asyncio
@@ -805,250 +701,6 @@ async def test_workbench_multi_song_stem_isolation(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_workbench_stem_diagnostic_dropdowns_and_profile_memory(tmp_path: Path) -> None:
-    """Verify vocal and instrumental diagnostic multi-choice panels, buttons, and profile memory."""
-    import json
-
-    from textual.widgets import Button
-
-    from harvester.ui.workbench import DefectChecklist
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one(WorkbenchWidget)
-        voc_panel = app.query_one("#wb-diagnostic-voc-panel")
-        inst_panel = app.query_one("#wb-diagnostic-inst-panel")
-        voc_list = app.query_one("#wb-voc-flags-list", DefectChecklist)
-        inst_list = app.query_one("#wb-inst-flags-list", DefectChecklist)
-
-        # 1. Initial state: stream is MP3, both diagnostic panels are hidden
-        assert voc_panel.styles.display == "none"
-        assert inst_panel.styles.display == "none"
-
-        # 2. Switch to VOC: voc_panel becomes visible, inst_panel stays hidden
-        wb.set_active_stream("VOC")
-        await pilot.pause()
-        assert voc_panel.styles.display == "block"
-        assert inst_panel.styles.display == "none"
-
-        # 3. Switch to INST: inst_panel becomes visible, voc_panel is hidden
-        wb.set_active_stream("INST")
-        await pilot.pause()
-        assert voc_panel.styles.display == "none"
-        assert inst_panel.styles.display == "block"
-
-        # 4. Switch back to MP3: both are hidden
-        wb.set_active_stream("MP3")
-        await pilot.pause()
-        assert voc_panel.styles.display == "none"
-        assert inst_panel.styles.display == "none"
-
-        # 5. Multi-choice SelectionList allows selecting multiple options
-        voc_list.select("fix_pumping")
-        voc_list.select("de_robot")
-        await pilot.pause()
-        assert "fix_pumping" in wb.vocal_flags
-        assert "de_robot" in wb.vocal_flags
-
-        # 6. Test STUDIO, ALL, and CLEAR buttons for Vocal
-        btn_voc_studio = app.query_one("#wb-btn-voc-studio", Button)
-        btn_voc_studio.press()
-        await pilot.pause()
-        assert wb.vocal_flags == {"de_bleed", "fix_pumping"}
-
-        btn_voc_all = app.query_one("#wb-btn-voc-all", Button)
-        btn_voc_all.press()
-        await pilot.pause()
-        assert len(wb.vocal_flags) == len(VOCAL_REMEDIATIONS)
-
-        btn_voc_clear = app.query_one("#wb-btn-voc-clear", Button)
-        btn_voc_clear.press()
-        await pilot.pause()
-        assert len(wb.vocal_flags) == 0
-
-        # 7. Test STUDIO, ALL, and CLEAR buttons for Instrumental
-        btn_inst_studio = app.query_one("#wb-btn-inst-studio", Button)
-        btn_inst_studio.press()
-        await pilot.pause()
-        assert wb.inst_flags == {"anti_bleed_synths", "sub_bass_clean"}
-
-        btn_inst_all = app.query_one("#wb-btn-inst-all", Button)
-        btn_inst_all.press()
-        await pilot.pause()
-        assert len(wb.inst_flags) == 10
-
-        btn_inst_clear = app.query_one("#wb-btn-inst-clear", Button)
-        btn_inst_clear.press()
-        await pilot.pause()
-        assert len(wb.inst_flags) == 0
-
-        # 7b. Test RE-SEPARATE button
-        btn_resep = app.query_one("#wb-btn-stem-reseparate", Button)
-        with patch.object(wb, "_trigger_stem_separation") as mock_resep:
-            btn_resep.press()
-            await pilot.pause()
-            mock_resep.assert_called_once_with("VOC", force=True)
-
-        # 7c. Test AUTO-DETECT button
-        btn_autodetect = app.query_one("#wb-btn-stem-auto-detect", Button)
-        with patch.object(wb, "_trigger_acoustic_detection") as mock_autodetect:
-            btn_autodetect.press()
-            await pilot.pause()
-            mock_autodetect.assert_called_once()
-
-        # 7d. Test _async_detect_acoustics applying recommendations
-        mock_result = AcousticAnalysisResult(
-            has_vocals=True,
-            vocal_confidence=0.88,
-            is_pure_instrumental=False,
-            detected_issues=["synth_bleed"],
-            recommended_vocal_flags={"vad_gate", "fix_pumping"},
-            recommended_inst_flags={"anti_bleed_synths", "sub_bass_clean"},
-            recommended_blend_weight=0.75,
-            recommended_engine="ensemble",
-            summary="Vocal track detected",
-        )
-        fake_track = tmp_path / "fake_detect.wav"
-        fake_track.write_bytes(b"RIFF....WAVEfmt ")
-        wb.path_mp3 = fake_track
-
-        with patch("harvester.ui.workbench.analyze_track_acoustics", return_value=mock_result), \
-             patch("soundfile.read", return_value=(__import__("numpy").zeros((1000, 2)), 44100)):
-            await wb._async_detect_acoustics(fake_track)
-            await pilot.pause()
-
-            assert wb.vocal_flags == {"vad_gate", "fix_pumping"}
-            assert wb.inst_flags == {"anti_bleed_synths", "sub_bass_clean"}
-            assert wb.stem_bsr_blend == 0.75
-            assert "VOCALS DETECTED" in str(app.query_one("#wb-acoustic-status", Label).render())
-
-        # 8. Test loading track with existing profile.json restores the saved multi-flags
-        track_file = tmp_path / "test_track.mp3"
-        track_file.write_bytes(b"TESTAUDIO")
-        cache_dir = (
-            Path.home()
-            / ".cache"
-            / "omnirip"
-            / "stems"
-            / f"{track_file.stem}_{track_file.stat().st_size}"
-        )
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        (cache_dir / "profile.json").write_text(
-            json.dumps(
-                {
-                    "vocal_flags": ["de_robot", "air_boost"],
-                    "inst_flags": ["preserve_drums", "kill_whispers"],
-                }
-            )
-        )
-
-        job = TrackJob(mode=Mode.SINGLE_URL, input_path=track_file)
-        job.output_path = track_file
-
-        wb.load_job(job)
-        await pilot.pause()
-
-        assert wb.vocal_flags == {"de_robot", "air_boost"}
-        assert wb.inst_flags == {"preserve_drums", "kill_whispers"}
-        assert set(voc_list.selected) == {"de_robot", "air_boost"}
-        assert set(inst_list.selected) == {"preserve_drums", "kill_whispers"}
-
-
-async def test_workbench_stems_page_navigation_and_controls(tmp_path: Path) -> None:
-    """Verify Workbench 3-page system and dedicated STEMS studio page controls."""
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        dummy_mp3 = tmp_path / "test_track.mp3"
-        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
-
-        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3)
-        job.output_path = dummy_mp3
-
-        with patch.object(wb, "_trigger_enhancement_pregeneration"):
-            wb.load_job(job)
-
-        page_deck = app.query_one("#wb-page-deck")
-        page_eq = app.query_one("#wb-page-eq")
-        page_stems = app.query_one("#wb-page-stems")
-        # Inner page-switch buttons removed; navigation is via top nav bar.
-        # 1. Initially on DECK page
-        assert wb.active_page == "deck"
-        assert page_deck.styles.display != "none"
-        assert page_eq.styles.display == "none"
-        assert page_stems.styles.display == "none"
-
-        # 2. Switch to STEMS page
-        wb.switch_page("stems")
-        await pilot.pause()
-
-        assert wb.active_page == "stems"
-        assert page_deck.styles.display == "none"
-        assert page_eq.styles.display == "none"
-        assert page_stems.styles.display != "none"
-
-        # 3. Verify all controls on STEMS page exist
-        assert app.query_one("#wb-btn-stem-auto-detect", Button) is not None
-        assert app.query_one("#wb-btn-stem-reseparate", Button) is not None
-        assert app.query_one("#wb-btn-audition-voc", Button) is not None
-        assert app.query_one("#wb-btn-audition-inst", Button) is not None
-        assert app.query_one("#wb-blend-bsr-val", Label) is not None
-        assert app.query_one("#wb-blend-hdemucs-val", Label) is not None
-
-        # 4. Test BS-RoFormer stepper on STEMS page
-        btn_bsr_dn = app.query_one("#wb-blend-bsr-dn", Button)
-        btn_bsr_up = app.query_one("#wb-blend-bsr-up", Button)
-        init_bsr = wb.stem_bsr_blend
-        btn_bsr_dn.press()
-        await pilot.pause()
-        assert wb.stem_bsr_blend == round(init_bsr - 0.05, 2)
-
-        btn_bsr_up.press()
-        await pilot.pause()
-        assert wb.stem_bsr_blend == init_bsr
-
-        # Test LR4 Crossover stepper on STEMS page
-        btn_xo_dn = app.query_one("#wb-crossover-dn", Button)
-        btn_xo_up = app.query_one("#wb-crossover-up", Button)
-        init_xo = wb.stem_crossover_hz
-        btn_xo_up.press()
-        await pilot.pause()
-        assert wb.stem_crossover_hz == init_xo + 25.0
-        btn_xo_dn.press()
-        await pilot.pause()
-        assert wb.stem_crossover_hz == init_xo
-
-        # Test De-Reverb stepper on STEMS page
-        btn_drv_up = app.query_one("#wb-dereverb-up", Button)
-        btn_drv_dn = app.query_one("#wb-dereverb-dn", Button)
-        init_drv = wb.stem_dereverb_intensity
-        btn_drv_up.press()
-        await pilot.pause()
-        assert wb.stem_dereverb_intensity == round(init_drv + 0.10, 2)
-        btn_drv_dn.press()
-        await pilot.pause()
-        assert wb.stem_dereverb_intensity == init_drv
-
-        # 5. Test Audition buttons on STEMS page
-        btn_aud_inst = app.query_one("#wb-btn-audition-inst", Button)
-        btn_aud_inst.press()
-        await pilot.pause()
-        assert wb.active_stream == "INST"
-
-        btn_aud_voc = app.query_one("#wb-btn-audition-voc", Button)
-        btn_aud_voc.press()
-        await pilot.pause()
-        assert wb.active_stream == "VOC"
-
-        # 6. Switch back to DECK page
-        wb.switch_page("deck")
-        await pilot.pause()
-        assert wb.active_page == "deck"
-        assert page_deck.styles.display != "none"
-        assert page_stems.styles.display == "none"
-
-
-@pytest.mark.asyncio
 async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Path):
     """Verify dedicated visuals page, visualizer isolation, and app navigation."""
     from harvester.config import load_config
@@ -1104,299 +756,9 @@ async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Pat
         assert wb_pane.styles.display != "none"
         assert wb.active_page == "vis"
         assert "app-nav-active" in btn_nav_vis.classes
-
-
-@pytest.mark.asyncio
-async def test_layer_studio_fl_studio_arrangement_features(tmp_path: Path):
-    """Verify FL Studio-style multi-row track swimlanes, Mute/Solo toggles, and dual ruler."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-    from harvester.ui.layer_studio import LayerStudio
-
-    sources = {
-        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0, -12.0, -15.0]), np.array([0.8, 0.7, 0.5])),
-        "drums": LayerSource("drums", tmp_path / "drm.wav", np.array([-6.0, -6.0, -8.0]), np.array([0.9, 0.9, 0.6])),
-    }
-    segments = [
-        LayerSegment(0, 0.0, 1.0, {"vocals": 0.8, "drums": 0.9}),
-        LayerSegment(1, 1.0, 2.0, {"vocals": 0.7, "drums": 0.9}),
-        LayerSegment(2, 2.0, 3.0, {"vocals": 0.5, "drums": 0.6}),
-    ]
-    track = LayerTrack(duration_s=3.0, sample_rate=44100, sources=sources, segments=segments)
-
-    studio = LayerStudio()
-    studio.track = track
-
-    # Verify initial state: none muted, none soloed
-    assert len(studio._muted_layers) == 0
-    assert studio._solo_layer is None
-
-    # Render test
-    rendered = studio.render().plain
-    assert "BARS / BEATS" in rendered
-    assert "TIME (SECONDS)" in rendered
-    assert "VOCALS" in rendered
-    assert "DRUMS" in rendered
-    assert "[●]" in rendered
-    assert "[S]" in rendered
-
-    # Toggle Mute on vocals
-    studio._muted_layers.add("vocals")
-    rendered_muted = studio.render().plain
-    assert "[○]" in rendered_muted
-
-    # Toggle Solo on drums
-    studio._solo_layer = "drums"
-    assert studio._solo_layer == "drums"
-
-
-@pytest.mark.asyncio
-async def test_layer_studio_empty_source_grid_shows_hint(tmp_path: Path):
-    """A built track with segments but no resolvable sources shows an actionable hint."""
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerTrack
-    from harvester.ui.layer_studio import LayerStudio
-
-    segments = [
-        LayerSegment(0, 0.0, 1.0, {}),
-        LayerSegment(1, 1.0, 2.0, {}),
-    ]
-    track = LayerTrack(duration_s=2.0, sample_rate=44100, sources={}, segments=segments)
-
-    studio = LayerStudio()
-    studio.track = track
-    rendered = studio.render().plain
-    assert "BARS / BEATS" in rendered
-    assert "No layer sources found" in rendered
-
-
-@pytest.mark.asyncio
-async def test_workbench_layer_terminal_opens_only_via_new_window_button(
-    tmp_path: Path,
-):
-    """The detached terminal is never auto-opened on page switch; clicking
-    'OPEN LAYER TERMINAL' writes the sidecar and launches it on demand."""
-    from unittest.mock import patch
-
-    import numpy as np
-
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-
-    dummy_mp3 = tmp_path / "terminal_dummy.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    sources = {
-        "vocals": LayerSource(
-            "vocals",
-            tmp_path / "voc.wav",
-            np.array([-10.0, -12.0]),
-            np.array([0.8, 0.7]),
-        ),
-    }
-    segments = [
-        LayerSegment(0, 0.0, 1.0, {"vocals": 0.8}),
-        LayerSegment(1, 1.0, 2.0, {"vocals": 0.7}),
-    ]
-    track = LayerTrack(duration_s=2.0, sample_rate=44100, sources=sources, segments=segments)
-
-    app = WorkbenchTestApp()
-    launch_calls: list = []
-    with patch(
-        "harvester.ui.layer_terminal.launch_layer_terminal",
-        side_effect=lambda p: launch_calls.append(p),
-    ):
-        async with app.run_test() as pilot:
-            wb = app.query_one("#test-workbench", WorkbenchWidget)
-            wb.load_job(TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
-            ))
-            wb.layer_track = track
-
-            # Switching to the layers page must NOT open a terminal.
-            wb.switch_page("layers")
-            await pilot.pause()
-            assert launch_calls == []
-
-            # Pressing OPEN LAYER TERMINAL opens it exactly once, writing the sidecar.
-            wb.query_one("#wb-btn-layer-terminal", Button).press()
-            for _ in range(6):
-                await pilot.pause()
-            assert len(launch_calls) == 1
-            assert launch_calls[0] == wb._layer_sidecar_path()
-
-            # A second press while a terminal is already open re-launches.
-            wb.query_one("#wb-btn-layer-terminal", Button).press()
-            for _ in range(6):
-                await pilot.pause()
-            assert len(launch_calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_workbench_preset_button_cycles_and_reports_cost(tmp_path: Path):
-    """The LAYERS page exposes the processing preset and its RAM/lane cost."""
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.switch_page("layers")
-        await pilot.pause()
-
-        button = wb.query_one("#wb-btn-preset", Button)
-        assert "STANDARD" in str(button.label)
-
-        button.press()
-        await pilot.pause()
-        assert wb.processing_preset == "neural_full"
-        assert "NEURAL FULL" in str(wb.query_one("#wb-btn-preset", Button).label)
-        assert "6-source" in str(wb.query_one("#wb-preset-status", Label).render())
-
-        button.press()
-        await pilot.pause()
-        assert wb.processing_preset == "fetch_only"
-        assert "no lanes" in str(wb.query_one("#wb-preset-status", Label).render())
-
-
-@pytest.mark.asyncio
-async def test_workbench_build_stems_opts_into_separation_from_fetch_only(tmp_path: Path):
-    """FETCH ONLY skips separation, but BUILD STEMS is an explicit opt-in."""
-    dummy_mp3 = tmp_path / "fetch_only.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    app = WorkbenchTestApp()
-    with patch.object(WorkbenchWidget, "_trigger_stem_separation") as trigger:
-        async with app.run_test() as pilot:
-            wb = app.query_one("#test-workbench", WorkbenchWidget)
-            wb.load_job(
-                TrackJob(
-                    mode=Mode.SINGLE_URL,
-                    input_path=tmp_path / "src.opus",
-                    output_path=dummy_mp3,
-                )
-            )
-            wb.switch_page("layers")
-            wb._set_preset("fetch_only")
-            await pilot.pause()
-
-            wb.query_one("#wb-btn-build-layers", Button).press()
-            await pilot.pause()
-
-            assert wb.processing_preset == "standard"
-            trigger.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_workbench_renders_lane_provenance(tmp_path: Path):
-    """The LAYERS panel labels every lane with origin + confidence + note."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.lane_plan import plan_lanes
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-
-    dummy_mp3 = tmp_path / "provenance.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    sources = {
-        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
-        "kick": LayerSource("kick", tmp_path / "kick.wav", np.array([-12.0]), np.array([0.6])),
-        "guitar": LayerSource("guitar", tmp_path / "gtr.wav", np.array([-14.0]), np.array([0.5])),
-    }
-    track = LayerTrack(
-        duration_s=1.0,
-        sample_rate=44100,
-        sources=sources,
-        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-    )
-    track.lane_plan = plan_lanes(
-        ["vocals", "kick", "guitar"],
-        splits={"drums": ("kick",)},
-        extras=("guitar",),
-        credit_instruments=["saxophone"],
-        singer_count=2,
-    )
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(
-            TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
-            )
-        )
-        wb.switch_page("layers")
-        wb.layer_track = track
-        wb._render_lane_plan(track)
-        await pilot.pause()
-
-        rendered = str(wb.query_one("#wb-lane-plan", Label).render())
-        assert "LANE PLAN" in rendered
-        assert "KICK [DSP split, medium]" in rendered
-        assert "GUITAR [6-source model, low]" in rendered
-        assert "SAXOPHONE [credits only, none]" in rendered
-        assert "2 singers" in rendered
-
-
-@pytest.mark.asyncio
-async def test_workbench_credits_annotate_the_plan_without_reanalysis(tmp_path: Path):
-    """A credits lookup replans provenance in place (no re-segmentation)."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.lane_plan import plan_lanes
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-    from harvester.services.musicbrainz import Credit, RecordingCredits
-
-    dummy_mp3 = tmp_path / "credits.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    sources = {
-        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
-        "bass": LayerSource("bass", tmp_path / "bass.wav", np.array([-12.0]), np.array([0.6])),
-    }
-    track = LayerTrack(
-        duration_s=1.0,
-        sample_rate=44100,
-        sources=sources,
-        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-    )
-    track.lane_plan = plan_lanes(["vocals", "bass"])
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(
-            TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
-            )
-        )
-        wb.switch_page("layers")
-        wb.layer_track = track
-        wb.recording_credits = RecordingCredits(
-            recording_id="mbid",
-            title="Headlock",
-            instruments=(Credit(name="double bass", artist="Mich Gerber"),),
-            vocals=(Credit(name="lead vocals", artist="Imogen Heap"),),
-        )
-        wb._apply_credits_to_plan()
-        await pilot.pause()
-
-        plan = wb.layer_track.lane_plan
-        assert plan is not None
-        assert plan.singer_count == 1
-        assert "double bass" in plan.note_of("bass")
-        assert "Imogen Heap" in str(wb.query_one("#wb-lane-plan", Label).render())
-
-
 @pytest.mark.asyncio
 async def test_workbench_credits_lookup_chain_and_miss(tmp_path: Path, monkeypatch):
     """The CREDITS button: AcoustID → mb_recording_id → credits → annotated plan."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.lane_plan import plan_lanes
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
     from harvester.services import acoustid as acoustid_mod
     from harvester.services import musicbrainz as mb_mod
     from harvester.services.musicbrainz import Credit, RecordingCredits
@@ -1440,31 +802,21 @@ async def test_workbench_credits_lookup_chain_and_miss(tmp_path: Path, monkeypat
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(
-            TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(
+                TrackJob(
+                    mode=Mode.SINGLE_URL,
+                    input_path=tmp_path / "src.opus",
+                    output_path=dummy_mp3,
+                )
             )
-        )
-        wb.switch_page("layers")
-        sources = {
-            "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
-            "bass": LayerSource("bass", tmp_path / "bass.wav", np.array([-12.0]), np.array([0.6])),
-        }
-        wb.layer_track = LayerTrack(
-            duration_s=1.0,
-            sample_rate=44100,
-            sources=sources,
-            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-        )
-        wb.layer_track.lane_plan = plan_lanes(["vocals", "bass"])
+        await pilot.pause()
 
-        # Miss: AcoustID returns nothing → lanes stay as detected, no crash.
+        # Miss: AcoustID returns nothing → a clear note, no crash.
         calls["meta"] = None
         await wb._async_fetch_credits(dummy_mp3)
         await pilot.pause()
-        assert "no MusicBrainz recording id" in str(wb.query_one("#wb-layer-status", Label).render())
+        assert "no MusicBrainz recording id" in str(wb.query_one("#wb-task-status", Label).render())
 
         # Hit: metadata carries mb_recording_id → credits annotate the plan.
         from types import SimpleNamespace
@@ -1474,12 +826,10 @@ async def test_workbench_credits_lookup_chain_and_miss(tmp_path: Path, monkeypat
         await pilot.pause()
 
         assert calls["mbid"] == "d871b5ab"
-        plan = wb.layer_track.lane_plan
-        assert plan is not None
-        assert plan.singer_count == 1
-        assert "Mich Gerber" in plan.note_of("bass")
-        assert "Imogen Heap" in plan.note_of("vocals")
-        rendered = str(wb.query_one("#wb-lane-plan", Label).render())
+        credits = wb.recording_credits
+        assert credits is not None
+        assert credits.singer_count == 1
+        rendered = str(wb.query_one("#wb-task-status", Label).render())
         assert "Mich Gerber" in rendered
 
 
@@ -1516,7 +866,7 @@ async def test_workbench_tagging_pass_reports_tags(tmp_path: Path, monkeypatch):
         await pilot.pause()
 
         assert calls == [(dummy_mp3, tmp_path / "stems")]
-        assert "strings 0.51" in str(wb.query_one("#wb-layer-status", Label).render())
+        assert "strings 0.51" in str(wb.query_one("#wb-task-status", Label).render())
 
 
 @pytest.mark.asyncio
@@ -1545,196 +895,7 @@ async def test_workbench_tagging_pass_degrades_without_the_model(tmp_path: Path,
         wb.switch_page("layers")
         await wb._run_tagging_pass(dummy_mp3, tmp_path / "stems")
         await pilot.pause()
-        assert "Tags unavailable" in str(wb.query_one("#wb-layer-status", Label).render())
-
-
-@pytest.mark.asyncio
-async def test_workbench_layers_page_has_no_embedded_lane_rows(tmp_path: Path):
-    """Lanes live only in the detached terminal: the workbench page keeps the
-    control buttons + status, and hosts no LayerStudio widget or tool palette."""
-    from harvester.ui.layer_studio import LayerStudio
-
-    dummy_mp3 = tmp_path / "layers_page.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(TrackJob(
-            mode=Mode.SINGLE_URL,
-            input_path=tmp_path / "src.opus",
-            output_path=dummy_mp3,
-        ))
-        wb.switch_page("layers")
-        await pilot.pause()
-
-        assert len(wb.query(LayerStudio)) == 0
-        assert len(wb.query("#wb-btn-tool-mute")) == 0
-        for btn_id in (
-            "#wb-btn-build-layers",
-            "#wb-btn-layer-terminal",
-            "#wb-btn-save-layers",
-            "#wb-btn-clear-layers",
-        ):
-            assert wb.query_one(btn_id, Button) is not None
-
-
-@pytest.mark.asyncio
-async def test_workbench_publishes_playhead_and_applies_terminal_requests(
-    tmp_path: Path,
-):
-    """The workbench streams its playhead to the detached terminal and consumes
-    the terminal's seek/play requests."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-    from harvester.ipc.layer_sidecar import (
-        consume_requests,
-        read_transport,
-        request_play_state,
-        request_seek,
-        transport_path,
-    )
-
-    dummy_mp3 = tmp_path / "transport_dummy.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(TrackJob(
-            mode=Mode.SINGLE_URL,
-            input_path=tmp_path / "src.opus",
-            output_path=dummy_mp3,
-        ))
-        await pilot.pause()
-        player = app.query_one("#audio-player", AudioPlayerWidget)
-        player.duration_s = 100.0
-        player.elapsed_s = 7.5
-        wb.layer_track = LayerTrack(
-            duration_s=2.0,
-            sample_rate=44100,
-            sources={"vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8]))},
-            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-        )
-        wb._layer_terminal_launched = True
-        wb.switch_page("layers")
-        await pilot.pause()
-
-        # 1. The playhead reaches the terminal's transport file.
-        sidecar = wb._layer_sidecar_path()
-        assert sidecar is not None
-        wb._publish_layer_transport()
-        state = read_transport(transport_path(sidecar))
-        assert state.playhead_s == pytest.approx(7.5)
-        assert state.duration_s == pytest.approx(100.0)
-
-        # 2. A seek request written by the terminal moves this app's player.
-        request_seek(sidecar, 42.0)
-        wb._publish_layer_transport()
-        assert player.elapsed_s == pytest.approx(42.0)
-        assert consume_requests(sidecar) == (None, None)
-
-        # 3. A pause request pauses playback.
-        player.is_playing = True
-        request_play_state(sidecar, False)
-        wb._publish_layer_transport()
-        assert player.is_playing is False
-
-
-@pytest.mark.asyncio
-async def test_workbench_stops_publishing_when_idle_off_the_layers_page(
-    tmp_path: Path,
-):
-    """Idle on another page: no 5 Hz write — but requests are still answered."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
-    from harvester.ipc.layer_sidecar import (
-        TransportState,
-        read_transport,
-        request_seek,
-        transport_path,
-        write_transport,
-    )
-
-    dummy_mp3 = tmp_path / "idle_dummy.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(TrackJob(
-            mode=Mode.SINGLE_URL,
-            input_path=tmp_path / "src.opus",
-            output_path=dummy_mp3,
-        ))
-        await pilot.pause()
-        sidecar = wb._layer_sidecar_path()
-        assert sidecar is not None
-        player = app.query_one("#audio-player", AudioPlayerWidget)
-        player.duration_s = 100.0
-        player.elapsed_s = 3.0
-        player.is_playing = False
-        wb.layer_track = LayerTrack(
-            duration_s=2.0,
-            sample_rate=44100,
-            sources={"vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8]))},
-            segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-        )
-        wb._layer_terminal_launched = True
-        wb.switch_page("stems")
-        await pilot.pause()
-
-        # Paused off the LAYERS page → the published state is left untouched.
-        write_transport(
-            transport_path(sidecar), TransportState(playhead_s=99.0, playing=False)
-        )
-        wb._publish_layer_transport()
-        assert read_transport(transport_path(sidecar)).playhead_s == pytest.approx(99.0)
-
-        # A request still gets consumed and answered, even off the LAYERS page.
-        request_seek(sidecar, 12.0)
-        wb._publish_layer_transport()
-        assert player.elapsed_s == pytest.approx(12.0)
-        state = read_transport(transport_path(sidecar))
-        assert state.playhead_s == pytest.approx(12.0)
-        assert state.seek_request is None
-
-        # Playing (any page) keeps the stream alive.
-        write_transport(
-            transport_path(sidecar), TransportState(playhead_s=99.0, playing=False)
-        )
-        player.is_playing = True
-        player.elapsed_s = 21.0
-        wb._publish_layer_transport()
-        assert read_transport(transport_path(sidecar)).playhead_s == pytest.approx(21.0)
-
-
-
-
-
-@pytest.mark.asyncio
-async def test_workbench_layers_page_has_hosted_and_speaker_buttons(tmp_path: Path):
-    """The opt-in cloud button and the advisory speaker button live on LAYERS."""
-    dummy_mp3 = tmp_path / "hosted_buttons.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(
-            TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
-            )
-        )
-        wb.switch_page("layers")
-        await pilot.pause()
-
-        assert wb.query_one("#wb-btn-hosted-separate", Button) is not None
-        assert wb.query_one("#wb-btn-detect-speakers", Button) is not None
+        assert "Tags unavailable" in str(wb.query_one("#wb-task-status", Label).render())
 
 
 @pytest.mark.asyncio
@@ -1764,92 +925,14 @@ async def test_workbench_hosted_separation_reports_a_missing_key(tmp_path: Path,
         wb._launch_hosted_run("vocals")
         await pilot.pause(0.2)
 
-        status = str(wb.query_one("#wb-layer-status", Label).render())
+        status = str(wb.query_one("#wb-task-status", Label).render())
         assert "MVSEP_API_KEY" in status
         assert wb._hosted_task_running is False
 
 
 @pytest.mark.asyncio
-async def test_workbench_hosted_separation_rebuilds_the_lane_grid(tmp_path: Path, monkeypatch):
-    """A successful hosted run writes stems and rebuilds the grid as hosted rows."""
-    from harvester.services import mvsep as mvsep_mod
-
-    dummy_mp3 = tmp_path / "hosted_run.mp3"
-    dummy_mp3.write_bytes(b"mp3-data")
-    calls: dict[str, object] = {}
-
-    class _FakeResult:
-        sep_type = 49
-        algorithm = "MVSep Karaoke"
-        stems = (
-            mvsep_mod.HostedStem(
-                "vocals-lead", "lead_vocals", "lead.wav", "https://mvsep.com/files/lead.wav"
-            ),
-            mvsep_mod.HostedStem(
-                "vocals-back", "back_vocals", "back.wav", "https://mvsep.com/files/back.wav"
-            ),
-        )
-        skipped = ("instrum-only",)
-
-        def describe(self) -> str:
-            return "☁ Hosted MVSEP · MVSep Karaoke · 2 lanes"
-
-    class _FakeClient:
-        available = True
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            calls["init"] = True
-
-        async def separate(self, source, dest_dir, **kwargs):
-            calls["separate"] = {"source": source, "dest_dir": dest_dir, **kwargs}
-            return _FakeResult()
-
-        async def close(self) -> None:
-            calls["closed"] = True
-
-    monkeypatch.setattr(mvsep_mod, "MvsepClient", _FakeClient)
-    rebuilt: list[str] = []
-    monkeypatch.setattr(
-        WorkbenchWidget, "_ensure_layers_built", lambda self: rebuilt.append("rebuild")
-    )
-
-    app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
-        wb = app.query_one("#test-workbench", WorkbenchWidget)
-        wb.load_job(
-            TrackJob(
-                mode=Mode.SINGLE_URL,
-                input_path=tmp_path / "src.opus",
-                output_path=dummy_mp3,
-            )
-        )
-        wb.switch_page("layers")
-        await pilot.pause()
-
-        # The confirmation screen is bypassed in this test: pressing the
-        # button only stages the screen, and the upload runs after YES.
-        wb._launch_hosted_run("vocals")
-        await pilot.pause(0.2)
-
-        assert calls.get("closed") is True
-        sent = calls["separate"]
-        assert sent["output_prefix"] == "hosted_run_eco"
-        assert sent["dest_dir"].name.startswith("hosted_run_")
-        # The cached grid is dropped so the hosted stems are discovered again.
-        assert "rebuild" in rebuilt
-        assert wb.layer_track is None
-        status = str(wb.query_one("#wb-layer-status", Label).render())
-        assert "Hosted" in status and "instrum-only" in status
-        assert wb._hosted_task_running is False
-
-
-@pytest.mark.asyncio
 async def test_workbench_speakers_are_advisory_and_credits_win(tmp_path: Path, monkeypatch):
-    """👥 SPEAKERS records the measured count but never overwrites credits (D27)."""
-    import numpy as np
-
-    from harvester.analysis.enhancement.lane_plan import plan_lanes
-    from harvester.analysis.enhancement.layers import LayerSegment, LayerSource, LayerTrack
+    """MEASURE VOICES records the measured count but never overwrites credits (D27)."""
     from harvester.services import diarization as dia_mod
     from harvester.services.musicbrainz import Credit, RecordingCredits
 
@@ -1876,17 +959,6 @@ async def test_workbench_speakers_are_advisory_and_credits_win(tmp_path: Path, m
     monkeypatch.setattr(dia_mod, "Diarizer", _FakeDiarizer)
     monkeypatch.setattr(dia_mod, "pyannote_available", lambda: True)
 
-    sources = {
-        "vocals": LayerSource("vocals", tmp_path / "voc.wav", np.array([-10.0]), np.array([0.8])),
-    }
-    track = LayerTrack(
-        duration_s=1.0,
-        sample_rate=44100,
-        sources=sources,
-        segments=[LayerSegment(0, 0.0, 1.0, {"vocals": 0.8})],
-    )
-    track.lane_plan = plan_lanes(["vocals"], singer_count=2)
-
     app = WorkbenchTestApp()
     async with app.run_test() as pilot:
         wb = app.query_one("#test-workbench", WorkbenchWidget)
@@ -1897,8 +969,6 @@ async def test_workbench_speakers_are_advisory_and_credits_win(tmp_path: Path, m
                 output_path=dummy_mp3,
             )
         )
-        wb.switch_page("layers")
-        wb.layer_track = track
         wb.recording_credits = RecordingCredits(
             recording_id="mbid",
             title="Headlock",
@@ -1911,10 +981,425 @@ async def test_workbench_speakers_are_advisory_and_credits_win(tmp_path: Path, m
         await pilot.pause(0.3)
 
         assert wb.measured_speakers == 3
-        plan = wb.layer_track.lane_plan
-        assert plan is not None
-        assert plan.measured_speakers == 3
-        assert plan.singer_count == 2  # credits stay authoritative
-        status = str(wb.query_one("#wb-layer-status", Label).render())
+        status = str(wb.query_one("#wb-task-status", Label).render())
         assert "3" in status and "authoritative" in status
         assert wb._diarize_task_running is False
+
+
+async def test_stream_controls_show_only_on_the_deck_page() -> None:
+    """The MP3/ENH buttons, preset select and save button belong to the DECK page."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        await pilot.pause()
+        assert wb.query_one("#wb-stream-row").styles.display != "none"
+        assert wb.query_one("#wb-controls-row").styles.display != "none"
+
+        for page in ("eq", "repair", "vis"):
+            wb.switch_page(page)
+            await pilot.pause()
+            assert wb.query_one("#wb-stream-row").styles.display == "none", page
+            assert wb.query_one("#wb-controls-row").styles.display == "none", page
+
+        wb.switch_page("deck")
+        await pilot.pause()
+        assert wb.query_one("#wb-stream-row").styles.display != "none"
+        assert wb.query_one("#wb-controls-row").styles.display != "none"
+
+
+async def test_eq_target_routes_to_separated_stems(tmp_path: Path) -> None:
+    """Choosing VOCALS/INSTRUMENTAL auditions that stem, or explains how to get one."""
+    import numpy as np
+    import soundfile as sf
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        dummy_mp3 = tmp_path / "route_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        # No stems yet: a clear hint, no exception (regression for the removed separator call).
+        wb.set_active_stream("VOC")
+        await pilot.pause()
+        hint = str(wb.query_one("#wb-task-status", Label).render())
+        assert "No separated vocals yet" in hint
+
+        # With stems on disk the target routes playback to them.
+        t = np.linspace(0, 1.0, 44100, endpoint=False)
+        vocals = tmp_path / "route_song_ensemble_vocals.wav"
+        inst = tmp_path / "route_song_ensemble_instrumental.wav"
+        sf.write(vocals, np.stack([0.2 * np.sin(2 * np.pi * 440 * t)] * 2, axis=1), 44100)
+        sf.write(inst, np.stack([0.2 * np.sin(2 * np.pi * 220 * t)] * 2, axis=1), 44100)
+        wb.path_voc = vocals
+        wb.path_inst = inst
+
+        sel_target = app.query_one("#wb-eq-target-select", Select)
+        sel_target.value = "vocals"
+        await pilot.pause()
+        assert wb.active_stream == "VOC"
+        assert player.current_track == vocals
+
+        sel_target.value = "instrumental"
+        await pilot.pause()
+        assert wb.active_stream == "INST"
+        assert player.current_track == inst
+
+        sel_target.value = "master"
+        await pilot.pause()
+        assert wb.eq_target == "master"
+        assert wb.active_stream in ("MP3", "ENH")
+
+
+def test_nav_keys_put_eq_last_and_repair_uses_theme_icon() -> None:
+    from harvester.ui.app import HarvesterApp
+
+    bindings = {key: action for key, action, _desc in HarvesterApp.BINDINGS}
+    assert bindings["f4"] == "nav_page_repair"
+    assert bindings["f5"] == "nav_page_eq"
+
+
+async def test_stem_export_bakes_matching_target_eq(tmp_path: Path) -> None:
+    """_write_stem_with_eq: flat curves copy bytes, non-flat curves shape the stem."""
+    import numpy as np
+    import soundfile as sf
+
+    app = WorkbenchTestApp()
+    async with app.run_test():
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        sr = 48000
+        t = np.linspace(0, 1.0, sr, endpoint=False)
+        source = tmp_path / "vocal_in.wav"
+        sf.write(source, np.stack([0.2 * np.sin(2 * np.pi * 1000 * t)] * 2, axis=1), sr)
+
+        flat_out = tmp_path / "vocal_flat.wav"
+        await asyncio.to_thread(wb._write_stem_with_eq, source, flat_out, "vocals")
+        assert flat_out.read_bytes() == source.read_bytes()
+
+        wb.eq_settings_by_target["vocals"].set_band(1000, 6.0)
+        shaped_out = tmp_path / "vocal_shaped.wav"
+        await asyncio.to_thread(wb._write_stem_with_eq, source, shaped_out, "vocals")
+        original, _ = sf.read(str(source), dtype="float32", always_2d=True)
+        shaped, _ = sf.read(str(shaped_out), dtype="float32", always_2d=True)
+        assert float(np.max(np.abs(shaped - original))) > 0.01
+
+
+async def test_eq_custom_edits_survive_target_switching(tmp_path: Path) -> None:
+    """A manually tweaked curve is not wiped when switching targets and back."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        sel_target = app.query_one("#wb-eq-target-select", Select)
+        sel_preset = app.query_one("#wb-eq-preset-select", Select)
+
+        sel_target.value = "vocals"
+        await pilot.pause()
+        with patch.object(wb, "_schedule_eq_render"):
+            app.query_one("#wb-eq-up-2000", Button).press()
+            await pilot.pause()
+        assert wb.eq_settings.preset_name == "Custom"
+        assert wb.eq_settings.bands[2000] == 1.0
+        assert sel_preset.value is Select.NULL
+
+        sel_target.value = "master"
+        await pilot.pause()
+        sel_target.value = "vocals"
+        await pilot.pause()
+        assert wb.eq_settings.preset_name == "Custom"
+        assert wb.eq_settings.bands[2000] == 1.0
+
+
+async def test_stem_export_without_stems_never_falls_back_to_master(tmp_path: Path) -> None:
+    from unittest.mock import patch as _patch
+
+    from harvester.analysis.enhancement.presets import PRESETS
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "no_stem_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with _patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+        wb.path_voc = None
+        wb._export_mode = "VOC"
+
+        with _patch.object(wb.app, "notify") as notify:
+            await wb._async_export(wb.path_mp3, PRESETS["conservative"])
+            await pilot.pause()
+
+        assert notify.called
+        assert "No separated vocals to export" in str(notify.call_args[0][0])
+        assert not (tmp_path / f"{wb.path_mp3.stem}_vocals.wav").exists()
+        assert not (tmp_path / f"{wb.path_mp3.stem}.enhanced.mp3").exists()
+
+
+async def test_export_menu_offers_lossless_masters(tmp_path: Path) -> None:
+    """The deck export menu routes WAV/FLAC masters and relabels the save button."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        labels = {button.id: str(button.label) for button in app.query(".wb-export-choice")}
+        assert "Enhanced WAV (24-bit)" in labels["wb-export-choose-wav"]
+        assert "Enhanced FLAC (24-bit)" in labels["wb-export-choose-flac"]
+
+        with patch.object(wb, "_export_derivative") as export:
+            app.query_one("#wb-export-choose-flac", Button).press()
+            await pilot.pause()
+        assert wb._export_mode == "ENH_FLAC"
+        export.assert_called_once()
+        assert "SAVE FLAC" in str(app.query_one("#wb-btn-export", Button).label)
+
+
+async def test_lossless_export_renders_master(tmp_path: Path) -> None:
+    """ENH_WAV/ENH_FLAC modes write a lossless master through the exporter."""
+    from harvester.analysis.enhancement.presets import PRESETS
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "lossless_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+        wb._export_mode = "ENH_WAV"
+        wb.genre_mode = "hip_hop_trap"
+        wb._apply_genre_mode(rerender=False)
+
+        def _fake_lossless(**kwargs):
+            out = Path(kwargs["output_path"])
+            out.write_bytes(b"RIFF")
+            return out
+
+        with patch.object(
+            wb.exporter, "export_enhanced_lossless", side_effect=_fake_lossless
+        ) as lossless:
+            await wb._async_export(wb.path_mp3, PRESETS["conservative"])
+            await pilot.pause()
+
+        assert lossless.called
+        assert lossless.call_args.kwargs["fmt"] == "wav"
+        sent_eq = lossless.call_args.kwargs["eq_settings"]
+        assert sent_eq.bands[63] > 0  # genre colour rides on the lossless master
+        assert lossless.call_args.kwargs["extra_tags"]["GENRE"] == "hip_hop_trap"
+        assert (tmp_path / "lossless_song.enhanced.wav").exists()
+
+
+async def test_genre_auto_detection_sets_recipe_and_choice(tmp_path: Path) -> None:
+    """Tags detected on load land in the Auto option, the choice and the recipe line."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "genre_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        job.orig_tags = {"genre": "Hip-Hop/Trap"}
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+        await pilot.pause()
+
+        assert wb.genre_mode == "auto"
+        assert wb._genre_choice.keys == ("hip_hop_trap",)
+        select = app.query_one("#wb-genre-select", Select)
+        auto_label = next(label for label, key in select._options if key == "auto")
+        assert "Hip-Hop" in str(auto_label)
+        recipe = str(app.query_one("#wb-genre-recipe", Label).render())
+        assert "Hip-Hop" in recipe and "63 Hz" in recipe
+
+
+async def test_genre_select_and_intensity_shape_playback(tmp_path: Path) -> None:
+    """Choosing a genre and a stronger intensity changes the live EQ filter."""
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        player = app.query_one("#audio-player", AudioPlayerWidget)
+        dummy_mp3 = tmp_path / "genre_live.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+        await pilot.pause()
+
+        sel_genre = app.query_one("#wb-genre-select", Select)
+        sel_intensity = app.query_one("#wb-genre-intensity", Select)
+        with patch.object(wb, "_schedule_eq_render"):
+            sel_genre.value = "house"
+            await pilot.pause()
+            assert wb.genre_mode == "house"
+            assert "equalizer=f=63:width_type=o:w=1:g=0.90" in player.audio_filter
+
+            sel_intensity.value = "bold"
+            await pilot.pause()
+            assert wb.genre_intensity == "bold"
+            assert "equalizer=f=63:width_type=o:w=1:g=2.10" in player.audio_filter
+
+        assert "Bold" in str(app.query_one("#wb-genre-recipe", Label).render())
+
+
+async def test_genre_musicbrainz_refines_only_in_auto_mode(tmp_path: Path) -> None:
+    """MB genres refine the auto suggestion; a manual pick is never overridden."""
+    from harvester.services.musicbrainz import RecordingCredits
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "genre_mb.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        credits = RecordingCredits(
+            recording_id="mbid",
+            genres=(("trap", 4), ("hip hop", 2), ("pop", 1)),
+        )
+        with patch(
+            "harvester.services.musicbrainz.CoverArtService.fetch_recording_credits",
+            return_value=credits,
+        ):
+            await wb._async_genre_from_musicbrainz("mbid", wb.track_generation)
+        await pilot.pause()
+        assert wb._genre_detected.keys[:2] == ("hip_hop_trap", "pop")
+
+        wb.genre_mode = "jazz"
+        wb._apply_genre_mode(rerender=False)
+        await wb._async_genre_from_musicbrainz("mbid", wb.track_generation)
+        assert wb.genre_mode == "jazz"
+        assert wb._genre_choice.keys == ("jazz",)
+
+
+async def test_genre_mix_modal_flow(tmp_path: Path) -> None:
+    """The Mix… entry opens the modal and the chosen keys become the manual mix."""
+    from harvester.ui.genre_mix import GenreMixScreen
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        dummy_mp3 = tmp_path / "genre_mix.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        with patch.object(wb, "_schedule_eq_render"):
+            app.query_one("#wb-genre-select", Select).value = "mix"
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, GenreMixScreen)
+            screen.query_one("#genre-mix-list", SelectionList).select("house")
+            screen.query_one("#genre-mix-list", SelectionList).select("techno")
+            screen.query_one("#genre-mix-apply", Button).press()
+            await pilot.pause()
+
+        assert wb.genre_mode == "mix"
+        assert wb._genre_choice.keys == ("house", "techno")
+        assert abs(wb._genre_choice.mix[0][1] - 0.5) < 1e-9
+
+
+async def test_async_export_applies_genre_effective_master_preset_policy(tmp_path: Path) -> None:
+    """Deck export applies _effective_master_preset to lossless and derivative exports (Bug A)."""
+    from harvester.analysis.enhancement.presets import PRESETS
+
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.audition_cache_dir = tmp_path / "audition"
+        wb.audition_cache_dir.mkdir(parents=True, exist_ok=True)
+        dummy_mp3 = tmp_path / "genre_export_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        wb.genre_mode = "house"
+        wb._apply_genre_mode(rerender=False)
+        base_preset = PRESETS["conservative"]
+        expected_preset = wb._effective_master_preset(base_preset)
+
+        # 1. MP3 cache-miss export path
+        wb._export_mode = "MP3"
+        with patch.object(
+            wb.exporter, "export_enhanced_derivative", return_value=tmp_path / "out.mp3"
+        ) as derivative:
+            await wb._async_export(wb.path_mp3, base_preset)
+            await pilot.pause()
+
+        assert derivative.called
+        mp3_passed = derivative.call_args.kwargs["preset"]
+        assert mp3_passed.residual_stereo_width == expected_preset.residual_stereo_width
+        assert mp3_passed.ceiling_dbfs == expected_preset.ceiling_dbfs
+
+        # 2. Lossless export path
+        wb._export_mode = "ENH_WAV"
+
+        def _fake_lossless(**kwargs):
+            out = Path(kwargs["output_path"])
+            out.write_bytes(b"RIFF")
+            return out
+
+        with patch.object(
+            wb.exporter, "export_enhanced_lossless", side_effect=_fake_lossless
+        ) as lossless:
+            await wb._async_export(wb.path_mp3, base_preset)
+            await pilot.pause()
+
+        assert lossless.called
+        wav_passed = lossless.call_args.kwargs["preset"]
+        assert wav_passed.residual_stereo_width == expected_preset.residual_stereo_width
+        assert wav_passed.ceiling_dbfs == expected_preset.ceiling_dbfs
+
+
+async def test_warm_remaining_presets_includes_eq_tag_and_genre_policy(tmp_path: Path) -> None:
+    """Warm-cache pre-renders include the eq_tag in filename and pass effective preset and tags (Bug B)."""
+    from harvester.analysis.enhancement.presets import PRESETS
+    from harvester.ui.workbench import ECO_PRESET_OPTIONS
+
+    app = WorkbenchTestApp()
+    async with app.run_test():
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        wb.audition_cache_dir = tmp_path / "warm_audition"
+        wb.audition_cache_dir.mkdir(parents=True, exist_ok=True)
+        dummy_mp3 = tmp_path / "warm_song.mp3"
+        dummy_mp3.write_bytes(b"dummy-mp3-audio-data")
+        job = TrackJob(mode=Mode.SINGLE_URL, input_path=dummy_mp3, output_path=dummy_mp3)
+        with patch.object(wb, "_trigger_enhancement_pregeneration"):
+            wb.load_job(job)
+
+        wb.neural_enabled = False
+        wb.genre_mode = "house"
+        wb._apply_genre_mode(rerender=False)
+
+        eq_tag = wb._get_eq_cache_tag()
+        assert eq_tag  # genre creates a non-empty cache tag
+
+        calls: list[dict] = []
+
+        def _fake_export(**kwargs):
+            calls.append(kwargs)
+            dest = Path(kwargs["output_path"])
+            dest.write_bytes(b"rendered-mp3")
+            return dest
+
+        with patch.object(wb.exporter, "export_enhanced_derivative", side_effect=_fake_export):
+            await wb._async_warm_remaining_presets(wb.path_mp3)
+
+        expected_pids = [
+            pid for _, pid in ECO_PRESET_OPTIONS if pid != wb.selected_preset_id
+        ]
+        assert len(calls) == len(expected_pids)
+        for call_kw in calls:
+            dest_path = Path(call_kw["output_path"])
+            assert dest_path.name.endswith(f"{eq_tag}.mp3")
+            eff = call_kw["preset"]
+            base = PRESETS[eff.id]
+            expected_eff = wb._effective_master_preset(base)
+            assert eff.residual_stereo_width == expected_eff.residual_stereo_width
+            assert eff.ceiling_dbfs == expected_eff.ceiling_dbfs
+            assert call_kw["eq_settings"] == wb._master_eq_settings()
+            assert call_kw["extra_tags"] == wb._genre_extra_tags()
+

@@ -1,5 +1,8 @@
 # 14 — UI Hardening & Product Polish
 
+> **Partly superseded by docs/01 D35 (guided Repair, M18).** Per-track state, hosted-run isolation, confirmations and diagnostics remain; layer-terminal, lane-filter, dirty-edit and cache-repair sections describe removed UI. Kept for history.
+
+
 Status: **done** (shipped in `fbe4929`). This is the durable execution ledger for the UI-hardening
 milestones that follow the shipped lane-expansion work (docs/13, D21–D27).
 
