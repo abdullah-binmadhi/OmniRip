@@ -297,47 +297,55 @@ graph LR
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start (1-Command Install)
 
-### 1. Prerequisites (macOS shown)
+### 🚀 Instant Install & Run
+
+Copy and run **one command** in your terminal:
+
+**macOS & Linux:**
 ```sh
-brew install ffmpeg yt-dlp chromaprint
+curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/install.sh | bash
 ```
 
-### 2. Install OmniRip
-Clone the repository and install using `uv` (recommended):
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/install.ps1 | iex
+```
+
+**Instant Zero-Install (via `uvx`):**
+```sh
+uvx --from git+https://github.com/abdullah-binmadhi/OmniRip.git omnirip
+```
+
+---
+
+### 🎧 First-Run Setup & In-TUI Settings
+
+OmniRip handles everything inside the TUI — **no editing config files or `.env` files required**:
+
+1. **AI Model Auto-Downloader:** On first launch, OmniRip checks your local model cache. If stem separation (Demucs v4) or high-frequency restoration (FlashSR) weights are missing, a progress dialog appears to download and verify them automatically.
+2. **In-TUI Settings & API Keys (`Ctrl+S` / `SETTINGS`):** Press `Ctrl+S` or click `SETTINGS` in the top bar to paste and test your credentials:
+   - **Soulseek (`slskd`):** Enter your daemon URL and API key; click **Test Connections** to verify immediately.
+   - **AcoustID:** Paste your application key for fingerprinting.
+   - **Cloud AI (MVSEP / TypeSafe Jev):** Optional keys for cloud separation and smart triage.
+   - **Obsidian Vault:** Set your vault directory for bidirectional second-brain syncing.
+
+---
+
+### 🛠️ Developer Manual Setup
+
+For developers contributing to OmniRip:
+
 ```sh
 git clone https://github.com/abdullah-binmadhi/OmniRip.git
 cd OmniRip
 uv sync --extra dev --extra restore --extra flashsr
+uv run omnirip
 ```
 
 > [!TIP]
 > The `--extra restore` and `--extra flashsr` flags install PyTorch, Demucs, TorchAudio, Transformers, and FlashSR dependencies for on-device Neural Stem Separation and AI Super-Resolution. For lightweight installations without neural models, omit the flags to run in instant Eco DSP mode.
-
-### 3. Connect Your Soulseek Account (Recommended)
-1. Copy the configuration template:
-   ```sh
-   cp tools/slskd/slskd.yml tools/slskd/slskd.local.yml
-   ```
-2. Open `tools/slskd/slskd.local.yml` and add your Soulseek credentials:
-   ```yaml
-   soulseek:
-     username: your_soulseek_username
-     password: your_soulseek_password
-
-   web:
-     authentication:
-       api_key: my_secret_local_key_12345
-   ```
-
-> [!NOTE]
-> If you do not have a Soulseek account, create one for free at [slsknet.org](http://www.slsknet.org/), or run OmniRip in stream-only mode with `./OmniRip --no-slskd`.
-
-### 4. Launch the Workstation
-```sh
-./OmniRip
-```
 
 ---
 

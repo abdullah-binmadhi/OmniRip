@@ -56,6 +56,7 @@ flashsr = [
 [project.scripts]
 harvester = "harvester.__main__:main"
 OmniRip = "harvester.__main__:main"
+omnirip = "harvester.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

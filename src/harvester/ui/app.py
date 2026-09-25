@@ -456,6 +456,9 @@ class HarvesterApp(App[None]):
         ("w", "open_workbench", "Workbench"),
         ("t", "cycle_theme", "Theme"),
         ("k", "open_soulseek_login", "Soulseek"),
+        ("ctrl+s", "open_settings", "Settings"),
+        ("f6", "open_settings", "Settings"),
+        ("m", "open_model_setup", "Models"),
         ("space", "toggle_playback", "Play/Pause"),
         ("left", "seek_backward", "Seek -5s"),
         ("right", "seek_forward", "Seek +5s"),
@@ -537,6 +540,7 @@ class HarvesterApp(App[None]):
                     yield Button("CONVERT", id="submit", variant="primary", disabled=True)
                     yield Button("THEME", id="btn-theme")
                     yield Button("SOULSEEK", id="btn-soulseek")
+                    yield Button("SETTINGS", id="btn-settings")
             with Horizontal(id="app-nav-bar"):
                 yield Button("≡ TRACKS & LOGS", id="btn-nav-tracks", classes="app-nav-btn app-nav-active")
                 yield Button("◈ VISUALIZER", id="btn-nav-vis", classes="app-nav-btn")
@@ -596,7 +600,9 @@ class HarvesterApp(App[None]):
             self.query_one("#submit", Button).disabled = False
             self._write_log("INFO", "pipeline ready")
             if not self.config.general.first_run_notice_accepted:
-                self.push_screen(FirstRunNoticeScreen())
+                self.push_screen(FirstRunNoticeScreen(), self._on_first_run_notice_dismiss)
+            else:
+                self._check_first_run_models()
         except ConfigError as exc:
             self._write_log("ERROR", f"configuration error: {exc}")
         except Exception as exc:  # startup must leave a visible diagnostic, not a blank TUI
@@ -651,6 +657,8 @@ class HarvesterApp(App[None]):
             self.action_cycle_theme()
         elif event.button.id == "btn-soulseek":
             self.action_open_soulseek_login()
+        elif event.button.id == "btn-settings":
+            self.action_open_settings()
         elif event.button.id == "btn-nav-tracks":
             self.switch_workspace_page("tracks")
         elif event.button.id == "btn-nav-vis":
@@ -908,6 +916,38 @@ class HarvesterApp(App[None]):
         self.query_one(StatusBar).set_pill("slskd", status)
         if status.available:
             self.notify("Soulseek daemon connected and verified", severity="information")
+
+    def action_open_settings(self) -> None:
+        """Open the in-TUI settings and API keys dialog."""
+        from harvester.ui.settings_modal import SettingsModal
+
+        self.push_screen(SettingsModal(self.config), self._on_settings_modal_dismiss)
+
+    def _on_settings_modal_dismiss(self, saved: bool | None) -> None:
+        if saved:
+            self.notify("Settings and credentials saved", severity="information")
+            self._run_guarded(self._refresh_soulseek_status(), name="slskd-refresh")
+
+    def action_open_model_setup(self) -> None:
+        """Open the AI models setup and download dialog."""
+        from harvester.ui.setup_modal import ModelSetupModal
+
+        self.push_screen(ModelSetupModal())
+
+    def _on_first_run_notice_dismiss(self, _: object = None) -> None:
+        self._check_first_run_models()
+
+    def _check_first_run_models(self) -> None:
+        """Check if essential AI models are missing and prompt user if needed."""
+        try:
+            from harvester.services.model_manager import ModelManager
+            from harvester.ui.setup_modal import DEFAULT_SETUP_MODELS, ModelSetupModal
+
+            mm = ModelManager()
+            if any(not mm.is_cached(m) for m in DEFAULT_SETUP_MODELS):
+                self.push_screen(ModelSetupModal(mm))
+        except Exception as exc:
+            self.logger.debug("First-run model check skipped: %s", exc)
 
     def action_toggle_playback(self) -> None:
         """Play or pause the current track in the audio player."""

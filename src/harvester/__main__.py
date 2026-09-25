@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="enhancement preset (default: conservative)",
     )
     parser.add_argument("--bitrate", default="320k", help="output MP3 bitrate (default: 320k)")
+    parser.add_argument(
+        "--download-models",
+        action="store_true",
+        help="download and verify default AI model weights (Demucs, FlashSR) and exit",
+    )
     parser.add_argument("--version", action="version", version=f"OmniRip {__version__}")
 
     sync = parser.add_subparsers(dest="command")
@@ -105,6 +110,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception as err:
             print(f"OmniRip: enhancement failed: {err}", file=sys.stderr)
             return 1
+
+    if args.download_models:
+        from harvester.services.model_manager import ModelManager
+
+        print("OmniRip: Verifying and downloading default AI model weights...")
+        mm = ModelManager()
+        models_to_download = ["hdemucs", "flashsr", "flashsr_ldm", "flashsr_vae"]
+        for name in models_to_download:
+            if mm.is_cached(name):
+                print(f"  ✓ {name}: cached locally")
+            else:
+                print(f"  ↓ {name}: downloading...", end="", flush=True)
+                try:
+                    mm.download_model(
+                        name,
+                        progress_callback=lambda p, n=name: print(
+                            f"\r  ↓ {n}: {int(p * 100)}%", end="", flush=True
+                        ),
+                    )
+                    print(f"\r  ✓ {name}: downloaded and verified")
+                except Exception as err:
+                    print(f"\r  ✗ {name}: download skipped or failed ({err})")
+        print("OmniRip: Model provisioning check complete.")
+        return 0
 
     environment = dict(os.environ)
     if args.data_dir:
