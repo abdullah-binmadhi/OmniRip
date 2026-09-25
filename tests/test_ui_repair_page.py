@@ -345,3 +345,74 @@ async def test_repair_cyber_daw_workbench_layout(tmp_path: Path) -> None:
         marquee = panel.query_one("#rp-marquee", Label)
         assert "Synthesizing 'Aggressive DSP'" in str(marquee.render())
 
+
+async def test_repair_result_and_wizard_secondary_screens_layout(tmp_path: Path) -> None:
+    """Verify that Result, Wizard, and Summary secondary views have full cyber-DAW layouts."""
+    app = WorkbenchTestApp()
+    async with app.run_test(size=(140, 48)) as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        _load(tmp_path, wb)
+        wb.switch_page("repair")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = app.query_one(RepairPanel)
+
+        # 1. Result View Test
+        master = tmp_path / "song.repaired.mp3"
+        master.write_bytes(b"mp3")
+        vocals = tmp_path / "vocals.wav"
+        inst = tmp_path / "inst.wav"
+        sf.write(vocals, np.zeros((SR, 2), dtype=np.float32), SR)
+        sf.write(inst, np.zeros((SR, 2), dtype=np.float32), SR)
+        result = RepairResult(
+            master=master,
+            vocals=vocals,
+            inst=inst,
+            residual_worst_db=-24.5,
+            notes=("Stem recombination residual: worst -24.5 dBFS/segment",),
+        )
+        panel.show_result(result)
+        await pilot.pause()
+
+        result_pane = panel.query_one("#rp-result")
+        assert result_pane.styles.display != "none"
+        assert "DELIVERABLES READY" in str(result_pane.query_one(".rp-pane-title", Label).render())
+        assert "-24.5" in str(result_pane.query_one("#rp-result-status", Label).render())
+        assert "-24.5 dBFS" in str(result_pane.query_one("#rp-res-hud-residual", Label).render())
+
+        # Audition buttons
+        btn_master = result_pane.query_one("#rp-btn-prev-master", Button)
+        btn_vocals = result_pane.query_one("#rp-btn-prev-vocals", Button)
+        assert btn_master is not None and btn_vocals is not None
+        btn_vocals.press()
+        await pilot.pause()
+        assert btn_vocals.variant == "primary"
+
+        # Action buttons
+        assert result_pane.query_one("#rp-btn-export", Button) is not None
+        assert result_pane.query_one("#rp-btn-reanalyze", Button) is not None
+
+        # 2. Wizard View Test: click "NOT HAPPY? IMPROVE IT"
+        btn_improve = result_pane.query_one("#rp-btn-improve", Button)
+        btn_improve.press()
+        await pilot.pause()
+
+        assert panel.mode == "wizard"
+        wizard_pane = panel.query_one("#rp-wizard")
+        assert wizard_pane.styles.display != "none"
+        assert "GUIDED DEFECT WIZARD" in str(wizard_pane.query_one(".rp-pane-title", Label).render())
+        assert wizard_pane.query_one("#rp-ans-yes", Button) is not None
+        assert wizard_pane.query_one("#rp-btn-next", Button) is not None
+
+        # 3. Summary View Test
+        panel.mode = "summary"
+        panel._refresh()
+        await pilot.pause()
+
+        summary_pane = panel.query_one("#rp-summary-pane")
+        assert summary_pane.styles.display != "none"
+        assert "REMEDIATION PLAN ARMED" in str(summary_pane.query_one(".rp-pane-title", Label).render())
+        assert summary_pane.query_one("#rp-btn-apply-plan", Button) is not None
+
+
