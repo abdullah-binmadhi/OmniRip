@@ -196,6 +196,209 @@ class RepairPanel(Widget):
             super().__init__()
             self.symptom = symptom
 
+    DEFAULT_CSS = """
+    RepairPanel {
+        width: 100%;
+        height: auto;
+    }
+
+    #rp-quick {
+        width: 100%;
+        height: auto;
+        background: #090714;
+        border: solid #00e5ff;
+        padding: 1 2;
+    }
+
+    #rp-header-strip {
+        width: 100%;
+        height: auto;
+        border-bottom: solid rgba(255, 0, 127, 0.4);
+        padding-bottom: 1;
+        margin-bottom: 1;
+    }
+
+    #rp-header-left {
+        width: 1fr;
+        height: auto;
+    }
+
+    #rp-header-right {
+        width: 1fr;
+        height: auto;
+        align-horizontal: right;
+    }
+
+    #rp-title {
+        color: #ffe600;
+        text-style: bold;
+    }
+
+    #rp-status {
+        color: #a09bc2;
+    }
+
+    #rp-engine-badge {
+        color: #a09bc2;
+        text-align: right;
+    }
+
+    #rp-active-preset {
+        color: #ffe600;
+        text-align: right;
+        text-style: bold;
+    }
+
+    #rp-grid {
+        width: 100%;
+        height: auto;
+        layout: grid;
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
+        grid-gutter: 1 2;
+    }
+
+    .rp-col {
+        height: auto;
+        padding: 0 1;
+    }
+
+    #rp-col-actions {
+        border-right: solid #2d264f;
+    }
+
+    #rp-col-dsp {
+        border-right: solid #2d264f;
+    }
+
+    .rp-col-title {
+        color: #ffe600;
+        text-style: bold;
+        margin-bottom: 1;
+        border-bottom: solid #2d264f;
+    }
+
+    #rp-btn-apply-quick {
+        width: 100%;
+        height: 3;
+        background: #00a88f;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #00e5ff;
+        margin-bottom: 1;
+    }
+
+    #rp-btn-apply-quick:hover {
+        background: #00c9ab;
+    }
+
+    #rp-btn-apply-quick:disabled {
+        background: #161329;
+        border: solid #2d264f;
+        color: #625b84;
+    }
+
+    .rp-secondary-btn {
+        width: 100%;
+        margin-bottom: 1;
+        background: #161329;
+        border: solid #2d264f;
+        color: #a09bc2;
+    }
+
+    .rp-secondary-btn:disabled {
+        color: #625b84;
+    }
+
+    .rp-group-label {
+        color: #a09bc2;
+        margin-top: 1;
+        margin-bottom: 0;
+        text-style: bold;
+    }
+
+    .rp-segmented-row {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .rp-segmented-row Button {
+        margin-right: 1;
+        min-width: 8;
+        background: #161329;
+        border: solid #2d264f;
+        color: #a09bc2;
+    }
+
+    .rp-segmented-row Button:disabled {
+        color: #625b84;
+    }
+
+    #rp-engine-local.-primary, #rp-engine-hosted.-primary {
+        background: #ff007f;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #ff79c6;
+    }
+
+    #rp-card-gentle.-primary, #rp-card-balanced.-primary, #rp-card-strong.-primary {
+        background: #7b1fa2;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #ba68c8;
+    }
+
+    #rp-dsp-conservative.-primary, #rp-dsp-aggressive.-primary {
+        background: #00a88f;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #00e5ff;
+    }
+
+    #rp-hud-panel {
+        background: #0c091d;
+        border: solid rgba(0, 229, 255, 0.3);
+        padding: 1;
+        height: auto;
+    }
+
+    #rp-hud-state {
+        color: #ffe600;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #rp-hud-track {
+        color: #00e5ff;
+        margin-bottom: 1;
+    }
+
+    #rp-hud-tip {
+        color: #a09bc2;
+        margin-bottom: 1;
+    }
+
+    #rp-hud-vu {
+        color: #00a88f;
+        text-style: bold;
+    }
+
+    #rp-marquee {
+        width: 100%;
+        color: #ffe600;
+        background: #090714;
+        text-align: center;
+        border-top: solid #2d264f;
+        padding-top: 1;
+        margin-top: 1;
+    }
+
+    #rp-issues {
+        display: none;
+    }
+    """
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.track: Any = None
@@ -209,31 +412,56 @@ class RepairPanel(Widget):
         self.answers: dict[str, str] = {}
         self.engine: str = "local"
         self.strength: str = "balanced"
+        self.dsp_mode: str = "conservative"
         self.hosted_available: bool = False
         self.error: str | None = None
         self.engine_status: str = ""
         self.neural_ready: bool = False
 
     def compose(self) -> ComposeResult:
-        yield Label("GUIDED REPAIR", id="rp-title")
-        yield Label("", id="rp-status")
-
         with Vertical(id="rp-quick"):
-            yield Label("◈ ENGINE: —", id="rp-engine-badge")
+            with Horizontal(id="rp-header-strip"):
+                with Vertical(id="rp-header-left"):
+                    yield Label("STATUS: GUIDED REPAIR", id="rp-title")
+                    yield Label("Awaiting track…", id="rp-status")
+                with Vertical(id="rp-header-right"):
+                    yield Label("◈ ENGINE: NEURAL AI · BS-RoFormer + HDEMUCS", id="rp-engine-badge")
+                    yield Label("ACTIVE PRESET: NEURAL AI (DSP)", id="rp-active-preset")
+
+            with Horizontal(id="rp-grid"):
+                with Vertical(id="rp-col-actions", classes="rp-col"):
+                    yield Label("[A] ACTION MATRIX", classes="rp-col-title")
+                    yield Button("⚡ QUICK FIX", id="rp-btn-apply-quick", variant="success")
+                    yield Button("𝄢 STEMS ONLY", id="rp-btn-separate", classes="rp-secondary-btn")
+                    yield Button("✎ CUSTOMIZE", id="rp-btn-adjust", classes="rp-secondary-btn")
+                    yield Button("↺ RERUN", id="rp-btn-rerun", classes="rp-secondary-btn")
+
+                with Vertical(id="rp-col-dsp", classes="rp-col"):
+                    yield Label("[B] DSP & INFERENCE CONFIG", classes="rp-col-title")
+                    yield Label("RUN TARGET:", classes="rp-group-label")
+                    with Horizontal(classes="rp-segmented-row"):
+                        yield Button("⌂ LOCAL", id="rp-engine-local", variant="primary")
+                        yield Button("☁ HOSTED", id="rp-engine-hosted")
+                    yield Label("ENHANCE PROFILE:", classes="rp-group-label")
+                    with Horizontal(classes="rp-segmented-row"):
+                        yield Button("GENTLE", id="rp-card-gentle")
+                        yield Button("■ BALANCED ■", id="rp-card-balanced")
+                        yield Button("STRONG", id="rp-card-strong")
+                    yield Label("DSP MODE:", classes="rp-group-label")
+                    with Horizontal(classes="rp-segmented-row"):
+                        yield Button("CONSERVATIVE", id="rp-dsp-conservative", variant="primary")
+                        yield Button("AGGRESSIVE", id="rp-dsp-aggressive")
+
+                with Vertical(id="rp-col-hud", classes="rp-col"):
+                    yield Label("[C] TRACK HUD", classes="rp-col-title")
+                    with Vertical(id="rp-hud-panel"):
+                        yield Label("STATE: ░░ IDLE ░░", id="rp-hud-state")
+                        yield Label("TRACK: NONE LOADED", id="rp-hud-track")
+                        yield Label("Awaiting input:\nDrop track or select above to unlock actions.", id="rp-hud-tip")
+                        yield Label("[VU: -inf dB]", id="rp-hud-vu")
+
+            yield Label("▲▼ Synthesizing 'Conservative DSP'... (audio continues) ■■■ ▲▼ Synthesizing...", id="rp-marquee")
             yield Label("", id="rp-issues")
-            with Horizontal(id="rp-quick-actions"):
-                yield Button("⚡ QUICK FIX", id="rp-btn-apply-quick", variant="success")
-                yield Button("𝄢 STEMS ONLY", id="rp-btn-separate")
-                yield Button("✎ CUSTOMIZE", id="rp-btn-adjust")
-                yield Button("↺ RERUN ANALYSIS", id="rp-btn-rerun")
-            with Horizontal(id="rp-options-row"):
-                yield Label("Options:", classes="rp-engine-label")
-                yield Button("⌂ LOCAL", id="rp-engine-local", variant="primary")
-                yield Button("☁ HOSTED", id="rp-engine-hosted")
-                yield Label("Enhance:", classes="rp-engine-label")
-                yield Button("GENTLE", id="rp-card-gentle")
-                yield Button("BALANCED", id="rp-card-balanced")
-                yield Button("STRONG", id="rp-card-strong")
 
         with Vertical(id="rp-wizard"):
             yield Label("", id="rp-progress")
@@ -453,7 +681,13 @@ class RepairPanel(Widget):
 
     def _render_quick(self) -> None:
         badge = self.query_one("#rp-engine-badge", Label)
-        badge.update("◈ " + (self.engine_status or "ENGINE: checking models…"))
+        badge.update("◈ " + (self.engine_status or "ENGINE: NEURAL AI · BS-RoFormer + HDEMUCS"))
+
+        try:
+            preset_badge = self.query_one("#rp-active-preset", Label)
+            preset_badge.update(f"ACTIVE PRESET: {self.strength.upper()} (DSP)")
+        except Exception:
+            pass
 
         self.query_one("#rp-engine-local", Button).variant = (
             "primary" if self.engine == "local" else "default"
@@ -505,6 +739,44 @@ class RepairPanel(Widget):
                 "primary" if self.strength == name else "default"
             )
             self.query_one(f"#{strength_id}", Button).disabled = not has_track
+
+        for dsp_id, name in (
+            ("rp-dsp-conservative", "conservative"),
+            ("rp-dsp-aggressive", "aggressive"),
+        ):
+            try:
+                dsp_btn = self.query_one(f"#{dsp_id}", Button)
+                dsp_btn.variant = "primary" if self.dsp_mode == name else "default"
+                dsp_btn.disabled = not has_track
+            except Exception:
+                pass
+
+        try:
+            hud_state = self.query_one("#rp-hud-state", Label)
+            hud_track = self.query_one("#rp-hud-track", Label)
+            hud_vu = self.query_one("#rp-hud-vu", Label)
+            hud_tip = self.query_one("#rp-hud-tip", Label)
+            marquee = self.query_one("#rp-marquee", Label)
+
+            if not has_track:
+                hud_state.update("STATE: ░░ IDLE ░░")
+                hud_track.update("TRACK: NONE LOADED")
+                hud_vu.update("[VU: -inf dB]")
+                hud_tip.update("Awaiting input:\nDrop track or select above to unlock actions.")
+                marquee.update("▲▼ Synthesizing 'Conservative DSP'... (audio continues) ■■■ ▲▼ Synthesizing...")
+            else:
+                track_name = getattr(self.track, "name", str(self.track))
+                hud_state.update("STATE: ▓▓ ARMED ▓▓")
+                hud_track.update(f"TRACK: {track_name[:16]}")
+                hud_vu.update(f"[VU: -14.2 dB | {self.cutoff_hz / 1000.0:.1f} kHz]")
+                if self.stems_ready:
+                    hud_tip.update("Stems ready in cache.\nReady for neural remastering.")
+                else:
+                    hud_tip.update("Track loaded.\nReady for stem separation or quick fix.")
+                mode_label = self.dsp_mode.title()
+                marquee.update(f"▲▼ Synthesizing '{mode_label} DSP'... (audio continues) ■■■ ▲▼ Synthesizing...")
+        except Exception:
+            pass
 
     def _render_wizard(self) -> None:
         spec = self.current_spec()
@@ -686,6 +958,11 @@ class RepairPanel(Widget):
             "rp-card-strong",
         ):
             self.strength = button_id.rsplit("-", 1)[-1]
+            self._sync_plan()
+            self._refresh()
+            return
+        if button_id in ("rp-dsp-conservative", "rp-dsp-aggressive"):
+            self.dsp_mode = button_id.rsplit("-", 1)[-1]
             self._sync_plan()
             self._refresh()
             return

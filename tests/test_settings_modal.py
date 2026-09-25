@@ -84,3 +84,33 @@ async def test_settings_modal_test_connection_button():
 
             result_label = modal.query_one("#test-result", Label)
             assert "✓ slskd connected" in str(result_label.render())
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_scrollable_container_and_cyber_theme():
+    from textual.containers import ScrollableContainer
+
+    config = load_config()
+    modal = SettingsModal(config)
+    app = DummySettingsApp(modal)
+
+    async with app.run_test() as pilot:
+        scroll = modal.query_one("#settings-scroll", ScrollableContainer)
+        assert scroll is not None
+        assert scroll.styles.height.is_fraction  # 1fr
+
+        # Verify all 6 API/config inputs are present inside the scroll container
+        expected_inputs = [
+            "#input-slskd-url",
+            "#input-slskd-key",
+            "#input-acoustid-key",
+            "#input-mvsep-key",
+            "#input-jev-key",
+            "#input-obsidian-vault",
+        ]
+        for input_id in expected_inputs:
+            inp = scroll.query_one(input_id, Input)
+            assert inp is not None
+
+        await pilot.click("#btn-cancel")
+

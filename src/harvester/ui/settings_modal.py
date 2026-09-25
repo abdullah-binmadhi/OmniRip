@@ -29,38 +29,61 @@ class SettingsModal(ModalScreen[bool]):
     DEFAULT_CSS = """
     SettingsModal {
         align: center middle;
-        background: rgba(10, 10, 18, 0.85);
+        background: rgba(9, 7, 20, 0.88);
     }
 
     #settings-card {
-        width: 80;
+        width: 86;
         height: 85%;
-        border: heavy cyan;
-        background: #0d1117;
+        border: double #00e5ff;
+        background: #090714;
         padding: 1 2;
     }
 
     #settings-title {
-        color: cyan;
+        color: #ffe600;
         text-style: bold;
         text-align: center;
+        margin-bottom: 0;
+        border-bottom: solid #ff007f 60%;
+        padding-bottom: 1;
+    }
+
+    #settings-subtitle {
+        color: #a09bc2;
+        text-align: center;
         margin-bottom: 1;
+        text-style: italic;
+    }
+
+    #settings-scroll {
+        height: 1fr;
+        width: 100%;
+        scrollbar-gutter: stable;
+        padding: 0 1;
     }
 
     .section-title {
-        color: #58a6ff;
+        color: #ff007f;
         text-style: bold;
         margin-top: 1;
         margin-bottom: 0;
     }
 
     .field-label {
-        color: #8b949e;
+        color: #a09bc2;
         margin-top: 0;
     }
 
     .settings-input {
         margin-bottom: 1;
+        background: #0c091d;
+        border: tall #2d264f;
+        color: #00e5ff;
+    }
+
+    .settings-input:focus {
+        border: tall #00e5ff;
     }
 
     #test-result {
@@ -72,6 +95,8 @@ class SettingsModal(ModalScreen[bool]):
         width: 100%;
         align: center middle;
         margin-top: 1;
+        border-top: solid #2d264f;
+        padding-top: 1;
     }
 
     #settings-buttons Button {
@@ -86,7 +111,8 @@ class SettingsModal(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-card"):
             yield Static("⚙  OMNIRIP SETTINGS & API CREDENTIALS", id="settings-title")
-            with ScrollableContainer():
+            yield Label("Configure remote APIs, cloud stem isolation, and local service integrations", id="settings-subtitle")
+            with ScrollableContainer(id="settings-scroll"):
                 # Soulseek / slskd
                 yield Label("Soulseek / slskd Daemon", classes="section-title")
                 yield Label("Daemon URL:", classes="field-label")

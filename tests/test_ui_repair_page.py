@@ -285,3 +285,63 @@ async def test_repair_rerun_reanalyzes_the_track(tmp_path: Path) -> None:
         assert panel.detection is not None
         assert panel.error is None
         assert panel.mode == "quick"
+
+
+async def test_repair_cyber_daw_workbench_layout(tmp_path: Path) -> None:
+    """Verify the dense 3-column cyber-DAW layout, HUD telemetry, and DSP mode toggles."""
+    app = WorkbenchTestApp()
+    async with app.run_test(size=(140, 48)) as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        _load(tmp_path, wb)
+        wb.switch_page("repair")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = app.query_one(RepairPanel)
+
+        # 1. Header strip checks
+        header_strip = panel.query_one("#rp-header-strip")
+        assert header_strip is not None
+        assert "GUIDED REPAIR" in str(panel.query_one("#rp-title", Label).render())
+        assert "BS-RoFormer" in str(panel.query_one("#rp-engine-badge", Label).render())
+        assert "ACTIVE PRESET:" in str(panel.query_one("#rp-active-preset", Label).render())
+
+        # 2. Main 3-column grid checks
+        grid = panel.query_one("#rp-grid")
+        assert grid is not None
+        col_actions = panel.query_one("#rp-col-actions")
+        col_dsp = panel.query_one("#rp-col-dsp")
+        col_hud = panel.query_one("#rp-col-hud")
+        assert col_actions is not None and col_dsp is not None and col_hud is not None
+
+        # 3. Action Matrix checks
+        assert panel.query_one("#rp-btn-apply-quick", Button) is not None
+        assert panel.query_one("#rp-btn-separate", Button) is not None
+        assert panel.query_one("#rp-btn-adjust", Button) is not None
+        assert panel.query_one("#rp-btn-rerun", Button) is not None
+
+        # 4. DSP & Inference Config checks
+        assert panel.query_one("#rp-engine-local", Button) is not None
+        assert panel.query_one("#rp-engine-hosted", Button) is not None
+        assert panel.query_one("#rp-card-gentle", Button) is not None
+        assert panel.query_one("#rp-card-balanced", Button) is not None
+        assert panel.query_one("#rp-card-strong", Button) is not None
+        btn_conserv = panel.query_one("#rp-dsp-conservative", Button)
+        btn_aggr = panel.query_one("#rp-dsp-aggressive", Button)
+        assert btn_conserv is not None and btn_aggr is not None
+
+        # Toggle DSP mode
+        assert panel.dsp_mode == "conservative"
+        btn_aggr.press()
+        await pilot.pause()
+        assert panel.dsp_mode == "aggressive"
+
+        # 5. HUD Telemetry checks
+        assert "ARMED" in str(panel.query_one("#rp-hud-state", Label).render())
+        assert "TRACK:" in str(panel.query_one("#rp-hud-track", Label).render())
+        assert "VU:" in str(panel.query_one("#rp-hud-vu", Label).render())
+
+        # 6. Bottom marquee ticker bar checks
+        marquee = panel.query_one("#rp-marquee", Label)
+        assert "Synthesizing 'Aggressive DSP'" in str(marquee.render())
+
