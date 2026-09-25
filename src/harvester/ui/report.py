@@ -242,7 +242,7 @@ class ReportPanel(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="rp-header-strip"):
             yield Label("STATUS: FORENSIC REPORT & ACOUSTIC AUDITION", id="rp-rep-title", classes="rp-header-title")
-            yield Label("[ENGINE: AUTO-ROUTED ACTIVE]", id="rp-rep-badge", classes="rp-header-badge")
+            yield Label("⌖ AUTO-ROUTED ENGINE: ACTIVE", id="rp-rep-badge", classes="rp-header-badge")
 
         with Horizontal(classes="rp-grid"):
             # Col 1: Forensic Metrics & Remediations
@@ -284,23 +284,23 @@ class ReportPanel(Widget):
                 yield Label("[C] REPORT HISTORY & PRESETS", classes="rp-box-title")
                 yield Vertical(id="rp-history-list")
                 with Horizontal():
-                    yield Button("Rename", id="rp-btn-rep-rename")
-                    yield Button("Re-Apply", id="rp-btn-rep-reapply", variant="primary")
+                    yield Button("✎ Rename", id="rp-btn-rep-rename")
+                    yield Button("⚡ Re-Apply", id="rp-btn-rep-reapply", variant="primary")
 
         # Bottom Dock: Auditioning & Export Buttons
         with Horizontal(classes="rp-dock-hub"):
             with Horizontal(classes="rp-dock-audition"):
                 yield Label("AUDITION:", classes="rp-metric-line")
-                yield Button("[ORIGINAL]", id="rp-rep-btn-orig")
-                yield Button("[MASTER]", id="rp-rep-btn-master", variant="primary")
-                yield Button("[VOCALS]", id="rp-rep-btn-voc")
-                yield Button("[INST]", id="rp-rep-btn-inst")
+                yield Button("◖ ORIGINAL", id="rp-rep-btn-orig")
+                yield Button("◗ MASTER", id="rp-rep-btn-master", variant="primary")
+                yield Button("𝄢 VOCALS", id="rp-rep-btn-voc")
+                yield Button("♩ INST", id="rp-rep-btn-inst")
 
             with Horizontal(classes="rp-dock-export"):
-                yield Button("WAV 24-bit", id="rp-btn-dl-wav", variant="success")
-                yield Button("MP3 320k", id="rp-btn-dl-mp3")
-                yield Button("FLAC", id="rp-btn-dl-flac")
-                yield Button("STEMS", id="rp-btn-dl-stems")
+                yield Button("⤓ WAV 24-bit", id="rp-btn-dl-wav", variant="success")
+                yield Button("⤓ MP3 320k", id="rp-btn-dl-mp3")
+                yield Button("⤓ FLAC", id="rp-btn-dl-flac")
+                yield Button("⤓ STEMS", id="rp-btn-dl-stems")
 
     def on_mount(self) -> None:
         self._refresh_report_view()
@@ -326,7 +326,7 @@ class ReportPanel(Widget):
         if rep is not None:
             self.query_one("#rp-rep-title", Label).update(f"STATUS: DELIVERABLE REPORT · {rep.name}")
             genre_text = rep.genre.upper() if rep.genre else "BALANCED"
-            self.query_one("#rp-rep-badge", Label).update(f"[GENRE PROFILE: {genre_text}]")
+            self.query_one("#rp-rep-badge", Label).update(f"⌖ GENRE PROFILE: {genre_text}")
 
             m = rep.metrics
             if "lufs_after" in m:

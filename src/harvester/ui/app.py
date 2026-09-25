@@ -548,11 +548,11 @@ class HarvesterApp(App[None]):
                     yield Button("SOULSEEK", id="btn-soulseek")
                     yield Button("SETTINGS", id="btn-settings")
             with Horizontal(id="app-nav-bar"):
-                yield Button("TRACKS", id="btn-nav-tracks", classes="app-nav-btn app-nav-active")
-                yield Button("VISUALS", id="btn-nav-vis", classes="app-nav-btn")
-                yield Button("REPAIR", id="btn-nav-repair", classes="app-nav-btn")
-                yield Button("EQ", id="btn-nav-eq", classes="app-nav-btn")
-                yield Button("REPORT", id="btn-nav-report", classes="app-nav-btn")
+                yield Button("⌗ TRACKS", id="btn-nav-tracks", classes="app-nav-btn app-nav-active")
+                yield Button("≋ VISUALS", id="btn-nav-vis", classes="app-nav-btn")
+                yield Button("⌬ REPAIR", id="btn-nav-repair", classes="app-nav-btn")
+                yield Button("𝄢 EQ", id="btn-nav-eq", classes="app-nav-btn")
+                yield Button("⌖ REPORT", id="btn-nav-report", classes="app-nav-btn")
             with Container(id="workspace-pages"):
                 with Vertical(id="tracks-pane", classes="app-full-page"):
                     yield JobTable()

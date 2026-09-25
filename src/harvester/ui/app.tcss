@@ -186,10 +186,11 @@ Button:disabled {
 }
 
 #audio-player {
-    height: 10;
-    min-height: 9;
-    margin: 0 1 0 1;
-    border: round $accent;
+    height: 7;
+    min-height: 6;
+    margin: 0;
+    border: none;
+    border-top: solid $accent;
     background: $panel;
     padding: 0 1;
 }
