@@ -485,6 +485,8 @@ class WorkbenchWidget(Widget):
         border-top: heavy $primary;
         background: $panel;
         padding: 0 1;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
     }
     #rp-title {
         text-style: bold;

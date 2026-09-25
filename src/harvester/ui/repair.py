@@ -202,54 +202,54 @@ class RepairPanel(Widget):
         height: auto;
     }
 
-    #rp-quick {
+    #rp-quick, #rp-result, #rp-wizard, #rp-summary-pane {
         width: 100%;
         height: auto;
         background: #090714;
         border: solid #00e5ff;
-        padding: 1 2;
+        padding: 0 1;
     }
 
-    #rp-header-strip {
+    #rp-header-strip, .rp-pane-header-strip {
         width: 100%;
         height: auto;
         border-bottom: solid rgba(255, 0, 127, 0.4);
-        padding-bottom: 1;
+        padding-bottom: 0;
         margin-bottom: 1;
     }
 
-    #rp-header-left {
+    #rp-header-left, .rp-header-left {
         width: 1fr;
         height: auto;
     }
 
-    #rp-header-right {
+    #rp-header-right, .rp-header-right {
         width: 1fr;
         height: auto;
         align-horizontal: right;
     }
 
-    #rp-title {
+    #rp-title, .rp-pane-title {
         color: #ffe600;
         text-style: bold;
     }
 
-    #rp-status {
+    #rp-status, .rp-status-sub {
         color: #a09bc2;
     }
 
-    #rp-engine-badge {
+    #rp-engine-badge, .rp-pane-engine-badge {
         color: #a09bc2;
         text-align: right;
     }
 
-    #rp-active-preset {
+    #rp-active-preset, .rp-pane-active-preset {
         color: #ffe600;
         text-align: right;
         text-style: bold;
     }
 
-    #rp-grid {
+    #rp-grid, .rp-grid {
         width: 100%;
         height: auto;
         layout: grid;
@@ -258,16 +258,25 @@ class RepairPanel(Widget):
         grid-gutter: 1 2;
     }
 
+    .rp-wizard-grid {
+        width: 100%;
+        height: auto;
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 2fr 1fr;
+        grid-gutter: 1 2;
+    }
+
     .rp-col {
         height: auto;
         padding: 0 1;
     }
 
-    #rp-col-actions {
+    #rp-col-actions, #rp-res-col-audition, #rp-sum-col-plan {
         border-right: solid #2d264f;
     }
 
-    #rp-col-dsp {
+    #rp-col-dsp, #rp-res-col-forensics, #rp-sum-col-profile {
         border-right: solid #2d264f;
     }
 
@@ -278,9 +287,11 @@ class RepairPanel(Widget):
         border-bottom: solid #2d264f;
     }
 
-    #rp-btn-apply-quick {
+    #rp-btn-apply-quick, .rp-export-btn {
         width: 100%;
-        height: 3;
+        height: auto;
+        min-height: 1;
+        padding: 0 1;
         background: #00a88f;
         color: #ffffff;
         text-style: bold;
@@ -288,7 +299,7 @@ class RepairPanel(Widget):
         margin-bottom: 1;
     }
 
-    #rp-btn-apply-quick:hover {
+    #rp-btn-apply-quick:hover, .rp-export-btn:hover {
         background: #00c9ab;
     }
 
@@ -398,68 +409,22 @@ class RepairPanel(Widget):
         display: none;
     }
 
-    /* Result, Wizard, Summary pane cyber-DAW layouts */
-    #rp-result, #rp-wizard, #rp-summary-pane {
-        width: 100%;
-        height: auto;
-        background: #090714;
-        border: solid #00e5ff;
-        padding: 1 2;
-    }
-
-    .rp-pane-header-strip {
-        width: 100%;
-        height: auto;
-        border-bottom: solid rgba(255, 0, 127, 0.4);
-        padding-bottom: 1;
-        margin-bottom: 1;
-    }
-
-    .rp-pane-title {
-        color: #ffe600;
-        text-style: bold;
-    }
-
-    .rp-pane-engine-badge {
-        color: #a09bc2;
-        text-align: right;
-    }
-
-    .rp-pane-active-preset {
-        color: #ffe600;
-        text-align: right;
-        text-style: bold;
-    }
-
-    .rp-status-sub {
-        color: #a09bc2;
-    }
-
-    .rp-pane-marquee {
-        width: 100%;
-        color: #ffe600;
-        background: #090714;
-        text-align: center;
-        border-top: solid #2d264f;
-        padding-top: 1;
-        margin-top: 1;
-    }
-
     .rp-col-wide {
-        width: 2fr;
         height: auto;
         border-right: solid #2d264f;
         padding-right: 1;
     }
 
     .rp-col-narrow {
-        width: 1fr;
         height: auto;
         padding-left: 1;
     }
 
     .rp-audition-btn {
         width: 100%;
+        height: auto;
+        min-height: 1;
+        padding: 0 1;
         margin-bottom: 1;
         background: #161329;
         border: solid #2d264f;
@@ -473,22 +438,11 @@ class RepairPanel(Widget):
         border: solid #00e5ff;
     }
 
-    .rp-export-btn {
-        width: 100%;
-        height: 3;
-        background: #00a88f;
-        color: #ffffff;
-        text-style: bold;
-        border: solid #00e5ff;
-        margin-bottom: 1;
-    }
-
-    .rp-export-btn:hover {
-        background: #00c9ab;
-    }
-
     .rp-nav-btn {
         width: 100%;
+        height: auto;
+        min-height: 1;
+        padding: 0 1;
         margin-bottom: 1;
     }
 
@@ -604,7 +558,7 @@ class RepairPanel(Widget):
                     yield Label("◈ INTERACTIVE AUDITION MODE", classes="rp-pane-engine-badge")
                     yield Label("STEP-BY-STEP TRIAGE", classes="rp-pane-active-preset")
 
-            with Horizontal(classes="rp-grid"):
+            with Horizontal(classes="rp-wizard-grid"):
                 with Vertical(id="rp-wiz-col-query", classes="rp-col-wide"):
                     yield Label("[A] DEFECT INVESTIGATION", classes="rp-col-title")
                     yield Label("", id="rp-question")
