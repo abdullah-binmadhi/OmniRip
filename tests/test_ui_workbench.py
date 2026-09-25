@@ -13,6 +13,7 @@ from textual.widgets import Button, Label, ProgressBar, Select, SelectionList
 from harvester.analysis.enhancement.eq import EQ_PRESET_BANKS
 from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
+from harvester.ui.report import ReportPanel
 from harvester.ui.visualizer import AudioVisualizer
 from harvester.ui.workbench import WorkbenchWidget
 
@@ -1402,4 +1403,31 @@ async def test_warm_remaining_presets_includes_eq_tag_and_genre_policy(tmp_path:
             assert eff.ceiling_dbfs == expected_eff.ceiling_dbfs
             assert call_kw["eq_settings"] == wb._master_eq_settings()
             assert call_kw["extra_tags"] == wb._genre_extra_tags()
+
+
+async def test_report_panel_preview_and_export_handlers_with_empty_track(tmp_path: Path):
+    app = WorkbenchTestApp()
+    async with app.run_test() as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        notifications: list[str] = []
+
+        def fake_notify(msg, **kwargs):
+            notifications.append(str(msg))
+
+        wb.notify = fake_notify
+
+        # Test calling preview with empty track does not crash
+        for stream in ("original", "master", "vocals", "inst"):
+            wb.on_report_panel_preview_requested(ReportPanel.PreviewRequested(stream))
+        assert len(notifications) == 4
+        assert all("No active track" in n for n in notifications)
+
+        # Test calling export with empty track does not crash
+        wb.on_report_panel_export_requested(ReportPanel.ExportRequested("wav"))
+        assert any("No active track loaded to export" in n for n in notifications)
+
+        # Test audition_stream directly
+        wb.audition_stream("MP3")
+        assert wb.active_stream == "MP3"
+
 

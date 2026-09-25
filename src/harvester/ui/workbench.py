@@ -1644,6 +1644,9 @@ class WorkbenchWidget(Widget):
             pass
 
     def on_report_panel_export_requested(self, event: ReportPanel.ExportRequested) -> None:
+        if not self.path_mp3 and not self.current_job:
+            self.notify("No active track loaded to export.", severity="warning", title="Export Deliverable")
+            return
         fmt = event.fmt
         choice_id = {
             "wav": "wb-export-choose-wav",
@@ -1653,7 +1656,14 @@ class WorkbenchWidget(Widget):
         }.get(fmt, "wb-export-choose-wav")
         self._on_export_choice_clicked(choice_id)
 
+    def audition_stream(self, stream: str) -> None:
+        """Audition a stream safely (original, master/enh, vocals, inst)."""
+        self.set_active_stream(stream)
+
     def on_report_panel_preview_requested(self, event: ReportPanel.PreviewRequested) -> None:
+        if not self.path_mp3 and not self.current_job:
+            self.notify("No active track loaded to audition.", severity="warning", title="Acoustic Audition")
+            return
         stream_map = {
             "original": "MP3",
             "master": "ENH",
@@ -1661,7 +1671,11 @@ class WorkbenchWidget(Widget):
             "inst": "INST",
         }
         target_stream = stream_map.get(event.stream, "ENH")
-        self.audition_stream(target_stream)
+        if target_stream == "VOC" and (not self.path_voc or not self.path_voc.exists()):
+            self.notify("Vocal stem not yet separated for this track.", severity="information", title="Acoustic Stems")
+        elif target_stream == "INST" and (not self.path_inst or not self.path_inst.exists()):
+            self.notify("Instrumental stem not yet separated for this track.", severity="information", title="Acoustic Stems")
+        self.set_active_stream(target_stream)
 
     def _update_eq_ui(self) -> None:
         """Update all 10 band labels, values, fader tracks, and control buttons."""
