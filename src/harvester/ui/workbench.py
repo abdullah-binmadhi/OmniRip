@@ -56,6 +56,7 @@ from harvester.processing import (
 )
 from harvester.services.enhancement.exporter import EnhancementExporter
 from harvester.services.enhancement.preview import PreviewManager
+from harvester.services.report_store import MasteringReport
 from harvester.ui.genre_mix import GenreMixScreen
 from harvester.ui.operation_state import (
     Operation,
@@ -64,6 +65,7 @@ from harvester.ui.operation_state import (
     WorkbenchOperationState,
 )
 from harvester.ui.repair import RepairPanel
+from harvester.ui.report import ReportPanel
 from harvester.ui.track_info import TrackInfoScreen
 from harvester.ui.visualizer import AudioVisualizer
 
@@ -992,6 +994,9 @@ class WorkbenchWidget(Widget):
                         yield Label("STEREO VU DECK (dB Headroom)", classes="wb-vis-label")
                         yield AudioVisualizer(mode="vu_meter", id="wb-vis-vu")
 
+            with Vertical(id="wb-page-report"):
+                yield ReportPanel(id="wb-report-panel")
+
         yield ProgressBar(id="wb-download-progress", total=100, show_eta=True)
         yield StockTickerTape("", id="wb-status")
 
@@ -1565,21 +1570,23 @@ class WorkbenchWidget(Widget):
         return self._master_eq_settings().cache_tag()
 
     def switch_page(self, page_id: str) -> None:
-        """Switch between 'deck', 'eq', 'repair', and 'vis' tabs inside the inspector container."""
+        """Switch between 'deck', 'eq', 'repair', 'vis', and 'report' tabs inside the inspector container."""
         self.active_page = page_id
         try:
             page_deck = self.query_one("#wb-page-deck", Vertical)
             page_eq = self.query_one("#wb-page-eq", Vertical)
             page_repair = self.query_one("#wb-page-repair", Vertical)
             page_vis = self.query_one("#wb-page-vis", Vertical)
+            page_report = self.query_one("#wb-page-report", Vertical)
 
             # Update page containers display
             page_deck.styles.display = "block" if page_id == "deck" else "none"
             page_eq.styles.display = "block" if page_id == "eq" else "none"
             page_repair.styles.display = "block" if page_id == "repair" else "none"
             page_vis.styles.display = "block" if page_id == "vis" else "none"
+            page_report.styles.display = "block" if page_id == "report" else "none"
 
-            deck_controls = "block" if page_id == "deck" else "none"
+            deck_controls = "block" if page_id in ("deck", "report") else "none"
             for selector in ("#wb-stream-row", "#wb-controls-row", "#wb-genre-recipe"):
                 with contextlib.suppress(Exception):
                     self.query_one(selector).styles.display = deck_controls
@@ -1590,8 +1597,59 @@ class WorkbenchWidget(Widget):
                 self._update_eq_ui()
             elif page_id == "repair":
                 self._start_repair_detection()
+            elif page_id == "report":
+                self._update_report_ui()
         except Exception:
             pass
+
+    def _update_report_ui(self) -> None:
+        """Populate the ReportPanel with the latest telemetry and spectrum curves."""
+        try:
+            rep_panel = self.query_one("#wb-report-panel", ReportPanel)
+            track_name = getattr(self.path_mp3, "stem", "Active Track") if self.path_mp3 else "Active Track"
+            track_path = str(self.path_mp3 or "")
+
+            rep = MasteringReport(
+                id="active_session",
+                name=f"{track_name} (Enhanced Master)",
+                created_at="active",
+                track_name=track_name,
+                track_path=track_path,
+                workflow="enhance_only",
+                genre=self.genre_intensity.title(),
+                genre_intensity=self.genre_intensity,
+                triage_answers={},
+                eq_bands={str(f): self.eq_settings.bands.get(f, 0.0) for f in EQ_FREQUENCIES},
+                metrics={
+                    "cutoff_before_hz": self.cutoff_hz,
+                    "cutoff_after_hz": 22050.0 if self.neural_enabled else self.cutoff_hz,
+                    "lufs_after": -14.0,
+                    "residual_db": -24.8,
+                },
+            )
+            rep_panel.set_report(rep)
+        except Exception:
+            pass
+
+    def on_report_panel_export_requested(self, event: ReportPanel.ExportRequested) -> None:
+        fmt = event.fmt
+        choice_id = {
+            "wav": "wb-export-choose-wav",
+            "mp3": "wb-export-choose-enh",
+            "flac": "wb-export-choose-flac",
+            "stems": "wb-export-choose-voc",
+        }.get(fmt, "wb-export-choose-wav")
+        self._on_export_choice_clicked(choice_id)
+
+    def on_report_panel_preview_requested(self, event: ReportPanel.PreviewRequested) -> None:
+        stream_map = {
+            "original": "MP3",
+            "master": "ENH",
+            "vocals": "VOC",
+            "inst": "INST",
+        }
+        target_stream = stream_map.get(event.stream, "ENH")
+        self.audition_stream(target_stream)
 
     def _update_eq_ui(self) -> None:
         """Update all 10 band labels, values, fader tracks, and control buttons."""

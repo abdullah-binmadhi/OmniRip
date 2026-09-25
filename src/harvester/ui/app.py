@@ -550,9 +550,9 @@ class HarvesterApp(App[None]):
             with Horizontal(id="app-nav-bar"):
                 yield Button("≡ TRACKS & LOGS", id="btn-nav-tracks", classes="app-nav-btn app-nav-active")
                 yield Button("◈ VISUALIZER", id="btn-nav-vis", classes="app-nav-btn")
-                yield Button("⎈ DECK", id="btn-nav-deck", classes="app-nav-btn")
                 yield Button("♻ REPAIR", id="btn-nav-repair", classes="app-nav-btn")
                 yield Button("🎚 EQ", id="btn-nav-eq", classes="app-nav-btn")
+                yield Button("📊 REPORT", id="btn-nav-report", classes="app-nav-btn")
             with Container(id="workspace-pages"):
                 with Vertical(id="tracks-pane", classes="app-full-page"):
                     yield JobTable()
@@ -669,8 +669,8 @@ class HarvesterApp(App[None]):
             self.switch_workspace_page("tracks")
         elif event.button.id == "btn-nav-vis":
             self.switch_workspace_page("vis")
-        elif event.button.id == "btn-nav-deck":
-            self.switch_workspace_page("deck")
+        elif event.button.id in ("btn-nav-deck", "btn-nav-report"):
+            self.switch_workspace_page("report")
         elif event.button.id == "btn-nav-eq":
             self.switch_workspace_page("eq")
         elif event.button.id == "btn-nav-repair":
@@ -686,7 +686,8 @@ class HarvesterApp(App[None]):
             nav_buttons = {
                 "tracks": "#btn-nav-tracks",
                 "vis": "#btn-nav-vis",
-                "deck": "#btn-nav-deck",
+                "report": "#btn-nav-report",
+                "deck": "#btn-nav-report",
                 "eq": "#btn-nav-eq",
                 "repair": "#btn-nav-repair",
             }
@@ -716,8 +717,11 @@ class HarvesterApp(App[None]):
     def action_nav_page_vis(self) -> None:
         self.switch_workspace_page("vis")
 
+    def action_nav_page_report(self) -> None:
+        self.switch_workspace_page("report")
+
     def action_nav_page_deck(self) -> None:
-        self.switch_workspace_page("deck")
+        self.switch_workspace_page("report")
 
     def action_nav_page_eq(self) -> None:
         self.switch_workspace_page("eq")
