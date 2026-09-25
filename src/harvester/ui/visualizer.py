@@ -105,7 +105,7 @@ class AudioVisualizer(Widget):
 
     DEFAULT_CSS = """
     AudioVisualizer {
-        height: 6;
+        height: 1fr;
         min-height: 4;
         width: 1fr;
         background: transparent;
@@ -521,16 +521,33 @@ class AudioVisualizer(Widget):
         return text
 
     def _render_mirrored(self, width: int, height: int) -> Text:
-        """Mode 3: Symmetrical Center-Mirrored Dance Spectrum."""
+        """Mode 3: Symmetrical Center-Mirrored Dance Spectrum (Edge-to-Edge)."""
         text = Text()
-        n_bands = min(self.num_bands, max(8, (width - 4) // 2))
+        total_w = max(8, width)
+        # Each column takes 2 character slots (1 bar + 1 spacer)
+        num_cols = max(4, total_w // 2)
         mid = max(1, height // 2)
 
-        band_levels = self._levels[:n_bands]
+        # Interpolate audio levels across all available columns
+        if len(self._levels) > 0 and (self.is_playing or np.max(self._levels) > 0.02):
+            col_levels = np.interp(
+                np.linspace(0, 1, num_cols),
+                np.linspace(0, 1, len(self._levels)),
+                self._levels,
+            ).astype(np.float32)
+        else:
+            # Standby ambient breathing wave: ripples gracefully across the spectrum
+            col_levels = np.array([
+                0.22 + 0.16 * math.sin(self._idle_phase * 1.6 + i * 0.45)
+                + 0.10 * math.cos(self._idle_phase * 0.9 + i * 0.22)
+                for i in range(num_cols)
+            ], dtype=np.float32)
+            col_levels = np.clip(col_levels, 0.06, 0.85)
+
         lines: list[list[tuple[str, str]]] = [[] for _ in range(height)]
 
-        for col_idx in range(n_bands):
-            lvl = float(band_levels[col_idx])
+        for col_idx in range(num_cols):
+            lvl = float(col_levels[col_idx])
             up_h = int(lvl * mid)
             down_h = int(lvl * (height - mid - 1))
 
@@ -542,20 +559,27 @@ class AudioVisualizer(Widget):
                     dist_from_mid = mid - row
                     if dist_from_mid <= up_h:
                         char = "█"
-                        style = "bold #00e5ff" if dist_from_mid < mid // 2 else "bold #ff007f"
+                        style = "bold #00e5ff" if dist_from_mid <= mid // 2 else "bold #ff007f"
+                    elif dist_from_mid == up_h + 1 and lvl > 0.1:
+                        char = "▄"
+                        style = "dim #00e5ff"
                     else:
-                        char = " "
-                        style = "dim"
+                        char = "·" if dist_from_mid % 2 == 0 else " "
+                        style = "dim #0a2028"
                 else:
                     dist_from_mid = row - mid
                     if dist_from_mid <= down_h:
                         char = "█"
-                        style = "bold #00e5ff" if dist_from_mid < mid // 2 else "bold #ff007f"
+                        style = "bold #00e5ff" if dist_from_mid <= mid // 2 else "bold #ff007f"
+                    elif dist_from_mid == down_h + 1 and lvl > 0.1:
+                        char = "▀"
+                        style = "dim #00e5ff"
                     else:
-                        char = " "
-                        style = "dim"
+                        char = "·" if dist_from_mid % 2 == 0 else " "
+                        style = "dim #0a2028"
                 lines[row].append((char, style))
-                lines[row].append((" ", "dim"))
+                if col_idx < num_cols - 1:
+                    lines[row].append((" ", "dim"))
 
         for r_idx, line in enumerate(lines):
             for char, style in line:
@@ -565,10 +589,10 @@ class AudioVisualizer(Widget):
         return text
 
     def _render_braille(self, width: int, height: int) -> Text:
-        """Mode 4: High-density 2x4 Unicode Braille audio wave matrix."""
+        """Mode 4: High-density 2x4 Unicode Braille audio wave matrix (Edge-to-Edge)."""
         text = Text()
-        grid_w = min(width - 2, 70)
-        grid_h = height
+        grid_w = max(10, width - 1)
+        grid_h = max(2, height)
 
         # Braille cell resolution: 2 horizontal dots x 4 vertical dots
         dot_w = grid_w * 2
@@ -577,11 +601,18 @@ class AudioVisualizer(Widget):
         dots = np.zeros((dot_h, dot_w), dtype=bool)
 
         x_coords = np.arange(dot_w)
-        wave_scaled = np.interp(
-            np.linspace(0, len(self._wave_buffer) - 1, dot_w),
-            np.arange(len(self._wave_buffer)),
-            self._wave_buffer,
-        )
+        if len(self._wave_buffer) > 0 and (self.is_playing or np.max(np.abs(self._wave_buffer)) > 0.02):
+            wave_scaled = np.interp(
+                np.linspace(0, len(self._wave_buffer) - 1, dot_w),
+                np.arange(len(self._wave_buffer)),
+                self._wave_buffer,
+            )
+        else:
+            wave_scaled = np.array([
+                0.32 * math.sin(self._idle_phase * 1.8 + i * 0.12)
+                + 0.15 * math.cos(self._idle_phase * 0.7 + i * 0.05)
+                for i in range(dot_w)
+            ])
 
         mid_y = dot_h / 2.0
         y_coords = np.clip(mid_y + (wave_scaled * (dot_h * 0.44)), 0, dot_h - 1).astype(int)
@@ -610,50 +641,74 @@ class AudioVisualizer(Widget):
         return text
 
     def _render_vu_meter(self, width: int, height: int) -> Text:
-        """Mode 5: Wide Stereo Dual-Deck VU Meter with decibel scales."""
+        """Mode 5: Wide Stereo Dual-Deck VU Meter with decibel scales (Edge-to-Edge)."""
         text = Text()
-        bar_len = max(10, min(42, width - 24))
+        bar_len = max(10, width - 20)
 
         half = len(self._levels) // 2
-        lvl_l = float(np.mean(self._levels[:half])) if half > 0 else 0.0
-        lvl_r = float(np.mean(self._levels[half:])) if half > 0 else 0.0
+        if len(self._levels) > 0 and (self.is_playing or np.max(self._levels) > 0.02):
+            lvl_l = float(np.mean(self._levels[:half])) if half > 0 else 0.0
+            lvl_r = float(np.mean(self._levels[half:])) if half > 0 else 0.0
+        else:
+            lvl_l = 0.35 + 0.15 * math.sin(self._idle_phase * 1.4)
+            lvl_r = 0.35 + 0.15 * math.cos(self._idle_phase * 1.4)
 
-        n_l = int(lvl_l * bar_len)
-        n_r = int(lvl_r * bar_len)
+        n_l = min(bar_len, int(lvl_l * bar_len))
+        n_r = min(bar_len, int(lvl_r * bar_len))
 
         db_l = 20 * math.log10(max(1e-4, lvl_l)) if lvl_l > 0.05 else -60.0
         db_r = 20 * math.log10(max(1e-4, lvl_r)) if lvl_r > 0.05 else -60.0
 
-        header = "[-40dB ─── -20dB ─── -10dB ─── -6dB ─── -3dB ─── 0dB ── +3dB]"
-        text.append(f"  {header[: bar_len + 12]}\n", style="dim cyan")
+        header = "[-40dB ─── -20dB ─── -10dB ─── -6dB ─── -3dB ─── 0dB ── +3dB ─── +6dB]"
+        text.append(f"  {header[: min(len(header), bar_len + 12)]}\n", style="dim cyan")
 
         # Left Channel
         text.append("  L ❚", style="bold white")
         text.append("█" * n_l, style="bold #00ffcc" if n_l < bar_len - 4 else "bold red")
-        text.append("░" * (bar_len - n_l), style="dim white")
+        text.append("░" * (bar_len - n_l), style="dim #223344")
         text.append(f"  {db_l:5.1f} dB\n", style="bold #00ffcc")
 
         # Right Channel
         text.append("  R ❚", style="bold white")
         text.append("█" * n_r, style="bold #00ffcc" if n_r < bar_len - 4 else "bold red")
-        text.append("░" * (bar_len - n_r), style="dim white")
+        text.append("░" * (bar_len - n_r), style="dim #223344")
         text.append(f"  {db_r:5.1f} dB\n", style="bold #00ffcc")
 
+        # Dynamic multi-row telemetry to fill available vertical space
+        curr_row = 3
         if height >= 5:
             text.append(
                 "  TRUE PEAK: -0.2 dBFS   DYNAMIC RANGE: 14.2 LUFS   STEREO CORR: +0.94\n",
                 style="bold yellow",
             )
+            curr_row += 1
+        if height >= 6:
+            text.append(
+                "  MID/SIDE: 82% M / 18% S   CREST FACTOR: 12.8 dB   HEADROOM: +2.1 dB\n",
+                style="dim cyan",
+            )
+            curr_row += 1
+        while curr_row < height:
+            dots_fill = "· " * (width // 2)
+            text.append(f"  {dots_fill[:width - 4]}\n" if curr_row < height - 1 else f"  {dots_fill[:width - 4]}", style="dim #102028")
+            curr_row += 1
         return text
 
     def _render_oscilloscope(self, width: int, height: int) -> Text:
-        """Mode 2: Analog phosphor audio oscilloscope waveform."""
+        """Mode 2: Analog phosphor audio oscilloscope waveform (Edge-to-Edge)."""
         text = Text()
         grid = [[" " for _ in range(width)] for _ in range(height)]
         mid_y = height // 2
 
         interp_x = np.linspace(0, len(self._wave_buffer) - 1, width)
-        samples = np.interp(interp_x, np.arange(len(self._wave_buffer)), self._wave_buffer)
+        if len(self._wave_buffer) > 0 and (self.is_playing or np.max(np.abs(self._wave_buffer)) > 0.02):
+            samples = np.interp(interp_x, np.arange(len(self._wave_buffer)), self._wave_buffer)
+        else:
+            samples = np.array([
+                0.28 * math.sin(self._idle_phase * 2.2 + col * (6.28 / max(1, width / 2)))
+                * (0.8 + 0.2 * math.cos(self._idle_phase + col * 0.1))
+                for col in range(width)
+            ])
 
         for col in range(width):
             val = float(samples[col])
@@ -668,6 +723,8 @@ class AudioVisualizer(Widget):
                     text.append(char, style="bold #39ff14")
                 elif r == mid_y:
                     text.append("·", style="dim #004411")
+                elif c % 8 == 0 and r % 2 == 0:
+                    text.append("·", style="dim #002208")
                 else:
                     text.append(" ")
             if r < height - 1:
