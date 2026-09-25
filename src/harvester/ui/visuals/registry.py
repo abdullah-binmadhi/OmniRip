@@ -15,6 +15,12 @@ from harvester.ui.visuals.base import (
     BaseVisualizerEngine,
     ColorPalette,
 )
+from harvester.ui.visuals.headline_engines import (
+    AudioFlameFireEngine,
+    LissajousHarmonicsEngine,
+    MatrixDigitalRainEngine,
+    StanfordSunMusic3DEngine,
+)
 
 # Unicode block elements for 8 fractional vertical steps
 _BLOCKS = (" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█")
@@ -441,3 +447,10 @@ VisualizerRegistry.register(Spectrum10BandEngine)
 VisualizerRegistry.register(PhosphorCrtWaveEngine)
 VisualizerRegistry.register(BrailleSmoothWaveEngine)
 VisualizerRegistry.register(StereoVuDeckEngine)
+
+# Register Phase 3 headline engines
+VisualizerRegistry.register(StanfordSunMusic3DEngine)
+VisualizerRegistry.register(MatrixDigitalRainEngine)
+VisualizerRegistry.register(LissajousHarmonicsEngine)
+VisualizerRegistry.register(AudioFlameFireEngine)
+

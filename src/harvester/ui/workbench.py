@@ -1912,6 +1912,12 @@ class WorkbenchWidget(Widget):
         except Exception:
             pass
 
+        try:
+            for dash in self.query(VisualDashboardWidget):
+                dash.feed_audio(is_playing=True)
+        except Exception:
+            pass
+
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "wb-preset-select" and event.value is not None:
             for worker in self.workers:
