@@ -24,6 +24,9 @@ from harvester.analysis.enhancement.repair_plan import (
     BLOCK_INSTRUMENTAL,
     BLOCK_VOCALS,
     DEREVERB_INTENSITY,
+    OUTPUT_INST,
+    OUTPUT_MASTER,
+    OUTPUT_VOCALS,
     SYMPTOM_BY_KEY,
     SYMPTOMS,
     RepairPlan,
@@ -438,6 +441,17 @@ class RepairPanel(Widget):
         border: solid #00e5ff;
     }
 
+    #rp-btn-prev-orig {
+        color: #ffe600;
+        border: solid #625b84;
+    }
+
+    #rp-btn-prev-orig.-primary {
+        background: #4a148c;
+        color: #ffffff;
+        border: solid #ba68c8;
+    }
+
     .rp-nav-btn {
         width: 100%;
         height: auto;
@@ -517,7 +531,7 @@ class RepairPanel(Widget):
             with Horizontal(id="rp-grid"):
                 with Vertical(id="rp-col-actions", classes="rp-col"):
                     yield Label("[A] ACTION MATRIX", classes="rp-col-title")
-                    yield Button("⚡ QUICK FIX", id="rp-btn-apply-quick", variant="success")
+                    yield Button("✨ ENHANCE ONLY", id="rp-btn-apply-quick", variant="success")
                     yield Button("𝄢 STEMS ONLY", id="rp-btn-separate", classes="rp-secondary-btn")
                     yield Button("✎ CUSTOMIZE", id="rp-btn-adjust", classes="rp-secondary-btn")
                     yield Button("↺ RERUN", id="rp-btn-rerun", classes="rp-secondary-btn")
@@ -627,24 +641,25 @@ class RepairPanel(Widget):
                     yield Label("STATUS: DELIVERABLES READY", classes="rp-pane-title")
                     yield Label("", id="rp-result-status")
                 with Vertical(classes="rp-header-right"):
-                    yield Label("◈ DELIVERABLE MATRIX: 3 STEMS", classes="rp-pane-engine-badge")
-                    yield Label("QUALITY: LOSSLESS RECOMBINATION", classes="rp-pane-active-preset")
+                    yield Label("◈ DELIVERABLE MATRIX: ENHANCED MASTER", id="rp-result-matrix-badge", classes="rp-pane-engine-badge")
+                    yield Label("QUALITY: LOSSLESS RECOMBINATION", id="rp-result-quality-badge", classes="rp-pane-active-preset")
 
             with Horizontal(classes="rp-grid"):
                 with Vertical(id="rp-res-col-audition", classes="rp-col"):
                     yield Label("[A] AUDITION & MONITORING", classes="rp-col-title")
-                    yield Label("Select stem to preview playback:", classes="rp-group-label")
+                    yield Label("Select stream to preview playback:", id="rp-res-audition-tip", classes="rp-group-label")
                     with Vertical(id="rp-result-preview"):
-                        yield Button("▶ Master", id="rp-btn-prev-master", classes="rp-audition-btn", variant="primary")
+                        yield Button("◀ ORIGINAL", id="rp-btn-prev-orig", classes="rp-audition-btn")
+                        yield Button("▶ ENHANCED MASTER", id="rp-btn-prev-master", classes="rp-audition-btn", variant="primary")
                         yield Button("▶ Vocals", id="rp-btn-prev-vocals", classes="rp-audition-btn")
                         yield Button("▶ Instrumental", id="rp-btn-prev-inst", classes="rp-audition-btn")
 
                 with Vertical(id="rp-res-col-forensics", classes="rp-col"):
                     yield Label("[B] FORENSIC & RESIDUAL METRICS", classes="rp-col-title")
                     with Vertical(classes="rp-hud-card"):
-                        yield Label("PHASE ACCURACY: 100% (Lossless Match)", classes="rp-forensic-item")
+                        yield Label("PHASE ACCURACY: 100% (Lossless Match)", id="rp-res-hud-phase", classes="rp-forensic-item")
                         yield Label("ARTIFACT RESIDUAL: < -20 dBFS", id="rp-res-hud-residual", classes="rp-forensic-item")
-                        yield Label("DELIVERABLES: Master · Vocals · Instrumental", classes="rp-forensic-item")
+                        yield Label("DELIVERABLES: Master · Vocals · Instrumental", id="rp-res-hud-deliv", classes="rp-forensic-item")
                         yield Label("Peak headroom verified. No clipping detected.", classes="rp-forensic-tip")
 
                 with Vertical(id="rp-res-col-actions", classes="rp-col"):
@@ -654,7 +669,7 @@ class RepairPanel(Widget):
                         yield Button("✗ NOT HAPPY? IMPROVE IT", id="rp-btn-improve", classes="rp-secondary-btn")
                         yield Button("↺ NEW ANALYSIS", id="rp-btn-reanalyze", classes="rp-secondary-btn")
 
-            yield Label("▲▼ Stems & Master Rendered ■■■ Ready for Lossless Master Export or Re-triage ▲▼", classes="rp-pane-marquee")
+            yield Label("▲▼ Deliverables Rendered ■■■ Ready for Lossless Master Export or Re-triage ▲▼", id="rp-res-marquee", classes="rp-pane-marquee")
 
     # -- workbench updates -------------------------------------------------
 
@@ -704,12 +719,13 @@ class RepairPanel(Widget):
         self._refresh()
 
     def _separate_plan(self) -> RepairPlan:
-        """A fix-free plan: separate and deliver all three outputs."""
+        """A fix-free plan: separate and deliver stems."""
         blend = getattr(self.plan, "blend_weight", None) if self.plan else None
         return RepairPlan(
             engine=self.engine,
             enhance_preset_id=STRENGTH_PRESETS[self.strength],
             blend_weight=blend,
+            outputs=(OUTPUT_VOCALS, OUTPUT_INST),
         )
 
     def _sync_plan(self) -> None:
@@ -872,8 +888,8 @@ class RepairPanel(Widget):
                 lines.extend(f"  • {spec.label}" for spec in fixes)
             else:
                 lines.append(
-                    "No specific defects detected — QUICK FIX will clean up and enhance "
-                    "the master and still write the stems."
+                    "No specific defects detected — ENHANCE ONLY will restore and master "
+                    "the track directly with zero stem compute overhead."
                 )
             label.update("\n".join(lines))
 
@@ -925,7 +941,7 @@ class RepairPanel(Widget):
                 if self.stems_ready:
                     hud_tip.update("Stems ready in cache.\nReady for neural remastering.")
                 else:
-                    hud_tip.update("Track loaded.\nReady for stem separation or quick fix.")
+                    hud_tip.update("Track loaded.\nReady for direct enhance or stem isolation.")
                 mode_label = self.dsp_mode.title()
                 marquee.update(f"▲▼ Synthesizing '{mode_label} DSP'... (audio continues) ■■■ ▲▼ Synthesizing...")
         except Exception:
@@ -1024,6 +1040,59 @@ class RepairPanel(Widget):
             headline += f" (+{len(notes) - 1} more note(s))"
         self.query_one("#rp-result-status", Label).update(headline)
 
+        has_master = bool(result and getattr(result, "master", None))
+        has_voc = bool(result and getattr(result, "vocals", None))
+        has_inst = bool(result and getattr(result, "inst", None))
+        has_stems = has_voc and has_inst
+
+        try:
+            matrix_badge = self.query_one("#rp-result-matrix-badge", Label)
+            quality_badge = self.query_one("#rp-result-quality-badge", Label)
+            audition_tip = self.query_one("#rp-res-audition-tip", Label)
+            export_btn = self.query_one("#rp-btn-export", Button)
+            orig_btn = self.query_one("#rp-btn-prev-orig", Button)
+            master_btn = self.query_one("#rp-btn-prev-master", Button)
+            voc_btn = self.query_one("#rp-btn-prev-vocals", Button)
+            inst_btn = self.query_one("#rp-btn-prev-inst", Button)
+            deliv_label = self.query_one("#rp-res-hud-deliv", Label)
+            marquee = self.query_one("#rp-res-marquee", Label)
+
+            if has_master and not has_stems:
+                matrix_badge.update("◈ DELIVERABLE MATRIX: ENHANCED MASTER")
+                quality_badge.update("NEURAL DSP · DIRECT MASTER RESTORATION")
+                audition_tip.update("A/B Audition: Switch streams with zero-gap playback:")
+                export_btn.label = "⤓ EXPORT MASTER"
+                orig_btn.styles.display = "block"
+                master_btn.styles.display = "block"
+                voc_btn.styles.display = "none"
+                inst_btn.styles.display = "none"
+                deliv_label.update("DELIVERABLES: Enhanced Master (MP3 / 320 kbps)")
+                marquee.update("▲▼ Master Restored ■■■ A/B Compare Original vs Enhanced Before Export ▲▼")
+            elif has_stems and not has_master:
+                matrix_badge.update("◈ DELIVERABLE MATRIX: 2 STEMS")
+                quality_badge.update("QUALITY: LOSSLESS ENSEMBLE SEPARATION")
+                audition_tip.update("Select isolated stem for solo playback:")
+                export_btn.label = "⤓ EXPORT STEMS"
+                orig_btn.styles.display = "block"
+                master_btn.styles.display = "none"
+                voc_btn.styles.display = "block"
+                inst_btn.styles.display = "block"
+                deliv_label.update("DELIVERABLES: Vocals (WAV) · Instrumental (WAV)")
+                marquee.update("▲▼ Stems Rendered ■■■ Ready for Lossless Export or Remastering ▲▼")
+            else:
+                matrix_badge.update("◈ DELIVERABLE MATRIX: 3 STEMS")
+                quality_badge.update("QUALITY: LOSSLESS RECOMBINATION")
+                audition_tip.update("Select stem or original to preview playback:")
+                export_btn.label = "⤓ EXPORT ALL"
+                orig_btn.styles.display = "block"
+                master_btn.styles.display = "block"
+                voc_btn.styles.display = "block"
+                inst_btn.styles.display = "block"
+                deliv_label.update("DELIVERABLES: Master · Vocals · Instrumental")
+                marquee.update("▲▼ Stems & Master Rendered ■■■ Ready for Export or Re-triage ▲▼")
+        except Exception:
+            pass
+
         try:
             residual_val = getattr(result, "residual_worst_db", None)
             res_label = self.query_one("#rp-res-hud-residual", Label)
@@ -1067,6 +1136,7 @@ class RepairPanel(Widget):
         if button_id == "rp-btn-apply-quick":
             self._sync_plan()
             if self.plan is not None:
+                self.plan.outputs = (OUTPUT_MASTER,)
                 self.post_message(self.ApplyRequested(self.plan, True))
             return
         if button_id == "rp-btn-separate":
@@ -1140,13 +1210,14 @@ class RepairPanel(Widget):
             self._refresh()
             return
 
-        if button_id in ("rp-btn-prev-master", "rp-btn-prev-vocals", "rp-btn-prev-inst"):
+        if button_id in ("rp-btn-prev-orig", "rp-btn-prev-master", "rp-btn-prev-vocals", "rp-btn-prev-inst"):
             output = {
+                "rp-btn-prev-orig": "original",
                 "rp-btn-prev-master": "master",
                 "rp-btn-prev-vocals": "vocals",
                 "rp-btn-prev-inst": "inst",
             }[button_id]
-            for bid in ("rp-btn-prev-master", "rp-btn-prev-vocals", "rp-btn-prev-inst"):
+            for bid in ("rp-btn-prev-orig", "rp-btn-prev-master", "rp-btn-prev-vocals", "rp-btn-prev-inst"):
                 try:
                     self.query_one(f"#{bid}", Button).variant = "primary" if bid == button_id else "default"
                 except Exception:

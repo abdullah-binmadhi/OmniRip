@@ -416,3 +416,81 @@ async def test_repair_result_and_wizard_secondary_screens_layout(tmp_path: Path)
         assert summary_pane.query_one("#rp-btn-apply-plan", Button) is not None
 
 
+async def test_repair_page_enhance_only_flow_and_ab_audition(tmp_path: Path) -> None:
+    """Verify that [✨ ENHANCE ONLY] runs direct master restoration and supports A/B auditioning."""
+    app = WorkbenchTestApp()
+    async with app.run_test(size=(140, 48)) as pilot:
+        wb = app.query_one("#test-workbench", WorkbenchWidget)
+        _load(tmp_path, wb)
+        wb.switch_page("repair")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = app.query_one(RepairPanel)
+        enhance_btn = panel.query_one("#rp-btn-apply-quick", Button)
+        assert "ENHANCE ONLY" in str(enhance_btn.label)
+
+        # Mock master-only result (skipping stems)
+        out_dir = tmp_path / "repairs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        master = out_dir / "song.repaired.mp3"
+        master.write_bytes(b"master-mp3-bytes")
+        result = RepairResult(
+            master=master,
+            vocals=None,
+            inst=None,
+            residual_worst_db=None,
+            notes=("Enhanced master rendered with 'Fast Balanced'",),
+        )
+
+        with patch("harvester.services.repair.execute_repair", return_value=result) as run:
+            enhance_btn.press()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        assert run.called
+        plan = run.call_args[0][1]
+        assert plan.outputs == ("master",)
+        assert panel.mode == "result"
+
+        result_pane = panel.query_one("#rp-result")
+        export_btn = result_pane.query_one("#rp-btn-export", Button)
+        assert "EXPORT MASTER" in str(export_btn.label)
+
+        btn_orig = result_pane.query_one("#rp-btn-prev-orig", Button)
+        btn_master = result_pane.query_one("#rp-btn-prev-master", Button)
+        assert btn_orig.styles.display != "none"
+        assert btn_master.styles.display != "none"
+
+        # A/B Audition original
+        with patch.object(wb, "_route_to_player") as route:
+            btn_orig.press()
+            await pilot.pause()
+        route.assert_called_once()
+        assert route.call_args[0][0] == wb.path_mp3
+        assert route.call_args[1]["is_enhanced"] is False
+
+        # A/B Audition enhanced master
+        with patch.object(wb, "_route_to_player") as route:
+            btn_master.press()
+            await pilot.pause()
+        route.assert_called_once()
+        assert route.call_args[0][0] == master
+        assert route.call_args[1]["is_enhanced"] is True
+
+        # Export master only
+        export_dir = tmp_path / "exported"
+        fake_config = SimpleNamespace(general=SimpleNamespace(output_dir=str(export_dir)))
+        with patch("harvester.config.load_config", return_value=fake_config):
+            export_btn.press()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        assert (export_dir / "song.repaired.mp3").exists()
+        assert not (export_dir / "song_vocals.wav").exists()
+        assert not (export_dir / "song_instrumental.wav").exists()
+
+
+

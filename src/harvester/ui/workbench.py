@@ -2161,18 +2161,27 @@ class WorkbenchWidget(Widget):
         if self.path_mp3 is None:
             self.notify("Load a track first.", severity="warning")
             return
-        if getattr(event.plan, "engine", "local") == "hosted":
+        plan = event.plan
+        if event.quick:
+            from harvester.analysis.enhancement.repair_plan import OUTPUT_MASTER, SymptomChoice
+
+            plan.outputs = (OUTPUT_MASTER,)
+            if not self._repair_panel().stems_ready:
+                # Fast path: direct neural mastering without expensive stem separation models
+                plan.choices = {"just_enhance": SymptomChoice(enabled=True)}
+
+        if getattr(plan, "engine", "local") == "hosted":
             if not self._hosted_available():
                 self.notify(
                     "Hosted MVSEP needs a key — add MVSEP_API_KEY to .env or pick Local.",
                     severity="warning",
                 )
                 return
-            self._pending_repair_plan = event.plan
+            self._pending_repair_plan = plan
             self._start_hosted_separation()
             return
         self.run_worker(
-            self._async_repair_run(self.path_mp3, event.plan, self.track_generation),
+            self._async_repair_run(self.path_mp3, plan, self.track_generation),
             name="repair-run",
         )
 
@@ -2257,17 +2266,22 @@ class WorkbenchWidget(Widget):
 
     def on_repair_panel_preview_requested(self, event: RepairPanel.PreviewRequested) -> None:
         event.stop()
+        if event.output == "original":
+            if self.path_mp3 is not None and self.path_mp3.exists():
+                self._route_to_player(self.path_mp3, "ORIGINAL SOURCE", is_enhanced=False)
+            return
         result = self._repair_panel().result
         if result is None:
             return
         candidates = {
-            "master": (getattr(result, "master", None), "REPAIRED MASTER"),
-            "vocals": (getattr(result, "vocals", None), "CLEAN VOCALS"),
-            "inst": (getattr(result, "inst", None), "CLEAN INSTRUMENTAL"),
+            "master": (getattr(result, "master", None), "ENHANCED MASTER", True),
+            "vocals": (getattr(result, "vocals", None), "CLEAN VOCALS", False),
+            "inst": (getattr(result, "inst", None), "CLEAN INSTRUMENTAL", False),
         }
-        path, title = candidates.get(event.output, (None, ""))
-        if path is not None and Path(path).exists():
-            self._route_to_player(Path(path), title)
+        if event.output in candidates:
+            path, title, is_enh = candidates[event.output]
+            if path is not None and Path(path).exists():
+                self._route_to_player(Path(path), title, is_enhanced=is_enh)
 
     def on_repair_panel_export_requested(self, event: RepairPanel.ExportRequested) -> None:
         event.stop()
@@ -2293,6 +2307,7 @@ class WorkbenchWidget(Widget):
             (getattr(result, "inst", None), f"{source.stem}_instrumental.wav"),
         )
         written = 0
+        written_names: list[str] = []
         for src, name in deliverables:
             if src is None or not Path(src).exists():
                 continue
@@ -2301,7 +2316,10 @@ class WorkbenchWidget(Widget):
             await asyncio.to_thread(shutil.copy2, src, temp)
             os.replace(temp, destination)
             written += 1
-        if written:
+            written_names.append(name)
+        if written == 1:
+            self.notify(f"Exported {written_names[0]} to {out_dir}.", timeout=6.0)
+        elif written > 1:
             self.notify(f"Exported {written} repaired file(s) to {out_dir}.", timeout=6.0)
         else:
             self.notify("No repair outputs available to export.", severity="warning")

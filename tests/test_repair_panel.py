@@ -348,7 +348,7 @@ async def test_separate_only_emits_a_fix_free_plan():
         assert len(app.separates) == 1
         plan = app.separates[0]
         assert plan.enabled() == []
-        assert set(plan.outputs) == {"master", "vocals", "inst"}
+        assert set(plan.outputs) == {"vocals", "inst"}
 
 
 async def test_card_strength_choice_updates_the_plan():
