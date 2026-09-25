@@ -93,7 +93,7 @@ Button:disabled {
 }
 
 #app-nav-bar {
-    height: 1;
+    height: 3;
     width: 1fr;
     margin: 0;
     padding: 0 1;
@@ -103,10 +103,9 @@ Button:disabled {
 }
 
 .app-nav-btn {
-    min-width: 10;
+    min-width: 14;
     margin-right: 1;
-    height: 1;
-    padding: 0 1;
+    height: 3;
     border: none;
     background: transparent;
     color: $text-muted;
