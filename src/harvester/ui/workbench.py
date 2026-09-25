@@ -158,9 +158,9 @@ class WorkbenchWidget(Widget):
     WorkbenchWidget {
         width: 1fr;
         height: 1fr;
-        border: round $primary;
+        border: none;
         background: $panel;
-        padding: 0 1;
+        padding: 0;
     }
     #wb-header {
         height: 1;
@@ -274,7 +274,7 @@ class WorkbenchWidget(Widget):
     #wb-inspector-container {
         height: 1fr;
         min-height: 14;
-        border: round $secondary;
+        border: none;
         background: $surface;
         padding: 0;
         overflow-y: auto;
@@ -874,19 +874,19 @@ class WorkbenchWidget(Widget):
                 id="wb-genre-intensity",
             )
             with Horizontal(id="wb-export-split"):
-                yield Button("⤓ SAVE ENHANCED", id="wb-btn-export", variant="success")
+                yield Button("SAVE ENHANCED", id="wb-btn-export", variant="success")
                 yield Button("↓", id="wb-btn-export-menu", variant="success")
 
         yield Label("", id="wb-genre-recipe")
 
         with Horizontal(id="wb-export-dropdown"):
             yield Label("FORMAT:", id="wb-export-dropdown-title")
-            yield Button("♪  Enhanced MP3",        id="wb-export-choose-enh",  classes="wb-export-choice")
-            yield Button("▤  Enhanced WAV (24-bit)", id="wb-export-choose-wav", classes="wb-export-choice")
-            yield Button("▥  Enhanced FLAC (24-bit)", id="wb-export-choose-flac", classes="wb-export-choice")
-            yield Button("♬  Vocals (WAV)",        id="wb-export-choose-voc",  classes="wb-export-choice")
-            yield Button("♩  Instrumental (WAV)", id="wb-export-choose-inst", classes="wb-export-choice")
-            yield Button("✕  Close",               id="wb-export-choose-close", classes="wb-export-choice")
+            yield Button("Enhanced MP3", id="wb-export-choose-enh", classes="wb-export-choice")
+            yield Button("Enhanced WAV (24-bit)", id="wb-export-choose-wav", classes="wb-export-choice")
+            yield Button("Enhanced FLAC (24-bit)", id="wb-export-choose-flac", classes="wb-export-choice")
+            yield Button("Vocals (WAV)", id="wb-export-choose-voc", classes="wb-export-choice")
+            yield Button("Instrumental (WAV)", id="wb-export-choose-inst", classes="wb-export-choice")
+            yield Button("Close", id="wb-export-choose-close", classes="wb-export-choice")
 
         with Vertical(id="wb-inspector-container"):
             with Vertical(id="wb-page-deck"):
@@ -1586,12 +1586,18 @@ class WorkbenchWidget(Widget):
             page_vis.styles.display = "block" if page_id == "vis" else "none"
             page_report.styles.display = "block" if page_id == "report" else "none"
 
-            deck_controls = "block" if page_id in ("deck", "report") else "none"
+            deck_controls = "block" if page_id == "deck" else "none"
             for selector in ("#wb-stream-row", "#wb-controls-row", "#wb-genre-recipe"):
                 with contextlib.suppress(Exception):
                     self.query_one(selector).styles.display = deck_controls
             with contextlib.suppress(Exception):
                 self.query_one("#wb-export-dropdown").styles.display = "none"
+
+            # Hide workbench top header & progress if on full-page views (report, repair)
+            top_header_display = "none" if page_id in ("report", "repair") else "block"
+            for selector in ("#wb-header", "#wb-stem-progress", "#wb-task-status"):
+                with contextlib.suppress(Exception):
+                    self.query_one(selector).styles.display = top_header_display
 
             if page_id == "eq":
                 self._update_eq_ui()
@@ -3070,15 +3076,15 @@ class WorkbenchWidget(Widget):
         """Update the export mode and reflect it in the main button label."""
         self._export_mode = mode
         labels = {
-            "ENH": "⤓ SAVE ENHANCED",
-            "ENH_WAV": "⤓ SAVE WAV",
-            "ENH_FLAC": "⤓ SAVE FLAC",
-            "VOC": "⤓ SAVE VOCALS",
-            "INST": "⤓ SAVE INST",
+            "ENH": "SAVE ENHANCED",
+            "ENH_WAV": "SAVE WAV",
+            "ENH_FLAC": "SAVE FLAC",
+            "VOC": "SAVE VOCALS",
+            "INST": "SAVE INST",
         }
         try:
             self.query_one("#wb-btn-export", Button).label = labels.get(
-                mode, "⤓ SAVE ENHANCED"
+                mode, "SAVE ENHANCED"
             )
         except Exception:
             pass

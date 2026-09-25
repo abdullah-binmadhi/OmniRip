@@ -30,36 +30,36 @@ def render_ascii_curve(
     target_curve: dict[float, float],
     *,
     mode: str = "spectrum",
-    height: int = 7,
+    height: int = 13,
 ) -> str:
-    """Render a compact ASCII/Braille 31-band frequency response plot."""
+    """Render a high-resolution ASCII 31-band frequency response plot."""
     # Frequencies to sample (12 display columns across the spectrum)
     sample_freqs = [
-        20.0, 40.0, 80.0, 160.0, 315.0, 630.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0, 20000.0
+        20.0, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 12000.0, 16000.0, 20000.0
     ]
     db_min, db_max = -12.0, 12.0
 
     lines: list[str] = []
-    header = "dB  20Hz  80Hz  315Hz 1kHz  4kHz  16kHz"
+    header = "dB  │ 20Hz  63Hz 125Hz 250Hz 500Hz  1kHz  2kHz  4kHz  8kHz 12kHz 16kHz 20kHz"
     lines.append(header)
-    lines.append("───┬────────────────────────────────────────")
+    lines.append("────┼─────────────────────────────────────────────────────────────")
 
     for row in range(height):
         db_level = db_max - (row / (height - 1)) * (db_max - db_min)
-        row_str = f"{int(db_level):+3d}│ "
+        row_str = f"{int(db_level):+3d} │"
 
         for f in sample_freqs:
             if mode == "delta":
                 val = enh_spectrum.get(f, 0.0) - target_curve.get(f, 0.0)
                 # Delta character
-                char = "■" if abs(val - db_level) < 2.0 else "·"
+                char = "■" if abs(val - db_level) < 1.6 else "·"
             else:
                 o_val = orig_spectrum.get(f, 0.0)
                 e_val = enh_spectrum.get(f, 0.0)
                 t_val = target_curve.get(f, 0.0)
 
-                is_enh = abs(e_val - db_level) < 1.8
-                is_orig = abs(o_val - db_level) < 1.8
+                is_enh = abs(e_val - db_level) < 1.6
+                is_orig = abs(o_val - db_level) < 1.6
                 is_target = abs(t_val - db_level) < 1.2
 
                 if is_enh and is_target:
@@ -72,10 +72,10 @@ def render_ascii_curve(
                     char = "·"  # Target reference
                 else:
                     char = " "
-            row_str += f"{char}   "
+            row_str += f"  {char}  "
         lines.append(row_str)
 
-    lines.append("───┴────────────────────────────────────────")
+    lines.append("────┴─────────────────────────────────────────────────────────────")
     legend = "Legend: ▲ Enhanced   ▼ Original   · Reference Target   ◈ Match"
     if mode == "delta":
         legend = "Legend: ■ Deviation Delta (Enhanced − Target)"
@@ -92,15 +92,15 @@ class ReportPanel(Widget):
         min-height: 1fr;
         background: #090714;
         color: #f0eef9;
-        padding: 0 1;
+        padding: 0;
     }
 
     .rp-header-strip {
-        height: auto;
-        min-height: 2;
+        height: 1;
+        min-height: 1;
         border-bottom: solid #ff007f;
         padding: 0 1;
-        margin-bottom: 1;
+        margin: 0;
         background: #0c091d;
     }
 
@@ -115,32 +115,35 @@ class ReportPanel(Widget):
     }
 
     .rp-grid {
-        height: auto;
+        height: 1fr;
         width: 100%;
-        margin-bottom: 1;
+        margin: 0;
     }
 
     .rp-col-matrix {
         width: 32;
+        height: 1fr;
         border-right: solid #2d264f;
-        padding-right: 1;
+        padding: 0 1;
     }
 
     .rp-col-graph {
         width: 1fr;
+        height: 1fr;
         padding: 0 1;
         border-right: solid #2d264f;
     }
 
     .rp-col-history {
-        width: 34;
-        padding-left: 1;
+        width: 32;
+        height: 1fr;
+        padding: 0 1;
     }
 
     .rp-box-title {
         color: #ffe600;
         text-style: bold;
-        margin-bottom: 1;
+        margin: 0;
     }
 
     .rp-metric-line {
@@ -160,14 +163,14 @@ class ReportPanel(Widget):
         border: solid rgba(0, 229, 255, 0.4);
         padding: 0 1;
         color: #00e5ff;
-        height: auto;
-        min-height: 10;
-        margin-bottom: 1;
+        height: 1fr;
+        min-height: 14;
+        margin: 0;
     }
 
     .rp-graph-controls {
         height: 3;
-        margin-bottom: 1;
+        margin: 0;
     }
 
     .rp-graph-controls Select {
@@ -180,7 +183,7 @@ class ReportPanel(Widget):
         background: #161329;
         border: solid #2d264f;
         padding: 0 1;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
 
     .rp-history-item:hover {
@@ -188,18 +191,23 @@ class ReportPanel(Widget):
     }
 
     .rp-dock-hub {
-        height: auto;
+        height: 3;
         background: #0c091d;
         border-top: solid #00e5ff;
         padding: 0 1;
+        margin: 0;
     }
 
     .rp-dock-audition {
         width: 1fr;
+        height: 3;
+        align: left middle;
     }
 
     .rp-dock-export {
         width: auto;
+        height: 3;
+        align: right middle;
     }
 
     .rp-dock-export Button {
@@ -234,7 +242,7 @@ class ReportPanel(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="rp-header-strip"):
             yield Label("STATUS: FORENSIC REPORT & ACOUSTIC AUDITION", id="rp-rep-title", classes="rp-header-title")
-            yield Label("◈ AUTO-ROUTED ENGINE: ACTIVE", id="rp-rep-badge", classes="rp-header-badge")
+            yield Label("[ENGINE: AUTO-ROUTED ACTIVE]", id="rp-rep-badge", classes="rp-header-badge")
 
         with Horizontal(classes="rp-grid"):
             # Col 1: Forensic Metrics & Remediations
@@ -276,23 +284,23 @@ class ReportPanel(Widget):
                 yield Label("[C] REPORT HISTORY & PRESETS", classes="rp-box-title")
                 yield Vertical(id="rp-history-list")
                 with Horizontal():
-                    yield Button("✎ Rename", id="rp-btn-rep-rename")
-                    yield Button("⚡ Re-Apply", id="rp-btn-rep-reapply", variant="primary")
+                    yield Button("Rename", id="rp-btn-rep-rename")
+                    yield Button("Re-Apply", id="rp-btn-rep-reapply", variant="primary")
 
         # Bottom Dock: Auditioning & Export Buttons
         with Horizontal(classes="rp-dock-hub"):
             with Horizontal(classes="rp-dock-audition"):
                 yield Label("AUDITION:", classes="rp-metric-line")
-                yield Button("◀ ORIGINAL", id="rp-rep-btn-orig")
-                yield Button("▶ MASTER", id="rp-rep-btn-master", variant="primary")
-                yield Button("♬ VOCALS", id="rp-rep-btn-voc")
-                yield Button("♩ INST", id="rp-rep-btn-inst")
+                yield Button("[ORIGINAL]", id="rp-rep-btn-orig")
+                yield Button("[MASTER]", id="rp-rep-btn-master", variant="primary")
+                yield Button("[VOCALS]", id="rp-rep-btn-voc")
+                yield Button("[INST]", id="rp-rep-btn-inst")
 
             with Horizontal(classes="rp-dock-export"):
-                yield Button("⤓ WAV 24-bit", id="rp-btn-dl-wav", variant="success")
-                yield Button("⤓ MP3 320k", id="rp-btn-dl-mp3")
-                yield Button("⤓ FLAC", id="rp-btn-dl-flac")
-                yield Button("⤓ STEMS", id="rp-btn-dl-stems")
+                yield Button("WAV 24-bit", id="rp-btn-dl-wav", variant="success")
+                yield Button("MP3 320k", id="rp-btn-dl-mp3")
+                yield Button("FLAC", id="rp-btn-dl-flac")
+                yield Button("STEMS", id="rp-btn-dl-stems")
 
     def on_mount(self) -> None:
         self._refresh_report_view()
@@ -318,7 +326,7 @@ class ReportPanel(Widget):
         if rep is not None:
             self.query_one("#rp-rep-title", Label).update(f"STATUS: DELIVERABLE REPORT · {rep.name}")
             genre_text = rep.genre.upper() if rep.genre else "BALANCED"
-            self.query_one("#rp-rep-badge", Label).update(f"◈ GENRE PROFILE: {genre_text}")
+            self.query_one("#rp-rep-badge", Label).update(f"[GENRE PROFILE: {genre_text}]")
 
             m = rep.metrics
             if "lufs_after" in m:

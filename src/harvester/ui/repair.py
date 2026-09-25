@@ -221,8 +221,8 @@ class RepairPanel(Widget):
         width: 100%;
         height: auto;
         border-bottom: solid rgba(255, 0, 127, 0.4);
-        padding-bottom: 0;
-        margin-bottom: 1;
+        padding: 0 1;
+        margin-bottom: 0;
     }
 
     #rp-header-left, .rp-header-left {
@@ -605,17 +605,17 @@ class RepairPanel(Widget):
             with Horizontal(id="rp-grid"):
                 with Vertical(id="rp-col-actions", classes="rp-col"):
                     yield Label("[A] ACTION MATRIX", classes="rp-col-title")
-                    yield Button("✨ ENHANCE ONLY", id="rp-btn-apply-quick", variant="success")
-                    yield Button("𝄢 STEMS ONLY", id="rp-btn-separate", classes="rp-secondary-btn")
-                    yield Button("✎ CUSTOMIZE", id="rp-btn-adjust", classes="rp-secondary-btn")
-                    yield Button("↺ RERUN", id="rp-btn-rerun", classes="rp-secondary-btn")
+                    yield Button("ENHANCE ONLY", id="rp-btn-apply-quick", variant="success")
+                    yield Button("STEMS ONLY", id="rp-btn-separate", classes="rp-secondary-btn")
+                    yield Button("CUSTOMIZE", id="rp-btn-adjust", classes="rp-secondary-btn")
+                    yield Button("RERUN", id="rp-btn-rerun", classes="rp-secondary-btn")
 
                 with Vertical(id="rp-col-dsp", classes="rp-col"):
                     yield Label("[B] DSP & INFERENCE CONFIG", classes="rp-col-title")
                     yield Label("RUN TARGET:", classes="rp-group-label")
                     with Horizontal(classes="rp-segmented-row"):
-                        yield Button("⌂ LOCAL", id="rp-engine-local", variant="primary")
-                        yield Button("☁ HOSTED", id="rp-engine-hosted")
+                        yield Button("LOCAL", id="rp-engine-local", variant="primary")
+                        yield Button("HOSTED", id="rp-engine-hosted")
                     yield Label("ENHANCE PROFILE:", classes="rp-group-label")
                     with Horizontal(classes="rp-segmented-row"):
                         yield Button("GENTLE", id="rp-card-gentle")
@@ -643,7 +643,7 @@ class RepairPanel(Widget):
                     yield Label("STATUS: GUIDED DEFECT WIZARD", id="rp-wiz-title", classes="rp-pane-title")
                     yield Label("", id="rp-progress")
                 with Vertical(classes="rp-header-right"):
-                    yield Label("◈ INTERACTIVE AUDITION MODE", classes="rp-pane-engine-badge")
+                    yield Label("[INTERACTIVE AUDITION MODE]", classes="rp-pane-engine-badge")
                     yield Label("STEP-BY-STEP TRIAGE", id="rp-wiz-mode-badge", classes="rp-pane-active-preset")
 
             with Horizontal(classes="rp-wizard-grid"):
@@ -667,13 +667,13 @@ class RepairPanel(Widget):
                     yield Label("[B] AUDITION & ACTIONS", classes="rp-col-title")
                     with Vertical(id="rp-wiz-audition-card", classes="rp-hud-card"):
                         yield Label("REAL-TIME MONITOR:", classes="rp-group-label")
-                        yield Button("▶ AUDITION TRACK (A/B)", id="rp-wiz-btn-preview", classes="rp-audition-btn")
+                        yield Button("AUDITION TRACK (A/B)", id="rp-wiz-btn-preview", classes="rp-audition-btn")
                         yield Label("ACTIVE REMEDIATIONS: 0", id="rp-wiz-metrics-label", classes="rp-forensic-item")
                     with Vertical(id="rp-wizard-nav"):
                         with Horizontal(classes="rp-wiz-nav-row"):
-                            yield Button("◂ Back", id="rp-btn-back", classes="rp-nav-btn")
-                            yield Button("Next ▸", id="rp-btn-next", variant="primary", classes="rp-nav-btn")
-                        yield Button("⚡ APPLY REMEDIATIONS", id="rp-btn-wiz-apply", variant="success", classes="rp-export-btn")
+                            yield Button("< Back", id="rp-btn-back", classes="rp-nav-btn")
+                            yield Button("Next >", id="rp-btn-next", variant="primary", classes="rp-nav-btn")
+                        yield Button("APPLY REMEDIATIONS", id="rp-btn-wiz-apply", variant="success", classes="rp-export-btn")
                         yield Button("Cancel", id="rp-btn-wizard-cancel", classes="rp-secondary-btn")
 
             yield Label("▲▼ Guided Defect Triage Active ■■■ Audition Master in Real-Time ▲▼", id="rp-wiz-marquee", classes="rp-pane-marquee")
@@ -684,7 +684,7 @@ class RepairPanel(Widget):
                     yield Label("STATUS: REMEDIATION PLAN ARMED", classes="rp-pane-title")
                     yield Label("Review targeted fixes and mastering profile", classes="rp-status-sub")
                 with Vertical(classes="rp-header-right"):
-                    yield Label("◈ ENGINE: NEURAL AI · BS-RoFormer + HDEMUCS", classes="rp-pane-engine-badge")
+                    yield Label("[ENGINE: NEURAL AI · BS-RoFormer + HDEMUCS]", classes="rp-pane-engine-badge")
                     yield Label("CONFIRMED RECIPE", classes="rp-pane-active-preset")
 
             with Horizontal(classes="rp-grid"):
@@ -707,8 +707,8 @@ class RepairPanel(Widget):
                 with Vertical(id="rp-sum-col-exec", classes="rp-col"):
                     yield Label("[C] EXECUTION", classes="rp-col-title")
                     with Vertical(id="rp-summary-actions"):
-                        yield Button("⚡ APPLY PLAN", id="rp-btn-apply-plan", variant="success", classes="rp-export-btn")
-                        yield Button("◂ Back", id="rp-btn-summary-back", classes="rp-secondary-btn")
+                        yield Button("APPLY PLAN", id="rp-btn-apply-plan", variant="success", classes="rp-export-btn")
+                        yield Button("< Back", id="rp-btn-summary-back", classes="rp-secondary-btn")
 
             yield Label("▲▼ Plan Armed and Validated ■■■ Press Apply to Synthesize Output Stems ▲▼", classes="rp-pane-marquee")
 
@@ -718,7 +718,7 @@ class RepairPanel(Widget):
                     yield Label("STATUS: DELIVERABLES READY", classes="rp-pane-title")
                     yield Label("", id="rp-result-status")
                 with Vertical(classes="rp-header-right"):
-                    yield Label("◈ DELIVERABLE MATRIX: ENHANCED MASTER", id="rp-result-matrix-badge", classes="rp-pane-engine-badge")
+                    yield Label("[DELIVERABLE MATRIX: ENHANCED MASTER]", id="rp-result-matrix-badge", classes="rp-pane-engine-badge")
                     yield Label("QUALITY: LOSSLESS RECOMBINATION", id="rp-result-quality-badge", classes="rp-pane-active-preset")
 
             with Horizontal(classes="rp-grid"):
@@ -726,10 +726,10 @@ class RepairPanel(Widget):
                     yield Label("[A] AUDITION & MONITORING", classes="rp-col-title")
                     yield Label("Select stream to preview playback:", id="rp-res-audition-tip", classes="rp-group-label")
                     with Vertical(id="rp-result-preview"):
-                        yield Button("◀ ORIGINAL", id="rp-btn-prev-orig", classes="rp-audition-btn")
-                        yield Button("▶ ENHANCED MASTER", id="rp-btn-prev-master", classes="rp-audition-btn", variant="primary")
-                        yield Button("▶ Vocals", id="rp-btn-prev-vocals", classes="rp-audition-btn")
-                        yield Button("▶ Instrumental", id="rp-btn-prev-inst", classes="rp-audition-btn")
+                        yield Button("[ORIGINAL]", id="rp-btn-prev-orig", classes="rp-audition-btn")
+                        yield Button("[ENHANCED MASTER]", id="rp-btn-prev-master", classes="rp-audition-btn", variant="primary")
+                        yield Button("[VOCALS]", id="rp-btn-prev-vocals", classes="rp-audition-btn")
+                        yield Button("[INSTRUMENTAL]", id="rp-btn-prev-inst", classes="rp-audition-btn")
 
                 with Vertical(id="rp-res-col-forensics", classes="rp-col"):
                     yield Label("[B] FORENSIC & RESIDUAL METRICS", classes="rp-col-title")
@@ -742,9 +742,9 @@ class RepairPanel(Widget):
                 with Vertical(id="rp-res-col-actions", classes="rp-col"):
                     yield Label("[C] WORKBENCH ACTIONS", classes="rp-col-title")
                     with Vertical(id="rp-result-actions"):
-                        yield Button("⤓ EXPORT ALL", id="rp-btn-export", variant="success", classes="rp-export-btn")
-                        yield Button("✗ NOT HAPPY? IMPROVE IT", id="rp-btn-improve", classes="rp-secondary-btn")
-                        yield Button("↺ NEW ANALYSIS", id="rp-btn-reanalyze", classes="rp-secondary-btn")
+                        yield Button("EXPORT ALL", id="rp-btn-export", variant="success", classes="rp-export-btn")
+                        yield Button("NOT HAPPY? IMPROVE IT", id="rp-btn-improve", classes="rp-secondary-btn")
+                        yield Button("NEW ANALYSIS", id="rp-btn-reanalyze", classes="rp-secondary-btn")
 
             yield Label("▲▼ Deliverables Rendered ■■■ Ready for Lossless Master Export or Re-triage ▲▼", id="rp-res-marquee", classes="rp-pane-marquee")
 
@@ -1203,10 +1203,10 @@ class RepairPanel(Widget):
             marquee = self.query_one("#rp-res-marquee", Label)
 
             if has_master and not has_stems:
-                matrix_badge.update("◈ DELIVERABLE MATRIX: ENHANCED MASTER")
+                matrix_badge.update("[DELIVERABLE MATRIX: ENHANCED MASTER]")
                 quality_badge.update("NEURAL DSP · DIRECT MASTER RESTORATION")
                 audition_tip.update("A/B Audition: Switch streams with zero-gap playback:")
-                export_btn.label = "⤓ EXPORT MASTER"
+                export_btn.label = "EXPORT MASTER"
                 orig_btn.styles.display = "block"
                 master_btn.styles.display = "block"
                 voc_btn.styles.display = "none"
@@ -1214,10 +1214,10 @@ class RepairPanel(Widget):
                 deliv_label.update("DELIVERABLES: Enhanced Master (MP3 / 320 kbps)")
                 marquee.update("▲▼ Master Restored ■■■ A/B Compare Original vs Enhanced Before Export ▲▼")
             elif has_stems and not has_master:
-                matrix_badge.update("◈ DELIVERABLE MATRIX: 2 STEMS")
+                matrix_badge.update("[DELIVERABLE MATRIX: 2 STEMS]")
                 quality_badge.update("QUALITY: LOSSLESS ENSEMBLE SEPARATION")
                 audition_tip.update("Select isolated stem for solo playback:")
-                export_btn.label = "⤓ EXPORT STEMS"
+                export_btn.label = "EXPORT STEMS"
                 orig_btn.styles.display = "block"
                 master_btn.styles.display = "none"
                 voc_btn.styles.display = "block"
@@ -1225,10 +1225,10 @@ class RepairPanel(Widget):
                 deliv_label.update("DELIVERABLES: Vocals (WAV) · Instrumental (WAV)")
                 marquee.update("▲▼ Stems Rendered ■■■ Ready for Lossless Export or Remastering ▲▼")
             else:
-                matrix_badge.update("◈ DELIVERABLE MATRIX: 3 STEMS")
+                matrix_badge.update("[DELIVERABLE MATRIX: 3 STEMS]")
                 quality_badge.update("QUALITY: LOSSLESS RECOMBINATION")
                 audition_tip.update("Select stem or original to preview playback:")
-                export_btn.label = "⤓ EXPORT ALL"
+                export_btn.label = "EXPORT ALL"
                 orig_btn.styles.display = "block"
                 master_btn.styles.display = "block"
                 voc_btn.styles.display = "block"
