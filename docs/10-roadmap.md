@@ -202,6 +202,40 @@ averaging (blend_curves cancels conflicting intentions without additive boost), 
 Composed curves feed playback, audition cache, MP3/WAV/FLAC exports, and the Repair master while
 keeping isolated stems uncolored. Validated with 515 passing unit and integration tests (1 skipped).
 
+## M21 — Batch Library Auto-Restoration & Curation
+
+Status: **implemented**. Provides serial batch restoration of lossy/substandard audio files
+within a directory tree. Integrates acoustic detection, genre intent resolution, and enhancement
+rendering with atomic file replacement and automatic `.trash/<date>/` rollback backup. To protect
+MacBook Air M2 (16GB RAM) hardware, processing runs strictly serially and invokes `purge_neural_vram()`
+between tracks, preventing swap spikes and out-of-memory errors. Generates GitHub-flavored Markdown
+summary tables detailing per-track format, bitrate, spectral cutoff, applied genre profile, and export status.
+
+## M22 — Real-Time Spectrogram Waterfall & Phase Scope
+
+Status: **implemented**. Extends `AudioVisualizer` with 7 reactive visualizer modes, adding
+`"spectrogram"` (Mode 6: STFT Waterfall with cutoff overlay line) and `"phase_scope"` (Mode 7: Stereo
+Lissajous Phase Scope with -1.0 to +1.0 correlation meter, width percentage, and mono-cancellation
+warnings). Renders responsive ASCII/Unicode visualizations in the Textual TUI during live playback
+and A/B auditioning.
+
+## M23 — Obsidian Second-Brain Automated Hunting & Enriched Notes
+
+Status: **implemented**. Enriches Obsidian album and want notes with genre intent and enhancement
+provenance. Adds `genre`, `genre_mix`, `genre_intensity`, and `enhancement_preset` to `track_row_fields`,
+aggregates unique album `genres` in YAML frontmatter, adds a `Genre` column to Markdown track tables,
+and enriches settled want notes with acoustic verdict and cutoff metadata (`spectral PASS @ 21500Hz`).
+
+## M24 — Neural Acceleration & 16GB Memory Hardening
+
+Status: **implemented**. Creates `src/harvester/util/memory.py` to harden the neural inference pipeline
+against unified memory constraints on 16GB Apple Silicon machines (MacBook Air M2). Provides
+`purge_neural_vram()` (MPS/CUDA cache flushing and garbage collection), `get_memory_headroom_mb()`
+(system memory headroom queries), `is_low_memory_headroom()` (< 2048 MB memory pressure warning),
+`get_safe_neural_device()` & `get_safe_neural_dtype()` (FP16 half-precision selection), and
+`get_safe_chunk_duration()` (dynamic chunk shrinking from 8.0s to 4.0s under pressure). Integrated
+into all `workbench.py` render/export `finally` blocks and batch restoration runners.
+
 
 
 ## M11 — Layer Studio (M1: visualize & inspect + M2: per-second editing)  

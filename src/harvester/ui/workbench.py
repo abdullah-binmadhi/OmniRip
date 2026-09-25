@@ -1764,6 +1764,10 @@ class WorkbenchWidget(Widget):
                 self.query_one("#wb-status", Label).update(f"Enhance failed: {exc}")
             except Exception:
                 pass
+        finally:
+            from harvester.util.memory import purge_neural_vram
+
+            purge_neural_vram()
 
     async def _async_warm_remaining_presets(self, src: Path) -> None:
         """Pre-render remaining presets of the active mode so subsequent clicks
@@ -3201,3 +3205,7 @@ class WorkbenchWidget(Widget):
                 self.query_one("#wb-download-progress", ProgressBar).styles.display = "none"
             except Exception:
                 pass
+        finally:
+            from harvester.util.memory import purge_neural_vram
+
+            purge_neural_vram()

@@ -66,3 +66,36 @@ async def test_audio_visualizer_10bands_and_full_width_ruler() -> None:
     # Verify cutoff marker indicator
     assert "┆" in plain
     assert vis.cutoff_hz == 15500.0
+
+
+async def test_audio_visualizer_spectrogram_and_phase_scope() -> None:
+    """Verify Mode 6 (spectrogram waterfall) and Mode 7 (phase correlation scope)."""
+    vis = AudioVisualizer(num_bands=10, cutoff_hz=16000.0)
+    vis.is_playing = True
+    vis.feed_levels([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+
+    # 1. Spectrogram waterfall test
+    vis.mode = "spectrogram"
+    rendered_spec = vis.render()
+    assert rendered_spec is not None
+    assert "16k" in rendered_spec.plain
+    assert "1k" in rendered_spec.plain
+
+    # Full height render includes lower frequencies
+    full_spec = vis._render_spectrogram(width=60, height=10)
+    assert "31" in full_spec.plain
+
+    # 2. Phase scope healthy stereo
+    vis.mode = "phase_scope"
+    vis.set_phase_correlation(0.85, stereo_width_pct=110.0)
+    rendered_phase = vis.render()
+    assert "PHASE CORRELATION" in rendered_phase.plain
+    assert "+0.85" in rendered_phase.plain
+    assert "110%" in rendered_phase.plain
+    assert "Phase alignment healthy" in rendered_phase.plain
+
+    # 3. Phase scope cancellation warning
+    vis.set_phase_correlation(-0.65, stereo_width_pct=140.0)
+    rendered_warn = vis.render()
+    assert "-0.65" in rendered_warn.plain
+    assert "WARNING: Phase cancellation" in rendered_warn.plain

@@ -28,7 +28,15 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
 
-VisualizerMode = Literal["spectrum", "oscilloscope", "mirrored", "braille", "vu_meter"]
+VisualizerMode = Literal[
+    "spectrum",
+    "oscilloscope",
+    "mirrored",
+    "braille",
+    "vu_meter",
+    "spectrogram",
+    "phase_scope",
+]
 
 BAND_LABELS_10: list[str] = [
     "31Hz",
@@ -64,6 +72,8 @@ MODES_LIST: list[VisualizerMode] = [
     "mirrored",
     "braille",
     "vu_meter",
+    "spectrogram",
+    "phase_scope",
 ]
 
 MODE_LABELS: dict[VisualizerMode, tuple[str, str]] = {
@@ -72,6 +82,8 @@ MODE_LABELS: dict[VisualizerMode, tuple[str, str]] = {
     "mirrored": ("MIRROR", "Mirrored Spectrum"),
     "braille": ("MATRIX", "Braille Wave Matrix"),
     "vu_meter": ("VU DECK", "Stereo VU Deck"),
+    "spectrogram": ("WATERFALL", "STFT Spectrogram Waterfall"),
+    "phase_scope": ("PHASE", "Lissajous Stereo Phase Scope"),
 }
 
 # Unicode block elements for 8 fractional vertical steps
@@ -126,6 +138,11 @@ class AudioVisualizer(Widget):
         # Oscilloscope & Braille wave buffer
         self._wave_buffer = np.zeros(64, dtype=np.float32)
 
+        # Spectrogram waterfall history buffer (up to 32 time slices of frequency bins)
+        self._spectrogram_history: list[np.ndarray] = []
+        self._phase_correlation: float = 0.85
+        self._stereo_width_pct: float = 100.0
+
         # Cached pre-computed FFT frames
         self._precomputed_frames: list[np.ndarray] = []
         self._current_frame_idx = 0
@@ -166,6 +183,12 @@ class AudioVisualizer(Widget):
         self.cutoff_hz = cutoff_hz
         self.refresh()
 
+    def set_phase_correlation(self, correlation: float, stereo_width_pct: float = 100.0) -> None:
+        """Update stereo phase correlation [-1.0, 1.0] and stereo width [0, 200]%."""
+        self._phase_correlation = max(-1.0, min(1.0, float(correlation)))
+        self._stereo_width_pct = max(0.0, min(200.0, float(stereo_width_pct)))
+        self.refresh()
+
     def feed_levels(self, levels: Sequence[float]) -> None:
         """Manually update band energy levels."""
         arr = np.clip(np.asarray(levels, dtype=np.float32), 0.0, 1.0)
@@ -177,6 +200,9 @@ class AudioVisualizer(Widget):
                 np.linspace(0, 1, len(arr)),
                 arr,
             ).astype(np.float32)
+        self._spectrogram_history.append(self._levels[:10].copy())
+        if len(self._spectrogram_history) > 32:
+            self._spectrogram_history.pop(0)
         self._update_peaks()
         self._resume_anim_timer()
         self.refresh()
@@ -350,6 +376,10 @@ class AudioVisualizer(Widget):
             return self._render_braille(width, height)
         if self.mode == "vu_meter":
             return self._render_vu_meter(width, height)
+        if self.mode == "spectrogram":
+            return self._render_spectrogram(width, height)
+        if self.mode == "phase_scope":
+            return self._render_phase_scope(width, height)
         return self._render_spectrum(width, height)
 
     def _render_spectrum(self, width: int, height: int) -> Text:
@@ -660,3 +690,106 @@ class AudioVisualizer(Widget):
         if ratio > 0.35:
             return "bold #00ffcc"
         return "bold #00aaff"
+
+    def _render_spectrogram(self, width: int, height: int) -> Text:
+        """Mode 6: Scrolling STFT Spectrogram Waterfall with cutoff overlay."""
+        text = Text()
+        freq_labels = ["16k", "8k", "4k", "2k", "1k", "500", "250", "125", "63", "31"]
+        n_freqs = len(freq_labels)
+        vis_height = min(height, n_freqs)
+
+        time_cols = max(1, width - 8)
+        if not self._spectrogram_history:
+            history = [self._levels[:10].copy()]
+        else:
+            history = self._spectrogram_history
+
+        n_hist = len(history)
+        indices = np.linspace(0, n_hist - 1, time_cols).astype(int)
+        matrix = np.array([history[i] for i in indices]).T
+
+        cutoff_band_idx = -1
+        if self.cutoff_hz is not None:
+            for b_idx, f in enumerate(reversed(BAND_FREQUENCIES_10)):
+                if f <= self.cutoff_hz:
+                    cutoff_band_idx = b_idx
+                    break
+
+        chars = (" ", "░", "▒", "▓", "█")
+        for row_idx in range(vis_height):
+            band_idx = 9 - row_idx if row_idx < 10 else 0
+            label = freq_labels[row_idx] if row_idx < len(freq_labels) else "   "
+            is_cutoff = row_idx == cutoff_band_idx
+
+            line_style = "bold #ff0055" if is_cutoff else "dim #00ffff"
+            text.append(f"{label:>4} │", style=line_style)
+
+            row_vals = matrix[band_idx] if band_idx < len(matrix) else np.zeros(time_cols)
+            for col_idx in range(time_cols):
+                val = float(row_vals[col_idx])
+                char_idx = min(4, int(val * 4.99))
+                ch = chars[char_idx]
+                if is_cutoff and ch == " ":
+                    text.append("┄", style="dim #ff0055")
+                elif is_cutoff:
+                    text.append(ch, style="bold #ff0055")
+                elif char_idx >= 3:
+                    text.append(ch, style="bold #ffff00")
+                elif char_idx >= 2:
+                    text.append(ch, style="bold #00ffcc")
+                elif char_idx >= 1:
+                    text.append(ch, style="#0088cc")
+                else:
+                    text.append(" ", style="dim #003366")
+            if row_idx < vis_height - 1:
+                text.append("\n")
+        return text
+
+    def _render_phase_scope(self, width: int, height: int) -> Text:
+        """Mode 7: Stereo Lissajous Phase Scope & Mono Compatibility Meter."""
+        text = Text()
+        corr = self._phase_correlation
+        width_pct = self._stereo_width_pct
+
+        text.append("◈ STEREO PHASE CORRELATION & MONO COMPATIBILITY\n", style="bold #00ffcc")
+
+        meter_len = max(20, width - 12)
+        pos = int(round((corr + 1.0) / 2.0 * (meter_len - 1)))
+        pos = max(0, min(meter_len - 1, pos))
+
+        bar = []
+        for i in range(meter_len):
+            if i == pos:
+                bar.append("◆")
+            elif i == meter_len // 2:
+                bar.append("│")
+            else:
+                bar.append("─")
+        bar_str = "".join(bar)
+
+        corr_style = (
+            "bold #39ff14" if corr > 0.3 else ("bold #ffcc00" if corr >= 0.0 else "bold #ff0055")
+        )
+        text.append(f"[-1.0] {bar_str} [+1.0]\n", style=corr_style)
+
+        status_label = (
+            "MONO"
+            if corr > 0.85
+            else (
+                "BALANCED STEREO"
+                if corr > 0.2
+                else ("WIDE STEREO" if corr >= -0.1 else "PHASE CANCELLATION")
+            )
+        )
+        text.append(
+            f"Correlation: {corr:+.2f} ({status_label}) · Stereo Width: {width_pct:.0f}%\n",
+            style="bold #00aaff",
+        )
+
+        if corr < -0.2:
+            text.append(
+                "⚠ WARNING: Phase cancellation detected — sums poorly to mono", style="bold #ff0055"
+            )
+        else:
+            text.append("✔ Phase alignment healthy · Mono-compatible master", style="dim #39ff14")
+        return text

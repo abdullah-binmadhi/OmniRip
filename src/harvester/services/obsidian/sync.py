@@ -85,7 +85,17 @@ class ObsidianSync:
             state = getattr(job, "state", None)
             if state is State.COMPLETED:
                 output = str(getattr(job, "output_path", None) or job.display_name)
-                settle_note(path, "done", f"{_timestamp()} done -> {output}")
+                spectral = getattr(job, "spectral", None)
+                extra = []
+                if spectral is not None:
+                    verdict_val = getattr(spectral.verdict, "value", str(spectral.verdict))
+                    cutoff_val = getattr(spectral, "cutoff_hz", None)
+                    if cutoff_val:
+                        extra.append(f"spectral {verdict_val} @ {cutoff_val:.0f}Hz")
+                    else:
+                        extra.append(f"spectral {verdict_val}")
+                detail_str = f" ({', '.join(extra)})" if extra else ""
+                settle_note(path, "done", f"{_timestamp()} done -> {output}{detail_str}")
                 results[path] = "done"
             elif state is State.FAILED:
                 error = job.error.message if getattr(job, "error", None) else "unknown"

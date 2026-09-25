@@ -63,16 +63,31 @@ def track_row_fields(track: Mapping[str, Any]) -> dict[str, Any]:
         "output_path": track.get("output_path"),
         "job_id": track.get("job_id"),
         "ts": track.get("ts"),
+        "genre": canonical.get("genre") or track.get("genre"),
+        "genre_mix": track.get("genre_mix"),
+        "genre_intensity": track.get("genre_intensity"),
+        "enhancement_preset": track.get("enhancement_preset"),
     }
 
 
 def _album_frontmatter(artist: str, album: str, tracks: list[dict[str, Any]]) -> dict[str, Any]:
     years = set()
+    genres = set()
     for track in tracks:
         canonical = track.get("canonical")
         if isinstance(canonical, dict) and isinstance(canonical.get("year"), int):
             years.add(canonical["year"])
-    return {
+        g = None
+        if isinstance(canonical, dict) and canonical.get("genre"):
+            g = canonical.get("genre")
+        elif track.get("genre"):
+            g = track.get("genre")
+        if g:
+            if isinstance(g, list):
+                genres.update(str(x) for x in g if x)
+            elif isinstance(g, str):
+                genres.add(g)
+    fm = {
         "omnirip": OMNIRIP_NOTE_TYPE,
         "type": "album",
         "title": album,
@@ -81,6 +96,9 @@ def _album_frontmatter(artist: str, album: str, tracks: list[dict[str, Any]]) ->
         "tracks": len(tracks),
         "tags": ["omnirip", "library"],
     }
+    if genres:
+        fm["genres"] = sorted(genres)
+    return fm
 
 
 def _album_body(artist: str, album: str, tracks: list[dict[str, Any]]) -> str:
@@ -99,18 +117,19 @@ def _album_body(artist: str, album: str, tracks: list[dict[str, Any]]) -> str:
         "",
         "## Tracks",
         "",
-        "| # | Title | Status | Source | Verdict | Cutoff | Output |",
-        "|---|-------|--------|--------|---------|--------|--------|",
+        "| # | Title | Status | Source | Verdict | Cutoff | Genre | Output |",
+        "|---|-------|--------|--------|---------|--------|-------|--------|",
     ]
     for index, track in enumerate(tracks, start=1):
         fields = track_row_fields(track)
         output = f"`{fields['output_path']}`" if fields.get("output_path") else "—"
         cutoff = fields.get("cutoff_hz")
         cutoff_cell = f"{cutoff:.0f} Hz" if isinstance(cutoff, (int, float)) else "—"
+        genre_cell = escape_cell(str(fields.get("genre") or "—"))
         lines.append(
             f"| {index} | {escape_cell(str(fields['title']))} | {fields['status'] or '—'} "
             f"| {fields['source_kind'] or '—'} | {fields['spectral_verdict'] or '—'} "
-            f"| {cutoff_cell} | {output} |"
+            f"| {cutoff_cell} | {genre_cell} | {output} |"
         )
     return "\n".join(lines)
 

@@ -91,3 +91,21 @@ def test_export_writes_under_library(tmp_path: Path) -> None:
     assert written[0].is_file()
     data, _ = parse_frontmatter(written[0].read_text(encoding="utf-8"))
     assert data["artist"] == "Sia"
+
+
+def test_album_note_with_genres_and_presets() -> None:
+    track1 = _row(
+        genre="Pop",
+        enhancement_preset="vocal_air",
+        canonical={"title": "Song 1", "artists": ["Artist"], "album": "Album", "genre": ["Pop", "Dance"]},
+    )
+    track2 = _row(
+        genre="Electronic",
+        canonical={"title": "Song 2", "artists": ["Artist"], "album": "Album", "genre": "Synthpop"},
+    )
+    text = build_album_note("Artist", "Album", [track1, track2])
+    data, body = parse_frontmatter(text)
+
+    assert data["genres"] == ["Dance", "Pop", "Synthpop"]
+    assert "| 1 | Song 1 | upgraded | P2P_FLAC | PASS | 21000 Hz | ['Pop', 'Dance'] |" in body
+    assert "| 2 | Song 2 | upgraded | P2P_FLAC | PASS | 21000 Hz | Synthpop |" in body

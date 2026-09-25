@@ -157,3 +157,33 @@ def test_studio_index_and_hub_links_resolve_to_written_notes(tmp_path: Path) -> 
             if not any(path == link or path.endswith(f"/{link}") for path in notes)
         ]
         assert unresolved == [], f"{note.name} has unresolved links: {unresolved}"
+
+
+@pytest.mark.asyncio
+async def test_settle_wants_with_spectral_metadata(tmp_path: Path) -> None:
+    from harvester.models import SpectralResult, Verdict
+
+    sync = _sync(tmp_path)
+    sync.ensure()
+    note = sync.vault.wants / "Artist - Title.md"
+    note.write_text("---\nstatus: want\n---\n# Artist — Title\n", encoding="utf-8")
+
+    async def submit(query: str):
+        job = TrackJob(mode=Mode.SINGLE_URL)
+        job.state = State.COMPLETED
+        job.output_path = Path("/out/Title.flac")
+        job.spectral = SpectralResult(
+            verdict=Verdict.PASS,
+            cutoff_hz=21500.0,
+            steepness_db_per_khz=0.0,
+        )
+        return job
+
+    pending = await sync.import_wants(submit)
+    results = sync.settle_wants(pending)
+
+    assert results[note] == "done"
+    text = note.read_text()
+    assert "status: done" in text
+    assert "done -> /out/Title.flac (spectral PASS @ 21500Hz)" in text
+
