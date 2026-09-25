@@ -206,6 +206,14 @@ def execute_repair(
                 exporter = EnhancementExporter()
             master_audio = exporter.decode_audio_ffmpeg(source, sample_rate=sample_rate)
 
+        if getattr(plan, "master_choices", None):
+            from harvester.analysis.enhancement.master_triage import apply_master_remediation
+
+            master_audio = apply_master_remediation(master_audio, sample_rate, plan.master_choices)
+            enabled_cnt = sum(1 for v in plan.master_choices.values() if v)
+            if enabled_cnt:
+                notes.append(f"Applied {enabled_cnt} custom master acoustic remediation(s)")
+
         from harvester.analysis.enhancement.dsp import resample_audio
 
         enhanced_source = resample_audio(master_audio, sample_rate, ENHANCEMENT_SAMPLE_RATE)

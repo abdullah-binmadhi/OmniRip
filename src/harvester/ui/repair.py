@@ -20,6 +20,10 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label
 
+from harvester.analysis.enhancement.master_triage import (
+    MASTER_SYMPTOM_BY_KEY,
+    MASTER_SYMPTOMS,
+)
 from harvester.analysis.enhancement.repair_plan import (
     BLOCK_INSTRUMENTAL,
     BLOCK_VOCALS,
@@ -452,6 +456,27 @@ class RepairPanel(Widget):
         border: solid #ba68c8;
     }
 
+    .rp-wizard-grid {
+        width: 100%;
+        height: auto;
+        margin-bottom: 0;
+    }
+
+    #rp-wiz-col-query {
+        width: 3fr;
+        height: auto;
+        border-right: solid #2d264f;
+        padding-right: 1;
+        padding-bottom: 0;
+    }
+
+    #rp-wiz-col-nav {
+        width: 2fr;
+        height: auto;
+        padding-left: 1;
+        padding-bottom: 0;
+    }
+
     .rp-nav-btn {
         width: 100%;
         height: auto;
@@ -460,10 +485,55 @@ class RepairPanel(Widget):
         margin-bottom: 1;
     }
 
+    .rp-wiz-nav-row {
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .rp-wiz-nav-row Button {
+        width: 1fr;
+        margin-right: 1;
+        min-height: 1;
+    }
+
+    #rp-wiz-audition-card {
+        background: #0c091d;
+        border: solid rgba(0, 229, 255, 0.3);
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #rp-wiz-btn-preview {
+        width: 100%;
+        margin-top: 0;
+        margin-bottom: 1;
+        background: #161329;
+        border: solid #00e5ff;
+        color: #00e5ff;
+    }
+
+    #rp-wiz-btn-preview:hover {
+        background: #00a88f;
+        color: #ffffff;
+    }
+
+    #rp-wiz-metrics-label {
+        color: #ffe600;
+        text-style: bold;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+
+    #rp-btn-wiz-apply {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
     .rp-hud-card {
         background: #0c091d;
         border: solid rgba(0, 229, 255, 0.3);
-        padding: 1;
+        padding: 0 1;
         margin-bottom: 1;
     }
 
@@ -480,13 +550,16 @@ class RepairPanel(Widget):
         color: #ffe600;
         text-style: bold;
         background: #0c091d;
-        border: solid rgba(255, 0, 127, 0.3);
-        padding: 1;
+        border: solid rgba(255, 0, 127, 0.4);
+        padding: 0 1;
+        margin-top: 0;
         margin-bottom: 1;
+        min-height: 2;
     }
 
     #rp-detector-hint {
         color: #00e5ff;
+        margin-top: 0;
         margin-bottom: 1;
     }
 
@@ -517,6 +590,7 @@ class RepairPanel(Widget):
         self.error: str | None = None
         self.engine_status: str = ""
         self.neural_ready: bool = False
+        self.wizard_mode: str = "stems"
 
     def compose(self) -> ComposeResult:
         with Vertical(id="rp-quick"):
@@ -566,15 +640,15 @@ class RepairPanel(Widget):
         with Vertical(id="rp-wizard"):
             with Horizontal(classes="rp-pane-header-strip"):
                 with Vertical(classes="rp-header-left"):
-                    yield Label("STATUS: GUIDED DEFECT WIZARD", classes="rp-pane-title")
+                    yield Label("STATUS: GUIDED DEFECT WIZARD", id="rp-wiz-title", classes="rp-pane-title")
                     yield Label("", id="rp-progress")
                 with Vertical(classes="rp-header-right"):
                     yield Label("◈ INTERACTIVE AUDITION MODE", classes="rp-pane-engine-badge")
-                    yield Label("STEP-BY-STEP TRIAGE", classes="rp-pane-active-preset")
+                    yield Label("STEP-BY-STEP TRIAGE", id="rp-wiz-mode-badge", classes="rp-pane-active-preset")
 
             with Horizontal(classes="rp-wizard-grid"):
                 with Vertical(id="rp-wiz-col-query", classes="rp-col-wide"):
-                    yield Label("[A] DEFECT INVESTIGATION", classes="rp-col-title")
+                    yield Label("[A] ACOUSTIC INVESTIGATION", id="rp-wiz-col-title", classes="rp-col-title")
                     yield Label("", id="rp-question")
                     yield Label("", id="rp-detector-hint")
                     yield Label("YOUR VERDICT:", classes="rp-group-label")
@@ -590,16 +664,19 @@ class RepairPanel(Widget):
                     yield RangeEditor(id="rp-range-editor")
 
                 with Vertical(id="rp-wiz-col-nav", classes="rp-col-narrow"):
-                    yield Label("[B] WIZARD CONTROLS", classes="rp-col-title")
-                    with Vertical(classes="rp-hud-card"):
-                        yield Label("TRIAGE TIP:", classes="rp-group-label")
-                        yield Label("Listen to the track or solo stem.\nIf you detect the defect, select 'Yes' to configure hot-spots.", classes="rp-forensic-tip")
+                    yield Label("[B] AUDITION & ACTIONS", classes="rp-col-title")
+                    with Vertical(id="rp-wiz-audition-card", classes="rp-hud-card"):
+                        yield Label("REAL-TIME MONITOR:", classes="rp-group-label")
+                        yield Button("▶ AUDITION TRACK (A/B)", id="rp-wiz-btn-preview", classes="rp-audition-btn")
+                        yield Label("ACTIVE REMEDIATIONS: 0", id="rp-wiz-metrics-label", classes="rp-forensic-item")
                     with Vertical(id="rp-wizard-nav"):
-                        yield Button("Next ▸", id="rp-btn-next", variant="primary", classes="rp-nav-btn")
-                        yield Button("◂ Back", id="rp-btn-back", classes="rp-nav-btn")
-                        yield Button("Cancel", id="rp-btn-wizard-cancel", classes="rp-nav-btn")
+                        with Horizontal(classes="rp-wiz-nav-row"):
+                            yield Button("◂ Back", id="rp-btn-back", classes="rp-nav-btn")
+                            yield Button("Next ▸", id="rp-btn-next", variant="primary", classes="rp-nav-btn")
+                        yield Button("⚡ APPLY REMEDIATIONS", id="rp-btn-wiz-apply", variant="success", classes="rp-export-btn")
+                        yield Button("Cancel", id="rp-btn-wizard-cancel", classes="rp-secondary-btn")
 
-            yield Label("▲▼ Guided AI Defect Triage Active ■■■ Audition and Tune Filters ▲▼", classes="rp-pane-marquee")
+            yield Label("▲▼ Guided Defect Triage Active ■■■ Audition Master in Real-Time ▲▼", id="rp-wiz-marquee", classes="rp-pane-marquee")
 
         with Vertical(id="rp-summary-pane"):
             with Horizontal(classes="rp-pane-header-strip"):
@@ -760,29 +837,52 @@ class RepairPanel(Widget):
 
     # -- wizard helpers ----------------------------------------------------
 
+    def _wizard_keys(self) -> tuple[str, ...]:
+        if getattr(self, "wizard_mode", "master") == "master":
+            return tuple(s.key for s in MASTER_SYMPTOMS)
+        return WIZARD_KEYS
+
     def current_key(self) -> str | None:
-        if not (0 <= self.wizard_index < len(WIZARD_KEYS)):
+        keys = self._wizard_keys()
+        if not (0 <= self.wizard_index < len(keys)):
             return None
-        return WIZARD_KEYS[self.wizard_index]
+        return keys[self.wizard_index]
 
     def current_spec(self) -> Any:
         key = self.current_key()
-        return SYMPTOM_BY_KEY[key] if key else None
+        if not key:
+            return None
+        if getattr(self, "wizard_mode", "master") == "master":
+            return MASTER_SYMPTOM_BY_KEY.get(key)
+        return SYMPTOM_BY_KEY.get(key)
 
     def _detector_says(self, key: str) -> bool:
-        spec = SYMPTOM_BY_KEY[key]
-        if self.detection is None or not spec.auto_issue:
+        if getattr(self, "wizard_mode", "master") == "master":
+            spec = MASTER_SYMPTOM_BY_KEY.get(key)
+        else:
+            spec = SYMPTOM_BY_KEY.get(key)
+        if spec is None or self.detection is None or not getattr(spec, "auto_issue", None):
             return False
         issues = set(getattr(self.detection, "detected_issues", []) or [])
         return spec.auto_issue in issues
 
-    def _begin_wizard(self) -> None:
+    def _begin_wizard(self, mode: str = "auto") -> None:
         if self.plan is None:
             self.plan = RepairPlan()
+        if mode == "master" or (mode == "auto" and (self.result is not None and self.result.master is not None and self.result.vocals is None)):
+            self.wizard_mode = "master"
+        else:
+            self.wizard_mode = "stems"
+
         self.answers = {}
-        for key in WIZARD_KEYS:
-            choice = self.plan.choices.get(key)
-            self.answers[key] = "yes" if (choice is not None and choice.enabled) else "no"
+        if self.wizard_mode == "master":
+            for s in MASTER_SYMPTOMS:
+                val = self.plan.master_choices.get(s.key, False)
+                self.answers[s.key] = "yes" if val else "no"
+        else:
+            for key in WIZARD_KEYS:
+                choice = self.plan.choices.get(key)
+                self.answers[key] = "yes" if (choice is not None and choice.enabled) else "no"
         self.wizard_index = 0
         self.mode = "wizard"
         self._refresh()
@@ -791,21 +891,30 @@ class RepairPanel(Widget):
         key = self.current_key()
         if key is None or self.plan is None:
             return
-        spec = SYMPTOM_BY_KEY[key]
-        choice = self.plan.choice(key)
         self.answers[key] = answer
-        if answer == "yes":
-            choice.enabled = True
-        elif answer == "no":
-            choice.enabled = False
-            choice.ranges = None
+        if getattr(self, "wizard_mode", "master") == "master":
+            if answer == "yes":
+                self.plan.master_choices[key] = True
+            elif answer == "no":
+                self.plan.master_choices[key] = False
+            else:
+                detected = self._detector_says(key)
+                self.plan.master_choices[key] = detected
         else:
-            detected = self._detector_says(key)
-            choice.enabled = detected
-            if not detected:
+            spec = SYMPTOM_BY_KEY[key]
+            choice = self.plan.choice(key)
+            if answer == "yes":
+                choice.enabled = True
+            elif answer == "no":
+                choice.enabled = False
                 choice.ranges = None
-        if not spec.range_capable:
-            choice.ranges = None
+            else:
+                detected = self._detector_says(key)
+                choice.enabled = detected
+                if not detected:
+                    choice.ranges = None
+            if not spec.range_capable:
+                choice.ranges = None
         self._refresh()
 
     def _wizard_range_choice(self) -> Any:
@@ -953,11 +1062,28 @@ class RepairPanel(Widget):
             self.mode = "summary"
             self._refresh()
             return
-        total = len(WIZARD_KEYS)
-        block = BLOCK_TITLES.get(spec.block, spec.block.title())
-        self.query_one("#rp-progress", Label).update(
-            f"{block} · question {self.wizard_index + 1} of {total}"
-        )
+        keys = self._wizard_keys()
+        total = len(keys)
+        if getattr(self, "wizard_mode", "master") == "master":
+            category = getattr(spec, "category", "GENERAL").upper()
+            self.query_one("#rp-progress", Label).update(
+                f"[{self.wizard_index + 1:02d} / {total:02d}] · {category} · {spec.label.upper()}"
+            )
+            active_cnt = sum(1 for v in self.answers.values() if v == "yes")
+            try:
+                self.query_one("#rp-wiz-metrics-label", Label).update(f"ACTIVE REMEDIATIONS: {active_cnt}")
+            except Exception:
+                pass
+        else:
+            block = BLOCK_TITLES.get(spec.block, spec.block.title())
+            self.query_one("#rp-progress", Label).update(
+                f"{block} · question {self.wizard_index + 1} of {total}"
+            )
+            try:
+                active_cnt = sum(1 for v in self.answers.values() if v == "yes")
+                self.query_one("#rp-wiz-metrics-label", Label).update(f"ACTIVE REMEDIATIONS: {active_cnt}")
+            except Exception:
+                pass
         self.query_one("#rp-question", Label).update(spec.prompt)
 
         answer = self.answers.get(spec.key, "no")
@@ -970,20 +1096,24 @@ class RepairPanel(Widget):
             button.variant = "primary" if answer == value else "default"
 
         hint = self.query_one("#rp-detector-hint", Label)
-        if spec.auto_issue:
-            state = "detected" if self._detector_says(spec.key) else "not detected"
-            hint.update(f"Analysis: {state} in this track.")
+        if getattr(self, "wizard_mode", "master") == "master":
+            tip = getattr(spec, "tip", "")
+            hint.update(f"AI Audio Engineer: {tip}" if tip else "Analysis: your ears decide.")
         else:
-            hint.update("Analysis can't judge this one — your ears decide.")
+            if spec.auto_issue:
+                state = "detected" if self._detector_says(spec.key) else "not detected"
+                hint.update(f"Analysis: {state} in this track.")
+            else:
+                hint.update("Analysis can't judge this one — your ears decide.")
 
         editor = self.query_one("#rp-range-editor", RangeEditor)
-        show_ranges = answer == "yes" and spec.range_capable
+        show_ranges = answer == "yes" and getattr(spec, "range_capable", False)
         editor.styles.display = "block" if show_ranges else "none"
         if show_ranges:
             editor.set_suggest_enabled(self.stems_ready)
 
         strength_row = self.query_one("#rp-strength-row", Horizontal)
-        show_strength = answer == "yes" and spec.key == "roomy"
+        show_strength = answer == "yes" and getattr(spec, "key", "") == "roomy"
         strength_row.styles.display = "block" if show_strength else "none"
         if show_strength and self.plan is not None:
             intensity = self.plan.choice("roomy").intensity
@@ -1001,25 +1131,40 @@ class RepairPanel(Widget):
     def _render_summary(self) -> None:
         assert self.plan is not None
         lines: list[str] = []
-        for spec in self.plan.enabled():
-            choice = self.plan.choice(spec.key)
-            if spec.key == "just_enhance":
-                lines.append("• Clean up and enhance the master")
-                continue
-            where = "whole track"
-            if choice.ranges:
-                where = " + ".join(
-                    f"{format_timecode(t0)}–{format_timecode(t1)}" for t0, t1 in choice.ranges
-                )
-            elif spec.key == "roomy":
-                where = f"strength {int(round(choice.intensity * 100))}%"
-            lines.append(f"• {spec.label} — {where}")
-        if not any(line for line in lines):
-            lines.append("• Nothing selected — the track will be enhanced as-is.")
-        engine_label = "Local separation" if self.engine == "local" else "Hosted MVSEP (uploads audio)"
-        lines.append("")
-        lines.append(f"Engine: {engine_label} · Enhance: {self.strength.title()}")
-        lines.append("Outputs: enhanced master · clean vocals · clean instrumental")
+        if getattr(self, "wizard_mode", "master") == "master":
+            active_keys = [k for k, v in self.answers.items() if v == "yes"]
+            if active_keys:
+                lines.append(f"• Active Master Remediation Filters ({len(active_keys)}):")
+                for k in active_keys:
+                    s = MASTER_SYMPTOM_BY_KEY.get(k)
+                    lbl = s.label if s else k
+                    lines.append(f"  - {lbl}")
+            else:
+                lines.append("• Neutral Pass — No aggressive remediation filters selected.")
+            lines.append("")
+            lines.append(f"Master Profile: Enhance {self.strength.title()} · DSP: {self.dsp_mode.upper()}")
+            lines.append("Output: Enhanced Master (Lossless 44.1 kHz Remaster)")
+        else:
+            for spec in self.plan.enabled():
+                choice = self.plan.choice(spec.key)
+                if spec.key == "just_enhance":
+                    lines.append("• Clean up and enhance the master")
+                    continue
+                where = "whole track"
+                if choice.ranges:
+                    where = " + ".join(
+                        f"{format_timecode(t0)}–{format_timecode(t1)}" for t0, t1 in choice.ranges
+                    )
+                elif spec.key == "roomy":
+                    where = f"strength {int(round(choice.intensity * 100))}%"
+                lines.append(f"• {spec.label} — {where}")
+            if not any(line for line in lines):
+                lines.append("• Nothing selected — the track will be enhanced as-is.")
+            engine_label = "Local separation" if self.engine == "local" else "Hosted MVSEP (uploads audio)"
+            lines.append("")
+            lines.append(f"Engine: {engine_label} · Enhance: {self.strength.title()}")
+            lines.append("Outputs: enhanced master · clean vocals · clean instrumental")
+
         self.query_one("#rp-summary", Label).update("\n".join(lines))
         for strength_id, name in (
             ("rp-preset-gentle", "gentle"),
@@ -1158,10 +1303,19 @@ class RepairPanel(Widget):
             self._refresh()
             return
         if button_id == "rp-btn-next":
-            self.wizard_index = min(self.wizard_index + 1, len(WIZARD_KEYS))
-            if self.wizard_index >= len(WIZARD_KEYS):
+            keys = self._wizard_keys()
+            self.wizard_index = min(self.wizard_index + 1, len(keys))
+            if self.wizard_index >= len(keys):
                 self.mode = "summary"
             self._refresh()
+            return
+        if button_id == "rp-btn-wiz-apply":
+            self.mode = "summary"
+            self._refresh()
+            return
+        if button_id == "rp-wiz-btn-preview":
+            output = "master" if (self.result and getattr(self.result, "enhanced", None)) else "original"
+            self.post_message(self.PreviewRequested(output))
             return
         if button_id == "rp-btn-wizard-cancel":
             self.mode = "quick" if self.detection is not None else "idle"
@@ -1169,7 +1323,8 @@ class RepairPanel(Widget):
             return
         if button_id == "rp-btn-summary-back":
             self.mode = "wizard"
-            self.wizard_index = len(WIZARD_KEYS) - 1
+            keys = self._wizard_keys()
+            self.wizard_index = max(0, len(keys) - 1)
             self._refresh()
             return
         if button_id == "rp-btn-apply-plan":
@@ -1228,7 +1383,16 @@ class RepairPanel(Widget):
             self.post_message(self.ExportRequested())
             return
         if button_id == "rp-btn-improve":
-            self._begin_wizard()
+            has_master = bool(self.result and getattr(self.result, "master", None))
+            has_stems = bool(
+                self.result
+                and getattr(self.result, "vocals", None)
+                and getattr(self.result, "inst", None)
+            )
+            if has_master and not has_stems:
+                self._begin_wizard(mode="master")
+            else:
+                self._begin_wizard(mode="stems")
             return
         if button_id == "rp-btn-reanalyze":
             self.detection = None

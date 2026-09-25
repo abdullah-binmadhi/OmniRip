@@ -191,6 +191,7 @@ class RepairPlan:
     enhance_preset_id: str = "fast_balanced"
     blend_weight: float | None = None
     outputs: tuple[str, ...] = ALL_OUTPUTS
+    master_choices: dict[str, bool] = field(default_factory=dict)
 
     def enabled(self) -> list[SymptomSpec]:
         return [spec for spec in SYMPTOMS if self.choices.get(spec.key, SymptomChoice()).enabled]
