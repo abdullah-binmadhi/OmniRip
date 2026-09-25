@@ -2,7 +2,12 @@
 
 from unittest.mock import patch
 
-import torch
+import pytest
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from harvester.util.memory import (
     DEFAULT_CHUNK_SECONDS_16GB,
@@ -33,20 +38,27 @@ def test_purge_neural_vram_does_not_raise():
     purge_neural_vram()
 
 
+@pytest.mark.skipif(torch is None, reason="torch is not installed in lightweight environment")
 def test_get_safe_neural_device_respects_env(monkeypatch):
     monkeypatch.setenv("OMNIRIP_DEVICE", "cpu")
     dev = get_safe_neural_device()
     assert dev.type == "cpu"
 
 
+@pytest.mark.skipif(torch is None, reason="torch is not installed in lightweight environment")
 def test_get_safe_neural_dtype_cpu_is_float32():
     cpu_dev = torch.device("cpu")
     assert get_safe_neural_dtype(cpu_dev) == torch.float32
 
 
+@pytest.mark.skipif(torch is None, reason="torch is not installed in lightweight environment")
 def test_get_safe_neural_dtype_respects_disable_env(monkeypatch):
     monkeypatch.setenv("OMNIRIP_FP16", "0")
-    mps_dev = torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+    mps_dev = (
+        torch.device("mps")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+        else torch.device("cpu")
+    )
     assert get_safe_neural_dtype(mps_dev) == torch.float32
 
 

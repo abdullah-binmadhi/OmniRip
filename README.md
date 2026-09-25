@@ -1,74 +1,84 @@
+<div align="center">
+
+<!-- 1. IMAGE FIRST (User Terminal Screenshot) -->
 <p align="center">
-  <img src="docs/assets/omnirip_hero.jpg" alt="OmniRip Audiophile Music Workstation" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
+  <img src="docs/assets/omnirip_terminal.png" alt="OmniRip Terminal Audiophile Workstation" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.8); border: 1px solid #332244;" />
 </p>
 
+<!-- 2. VIDEO BELOW IT (User Screen Recording Video / Demo) -->
 <p align="center">
-  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4" title="Click to watch or download the full 1080p video demo with sound">
-    <img src="docs/assets/omnirip_demo.gif" alt="OmniRip Live Terminal Workstation Demo" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4" title="Click to watch or download the full 1080p demo video with sound">
+    <img src="docs/assets/omnirip_demo.gif" alt="OmniRip Live Terminal Session Demo" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.8); border: 1px solid #332244;" />
   </a>
 </p>
 
-<h1 align="center">OmniRip</h1>
+```
+ ██████╗ ███╗   ███╗███╗   ██╗██╗██████╗ ██╗██████╗ 
+██╔═══██╗████╗ ████║████╗  ██║██║██╔══██╗██║██╔══██╗
+██║   ██║██╔████╔██║██╔██╗ ██║██║██████╔╝██║██████╔╝
+██║   ██║██║╚██╔╝██║██║╚██╗██║██║██╔══██╗██║██╔═══╝ 
+╚██████╔╝██║ ╚═╝ ██║██║ ╚████║██║██║  ██║██║██║     
+ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝╚═╝╚═╝     
+```
+
+### ⚡ Sound, Uncompromising. Handcrafted for your Terminal. ⚡
+*The hybrid P2P audiophile workstation with real-time studio mastering, neural repair & spectral anti-fraud defense.*
+
+<br/>
 
 <p align="center">
-  <strong>Sound, uncompromising. Handcrafted for your terminal.</strong><br>
-  <em>The hybrid P2P audiophile workstation with real-time studio mastering, neural repair, and spectral fraud defense.</em>
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/abdullah-binmadhi/OmniRip/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI%20BUILD&color=00f0ff" alt="CI Status"></a>
+  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20WATCH%20VIDEO-1080p%20MP4-ff007f?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/QUICKSTART-READY-7928ca?style=for-the-badge&logo=gnubash&logoColor=white" alt="Quickstart"></a>
+  <a href="#mastering-workbench--10-band-studio-eq"><img src="https://img.shields.io/badge/10--BAND%20EQ-REALTIME%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
+  <a href="#genre-intent-engine-m20"><img src="https://img.shields.io/badge/GENRE%20ENGINE-20%20PROFILES-10b981?style=for-the-badge&logo=musicbrainz&logoColor=white" alt="Genre Engine"></a>
+  <a href="#lossless-24-bit-masters-m19"><img src="https://img.shields.io/badge/24--BIT%20MASTERS-WAV%20%7C%20FLAC-ffaa00?style=for-the-badge&logo=audiomack&logoColor=white" alt="Lossless 24-Bit Masters"></a>
+  <a href="#neural-ensemble--guided-repair-m18"><img src="https://img.shields.io/badge/NEURAL%20REPAIR-BS--ROFORMER%20%2B%20HDEMUCS-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
+  <a href="#obsidian-second-brain-sync-m23"><img src="https://img.shields.io/badge/SECOND%20BRAIN-OBSIDIAN%20SYNC-ff007f?style=for-the-badge&logo=obsidian&logoColor=white" alt="Obsidian Vault"></a>
+  <a href="#m2-16gb-ram-hardening-m24"><img src="https://img.shields.io/badge/M2%20HARDENED-16GB%20VRAM%20SAFE-10b981?style=for-the-badge&logo=apple&logoColor=white" alt="M2 16GB RAM"></a>
+  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/PACKAGED%20WITH-UV%20%2B%20TEXTUAL-23193d?style=for-the-badge" alt="Python / Textual"></a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/abdullah-binmadhi/OmniRip/actions/workflows/ci.yml"><img src="https://github.com/abdullah-binmadhi/OmniRip/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
-  <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20Watch%20Demo-1080p%20MP4%20(Audio)-e02424?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
-  <a href="#quick-start"><img src="https://img.shields.io/badge/Quickstart-Ready-ff007f?style=for-the-badge&logo=terminal&logoColor=white" alt="Quickstart"></a>
-  <a href="#3-curation--enhancement-workbench-with-10-band-studio-equalizer"><img src="https://img.shields.io/badge/10--Band%20EQ-Realtime%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
-  <a href="#genre-intent-engine-d38"><img src="https://img.shields.io/badge/Genre%20Engine-20%20Profiles-10b981?style=for-the-badge&logo=musicbrainz&logoColor=white" alt="Genre Engine"></a>
-  <a href="#lossless-enhanced-masters-d37"><img src="https://img.shields.io/badge/Lossless%2024--Bit-WAV%20%7C%20FLAC-3b82f6?style=for-the-badge&logo=audiomack&logoColor=white" alt="Lossless 24-Bit Masters"></a>
-  <a href="#5-neural-ensemble-separation--guided-repair-studio"><img src="https://img.shields.io/badge/Neural%20Repair-BS--RoFormer%20%2B%20HDEMUCS-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
-  <a href="#obsidian-second-brain-integration"><img src="https://img.shields.io/badge/Obsidian-Second%20Brain-7c3aed?style=for-the-badge&logo=obsidian&logoColor=white" alt="Obsidian Vault"></a>
-  <a href="#apple-silicon--16gb-ram-hardening"><img src="https://img.shields.io/badge/M2%20Optimized-16GB%20VRAM%20Guard-f59e0b?style=for-the-badge&logo=apple&logoColor=white" alt="M2 16GB RAM"></a>
-  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/Powered%20By-Python%203.11%2B%20%7C%20Textual-23193d?style=for-the-badge" alt="Python / Textual"></a>
-</p>
+</div>
 
 ---
 
-## Say hello to OmniRip.
+## 🕹️ Live Terminal Session Preview
 
-Every once in a while, a tool comes along that completely changes how you listen to music.
-
-For years, listening to digital music has meant making frustrating compromises. If you listen on streaming platforms, songs are often squashed and flattened by heavy compression algorithms so they stream faster over mobile data. And if you try searching peer-to-peer (P2P) file-sharing networks for original CD-quality audio, you often lose hours waiting in long download lines—only to find out that the "lossless FLAC" file you just downloaded was actually a muffled, low-quality 128 kbps MP3 that someone renamed to fool you.
-
-**OmniRip changes everything.**
-
-OmniRip is a complete, all-in-one music workstation designed right inside your terminal. Think of it as a smart music detective, an acoustic forensic auditor, and a professional mastering studio rolled into one fast, responsive app:
-- **P2P Soulseek Hunt & Stream Fallback:** Searches decentralized swarms for original lossless audio, with instant fallback to clean 160 kbps Opus web streams.
-- **Spectral Anti-Fraud Intelligence:** Employs high-resolution Short-Time Fourier Transform (STFT) algorithms to catch fake high-resolution files and compression brick-walls ($f_c$).
-- **Curation Workbench & 10-Band Studio EQ:** 13-line vertical fader rails with zero-latency live playback filtering across standard octave bands.
-- **Genre Intent Engine:** 20 granular mastering profiles (Hip-Hop/Trap, Drill, R&B, House, Techno, Jazz, Pop, Rock, Classical, Ambient, etc.) with weighted multi-genre curve blending and intensity scaling.
-- **Lossless 24-bit Masters:** Exports master recordings directly to 24-bit 48 kHz WAV and FLAC with embedded provenance metadata tags.
-- **Neural Ensemble Separation & Guided Repair:** Combines BS-RoFormer, HDEMUCS v4, and anechoic MSST De-Reverb with a zero-question Quick Fix and 10-question MCQ diagnostic wizard.
-- **7-Mode Real-Time Visualizer:** Includes STFT Spectrogram Waterfalls with cutoff overlays and Stereo Lissajous Phase Scopes with correlation metering.
-- **Batch Library Auto-Restoration:** Scans entire music directories, applies acoustic restoration, and executes crash-proof atomic file swaps with `.trash/` rollback safety.
-- **Obsidian Second-Brain Integration:** Two-way sync with your personal vault (`OmniRip obsidian-sync`), converting wishlists into automated rip queues and formatting albums into Markdown knowledge bases.
-- **Apple Silicon M2 / 16GB RAM Hardening:** Tailored specifically for fanless 16GB architectures with automatic MPS half-precision (FP16), chunk-size governors, serial batch processing, and explicit neural VRAM flushing (`purge_neural_vram()`).
-
----
-
-## Live Studio Demonstration
-
-<p align="center">
-  <img src="docs/assets/omnirip_workbench_live.png" alt="OmniRip Live Studio Curation & Mastering Workbench" width="100%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);" />
-</p>
-
-<p align="center">
-  <em>The OmniRip Curation Workbench in action: 10-band octave mastering rails, real-time visualizer scope, dual-stream A/B auditioning, target banks, and genre intent controls.</em>
-</p>
-
-> [!TIP]
-> **Watch the High-Definition Video Demo:**
-> Download or view the full 1080p MP4 recording with live audio demonstration: [**`docs/assets/omnirip_demo.mp4`**](https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4).
+```text
+╭─ ~/OmniRip ──────────────────────────────────────────────────────── (main) ─╮
+│ $ omnirip "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"           │
+│                                                                             │
+│ [13:24:01] 🔍 PROBE: Identified 'Rick Astley - Never Gonna Give You Up'     │
+│ [13:24:02] ⚡ SLSK: Connected to Soulseek swarm · 48 peer candidates        │
+│ [13:24:03] 📥 ACQUIRE: Selected peer 'AudiophileKing' [FLAC, 1411kbps, 0Q] │
+│ [13:24:06] 🔬 SPECTRAL: Running 2048-pt STFT anti-fraud verification...     │
+│ [13:24:07] ✦ RESULT: Valid lossless studio master (fc = 22.05 kHz) [PASS]  │
+│ [13:24:08] ◈ GENRE INTENT: Detected 'Pop / Dance' → Composed EQ curve       │
+│ [13:24:09] 🎚️ MASTERING: 10-band octave rails applied · +1.5dB Air @ 16kHz  │
+│ [13:24:10] ▥ EXPORT: 24-bit 48kHz FLAC master saved to library/             │
+│ [13:24:11] 📓 OBSIDIAN: Wants note updated → Library/Rick Astley/Album.md   │
+│                                                                             │
+│ ✔ ALL PIPELINE PHASES COMPLETE (0 errors, 0 dropped frames)                 │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
 
 ---
 
-## System Architecture
+## 🚀 Welcome to the Future of Terminal Audio
+
+Every once in a while, a tool comes along that completely transforms how you experience music.
+
+For decades, digital music listening has meant making frustrating compromises:
+- **Squashed Streaming Audio:** Streaming services crush dynamic range with lossy codecs to minimize cellular bandwidth.
+- **Fake Lossless Scams on P2P:** Downloading music from peer-to-peer networks often leads to unpleasant surprises: "lossless FLAC" files that are actually muffled 128 kbps MP3s upsampled by internet tricksters.
+- **Clunky DAWs for Basic Repairs:** Removing sibilance, room echo, or extracting acapellas previously required massive, expensive digital audio workstations.
+
+**OmniRip solves all of this inside your terminal.** Built with Python 3.11+, Textual, NumPy, and modern PyTorch models, OmniRip is a cyberpunk command center combining decentralized P2P acquisition, mathematical forensic anti-fraud analysis, an interactive 10-band vertical mastering desk, 20-genre intent shaping, and deep-learning stem isolation.
+
+---
+
+## 🎛️ The Eight Pillars of OmniRip
 
 ```mermaid
 graph TD
@@ -133,26 +143,41 @@ graph TD
 
 ---
 
-## Core Pillars of Audio Perfection
-
 ### 1. Soulseek Lossless Hunt & Opus Stream Fallback
-Why settle for compressed web audio when you can have the original studio master?
-- **Intelligent Peer Scoring:** When you paste a song link or track title, OmniRip connects to the Soulseek peer-to-peer network. In milliseconds, it inspects every user sharing the song and scores them based on upload speed, queue depth, and format (FLAC/WAV prioritized over 320k MP3).
-- **Queue Guard & Bounded Timeouts:** If a peer's queue is congested or stalls, OmniRip gives a short countdown and automatically falls back to an **Opus 160 kbps stream** via `yt-dlp`. You never sit waiting for frozen transfers.
-- **Atomic Library Upgrade:** Point OmniRip at a music folder. It audits low-bitrate rips, hunts lossless replacements, and atomically replaces files with zero risk of corruption.
+- **Intelligent Peer Scoring:** Scores swarm peers by bandwidth speed, file format (FLAC/WAV over MP3), and transfer queue depth in milliseconds.
+- **Bounded Queue Timeouts:** If a peer queue is congested or stalls, OmniRip instantly shifts to an **Opus 160 kbps web stream** via `yt-dlp` so you never wait indefinitely.
+- **Batch Directory Audits:** Point OmniRip at your music collection. It catalogs low-bitrate tracks, hunts down lossless upgrades across P2P swarms, and swaps them in safely.
 
-### 2. Spectral Anti-Fraud Intelligence: The Counterfeit Hunter
-Anyone can re-encode a 128 kbps MP3 into `.flac` and claim it is "studio lossless." OmniRip validates the actual physics of the audio:
-- **Instantaneous STFT Spectrogramming:** Takes a mathematical snapshot across the entire audible spectrum, from 20 Hz sub-bass to 22.05 kHz treble.
-- **Brick-Wall Cutoff Detection ($f_c$):** MP3 compression creates an abrupt brick-wall cutoff (128k cuts at 15 kHz, 192k cuts at 16 kHz, 256k cuts at 19 kHz). A genuine lossless FLAC has continuous harmonic content up to 22.05 kHz.
-- **Zero Tolerance for Impostors:** Counterfeit lossless files are rejected on the spot, discarded, and replaced with clean verified fallback streams.
+### 2. Spectral Anti-Fraud: The Counterfeit Hunter
+- **2048-Point STFT Analysis:** Math doesn't lie. OmniRip calculates the exact frequency cutoff ($f_c$) across the audible spectrum (20 Hz to 22.05 kHz).
+- **Brick-Wall Detection:** Detects low-bitrate MP3 compression artifacts (128 kbps cut at 15 kHz; 192 kbps at 16 kHz; 256 kbps at 19 kHz).
+- **Immediate Discard:** Fake high-res files are caught, rejected, and replaced with clean verified fallback audio.
 
-### 3. Curation & Enhancement Workbench with 10-Band Studio Equalizer
-A professional mixing desk right inside your terminal console:
-- **13-Line Vertical Fader Rails:** Standard octave bands: **31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, and 16 kHz**. Adjust gain from $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in precise $2.0\text{ dB}$ steps with glowing fader caps (`─█─`), zero-gain marks (`─┼─`), and $\pm 6\text{ dB}$ reference ticks.
-- **Zero-Latency Playback DSP:** Slider adjustments take effect in <50 ms during playback across **`[1] ♫ MP3`** (Baseband), **`[2] ✦ ENH`** (Restored Derivative), or isolated stems.
-- **Target-Aware Preset Banks:** Dedicated banks for `MASTER` (gentle ±3 dB mastering curves), `VOCALS` (presence, warmth, de-essing), and `INSTRUMENTAL` (punch, clarity, sub-tightening).
-- **Output Safety:** A dedicated **30 Hz High-Pass Filter** removes sub-sonic DC offset, and **Output Trim** prevents clipping.
+---
+
+### 3. Mastering Workbench & 10-Band Studio EQ
+- **13-Line Vertical Fader Rails:** Standard octave bands: **31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, and 16 kHz**. Adjust gain from $-12.0\text{ dB}$ to $+12.0\text{ dB}$ in precise $2.0\text{ dB}$ increments.
+- **Zero-Latency Live Playback DSP:** Real-time filter auditioning across **`[1] ♫ MP3`** (Baseband), **`[2] ✦ ENH`** (Restored Derivative), or isolated stems with <50 ms latency.
+- **Target-Aware Banks:** Independent EQ memory for `MASTER`, `VOCALS`, and `INSTRUMENTAL` targets, baked directly into final exported deliverables.
+- **Acoustic Protection:** Switchable **30 Hz High-Pass Filter** prevents sub-sonic DC offset, while **Output Trim** guarantees distortion-free listening.
+
+---
+
+### 4. Genre Intent Engine (M20)
+- **20 Granular Mastering Profiles:** Hip-Hop/Trap, Drill/UK, R&B/Soul, Pop, House, Techno, Trance/Progressive, Bass/Dubstep/DnB, Rock, Metal, Punk, Indie/Alt, Jazz, Classical/Orchestral, Acoustic/Folk, Country, Reggae/Dancehall, Latin/Reggaeton, Lo-fi/Chill, Ambient/Drone + Neutral.
+- **Multi-Genre Blending:** Blend up to 6 genres simultaneously with weighted harmonic averaging (conflicting moves cancel out cleanly).
+- **Three Intensity Levels:** **Subtle (0.6×)**, **Balanced (1.0×)**, and **Bold (1.4×)**.
+- **150+ Tag Aliases:** Automatic tag resolution from ID3, ffprobe, and non-blocking background MusicBrainz queries.
+
+---
+
+### 5. Lossless 24-Bit Masters (M19)
+- **WAV & FLAC Deliverables:** Beside default 320 kbps MP3s, export 24-bit 48 kHz studio masters through the exact same render and EQ chain.
+- **Embedded Provenance:** Embeds `DERIVED_FROM_LOSSY=true`, `SYNTHETIC_HIGH_BAND=true`, applied preset, and genre metadata in FLAC Vorbis comments and WAV ID3 TXXX frames.
+
+---
+
+### 6. Neural Ensemble & Guided Repair (M18)
 
 ```mermaid
 graph LR
@@ -187,40 +212,35 @@ graph LR
     end
 ```
 
-### 4. Genre Intent Engine & Lossless 24-Bit Exports
-- **20 Curated Genre Profiles:** Hip-Hop/Trap, Drill/UK, R&B/Soul, Pop, House, Techno, Trance/Progressive, Bass/Dubstep/DnB, Rock, Metal, Punk, Indie/Alt, Jazz, Classical/Orchestral, Acoustic/Folk, Country, Reggae/Dancehall, Latin/Reggaeton, Lo-fi/Chill, Ambient/Drone + Neutral.
-- **Intelligent Multi-Genre Mix:** Blend up to 6 genres simultaneously. The engine calculates a weighted harmonic average so opposing EQ curves cancel instead of causing unnatural boosts.
-- **Intensity Scaling:** Switch between **Subtle (0.6×)**, **Balanced (1.0×)**, and **Bold (1.4×)**.
-- **Automatic Metadata Resolution:** Over 150 tag aliases identify genre from ID3 tags, ffprobe, and MusicBrainz in the background without blocking the UI.
-- **24-bit 48 kHz WAV & FLAC Exports:** Beside 320 kbps MP3, render pristine 24-bit masters with full provenance metadata (`DERIVED_FROM_LOSSY=true`, `SYNTHETIC_HIGH_BAND=true`, preset and genre flags) embedded in FLAC Vorbis comments and WAV ID3 TXXX chunks.
+- **Dual-Model Ensemble:** **BS-RoFormer** handles vocal clarity (>300 Hz) while **HDEMUCS v4** anchors punchy low end (<300 Hz).
+- **Phase-Aligned LR4 Crossover:** Zero-phase 24 dB/octave Linkwitz-Riley filter delivers a completely flat 0 dB sum response.
+- **Anechoic MSST De-Reverb:** Neural checkpoint separates dry vocals from diffuse room reflections.
+- **Guided Repair Wizard:** Zero-question Quick Fix derived from acoustic detection, 10-question diagnostic interview, and section-specific repair ranges (`min:sec` with auto-suggested hot-spots).
+- **Three Deliverables:** Output an enhanced repaired master, clean acapella, and studio backing track.
 
-### 5. Neural Ensemble Separation & Guided Repair Studio
-Isolate stems for remixes, sampling, or karaoke, then repair acoustic flaws with zero DAW experience:
-- **BS-RoFormer + HDEMUCS v4 Ensemble:** BS-RoFormer handles vocal and harmonic separation above 300 Hz, while HDEMUCS v4 handles clean low-end bass and kick transients below 300 Hz.
-- **Phase-Aligned Linkwitz-Riley (LR4) Recombination:** Zero-phase 24 dB/octave crossover filters yield a flat 0 dB sum response with zero phase distortion.
-- **Anechoic De-Reverb:** Employs the `dereverb_bs_roformer` neural checkpoint (MSST architecture, 51M parameters) to separate dry vocals from diffuse room reverberation.
-- **Guided Repair (F5):**
-  - **Quick Fix:** Acoustic analysis detects sibilance, low-mid mud, and synth bleed, pre-ticks matching symptoms, and applies surgical repairs in one click.
-  - **MCQ Wizard:** 10 diagnostic questions let you fine-tune the repair with contextual guidance.
-  - **Section Targeting:** Target repairs to the entire track or specific `min:sec` regions with auto-suggested hot-spots.
-  - **Three Deliverables:** Generates an enhanced repaired master, clean acapella, and clean instrumental on every run.
+---
 
-### 6. 7-Mode Real-Time Visualizer
-Press <kbd>v</kbd> to cycle between 7 reactive visualizer modes in the terminal:
-1. **Waveform (`waveform`):** Time-domain stereo amplitude scope.
-2. **Frequency Spectrum (`spectrum`):** 32-band real-time FFT energy bars.
+### 7. 7-Mode Real-Time Visualizer (M22)
+Press <kbd>v</kbd> to cycle between seven responsive Unicode visualizers:
+1. **Waveform (`waveform`):** Time-domain stereo amplitude oscilloscope.
+2. **Spectrum (`spectrum`):** 32-band real-time FFT energy bars.
 3. **Stereo VU Meters (`vu`):** Dual-channel average signal levels with peak holds.
 4. **Peak Meters (`peak`):** High-precision dynamic range and clipping indicators.
-5. **Vectorscope (`vectorscope`):** Polar stereo soundstage width and balance visualizer.
+5. **Vectorscope (`vectorscope`):** Polar stereo soundstage width and balance scope.
 6. **STFT Spectrogram Waterfall (`spectrogram`):** 2D time-frequency density waterfall with high-frequency cutoff line overlay (`cutoff_hz`).
 7. **Stereo Lissajous Phase Scope (`phase_scope`):** Real-time phase correlation meter (-1.0 to +1.0), stereo width percentage, and mono-cancellation warning alerts.
 
-### 7. Batch Library Auto-Restoration & Curation
-Point OmniRip at a music library to restore lossy archives serially:
-- **Intelligent Walk:** Scans directories while ignoring `.trash/` and hidden folders.
-- **Acoustic & Genre Policy:** Probes bitrates, identifies genres, applies composed mastering curves, and renders enhanced replacements.
-- **Atomic Safe-Swap:** Moves original files to `<root>/.trash/<YYYY-MM-DD>/<HHMMSS>-<name>` and atomically swaps enhanced files into place. In the event of an I/O interruption, the original is automatically rolled back with byte-for-byte fidelity.
-- **Markdown Reporting:** Generates comprehensive Markdown summary tables detailing codec, bitrate, cutoff, applied genre preset, and restoration status.
+---
+
+### 8. Batch Auto-Restoration & Curation (M21)
+- **Serial Walk:** Traverses directory trees while skipping `.trash/` and hidden folders.
+- **Acoustic & Genre Policy:** Probes bitrates, identifies genres, applies composed mastering curves, and renders enhanced audio.
+- **Atomic Safe-Swap:** Moves original files to `<root>/.trash/<YYYY-MM-DD>/<HHMMSS>-<name>` and atomically swaps enhanced files into place with automatic rollback upon any OS error.
+- **Markdown Reporting:** Generates structured Markdown summary tables detailing codec, bitrate, cutoff, applied genre preset, and restoration status.
+
+---
+
+### 9. Apple Silicon & 16GB RAM Hardening (M24)
 
 ```mermaid
 graph TD
@@ -246,15 +266,13 @@ graph TD
     CLEANUP --> NEXT["Next Track / Turn Ready"]
 ```
 
-### 8. Apple Silicon & 16GB RAM Hardening
-Engineered specifically for fanless 16GB Apple Silicon machines (MacBook Air M2):
-- **Dynamic Chunk Sizing:** Standard 8.0s inference chunks dynamically drop to 4.0s when system memory headroom falls below 2048 MB.
+- **Dynamic Chunk Sizing:** Standard 8.0s inference chunks dynamically shrink to 4.0s when system memory headroom drops below 2048 MB.
 - **MPS & FP16 Acceleration:** Employs Metal Performance Shaders with half-precision floating point (`float16`), cutting resident model allocations by 50%.
 - **VRAM Purge Protocol:** Every render, export, and batch iteration executes `purge_neural_vram()`, flushing MPS/CUDA buffers and running garbage collection to eliminate swap memory spikes.
-- **Serial Batch Execution:** Batch library restoration processes one track at a time with memory teardown between tracks.
 
-### 9. Obsidian Second-Brain Integration
-Two-way synchronization between your Obsidian vault and OmniRip (`OmniRip obsidian-sync`):
+---
+
+### 10. Obsidian Second-Brain Sync (M23)
 
 ```mermaid
 graph LR
@@ -275,12 +293,11 @@ graph LR
 
 - **Wants As Wishlist:** Place notes in `Wants/` with frontmatter `status: want`. OmniRip imports them, rips lossless candidates, and updates status to `done` with spectral tags (`spectral PASS @ 21500Hz`).
 - **Rich Library Notes:** Exports structured album notes under `Library/<Artist>/<Album>.md` with YAML frontmatter genres, track counts, release years, and track tables with genre columns.
-- **Studio Preset Notes:** Generates wikilinked mastering preset documentation under `Studio/presets/`.
 - **Central Dashboard:** Generates `OmniRip.md` as your personal second-brain music hub.
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
 ### 1. Prerequisites (macOS shown)
 ```sh
@@ -290,7 +307,7 @@ brew install ffmpeg yt-dlp chromaprint
 ### 2. Install OmniRip
 Clone the repository and install using `uv` (recommended):
 ```sh
-git clone https://github.com/abdullahbinmadhi/OmniRip.git
+git clone https://github.com/abdullah-binmadhi/OmniRip.git
 cd OmniRip
 uv sync --extra dev --extra restore --extra flashsr
 ```
@@ -299,7 +316,6 @@ uv sync --extra dev --extra restore --extra flashsr
 > The `--extra restore` and `--extra flashsr` flags install PyTorch, Demucs, TorchAudio, Transformers, and FlashSR dependencies for on-device Neural Stem Separation and AI Super-Resolution. For lightweight installations without neural models, omit the flags to run in instant Eco DSP mode.
 
 ### 3. Connect Your Soulseek Account (Recommended)
-To hunt lossless FLAC and WAV audio across the Soulseek P2P network:
 1. Copy the configuration template:
    ```sh
    cp tools/slskd/slskd.yml tools/slskd/slskd.local.yml
@@ -323,11 +339,9 @@ To hunt lossless FLAC and WAV audio across the Soulseek P2P network:
 ./OmniRip
 ```
 
-The launcher reads your credentials, launches the background P2P daemon, and boots the Textual interface.
-
 ---
 
-## Command Line Interface & Obsidian Sync
+## 💻 CLI Commands & Automation
 
 ```sh
 # Synchronize Obsidian vault (import Wants and export Library/Sessions/Studio)
@@ -345,7 +359,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 
 ---
 
-## Keyboard-Driven Studio Navigation
+## ⌨️ Studio Keyboard Shortcuts
 
 | Key | Action | Description |
 |:---:|:---|:---|
@@ -365,7 +379,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 
 ---
 
-## Technical Specifications
+## 📊 Technical Specifications
 
 | Component | Technology | Specification |
 |:---|:---|:---|
@@ -388,26 +402,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 
 ---
 
-## Documentation Deep Dive
-
-| Document | Focus |
-|:---|:---|
-| 📘 [**01. Requirements & Scope**](docs/01-requirements.md) | Functional matrix, acceptance criteria, and decisions D1–D38 |
-| 🏗️ [**02. Core Architecture**](docs/02-architecture.md) | State machine, concurrency pipelines, and data models |
-| 🔄 [**03. Pipeline Phases**](docs/03-pipeline.md) | In-depth walkthrough of the 5-phase asynchronous hunt |
-| 🔬 [**04. Spectral Anti-Fraud**](docs/04-spectral-antifraud.md) | Mathematical cutoff algorithms and test fixtures |
-| 🏷️ [**05. Metadata & Provenance**](docs/05-fingerprinting-metadata.md) | AcoustID, MusicBrainz, and mutagen tagging schemas |
-| ⚡ [**06. slskd Integration**](docs/06-slskd-integration.md) | P2P daemon REST integration and candidate ranking |
-| 📥 [**07. Stream Fallback**](docs/07-ytdlp-fallback.md) | yt-dlp subprocess strategies and error catalogs |
-| 🎨 [**08. TUI Workstation Design**](docs/08-tui-design.md) | Textual widget hierarchy, event throttling, and layout |
-| 🛡️ [**09. Testing & Resilience**](docs/09-resilience-testing.md) | Circuit breakers, retry policies, and test matrix |
-| 🗺️ [**10. Project Roadmap**](docs/10-roadmap.md) | Milestones M0 through M24 |
-| 🧠 [**11. Neural Model Registry**](docs/11-neural-models.md) | On-device AI registry, weights management, PyTorch MPS |
-| 📓 [**15. Obsidian Second Brain**](docs/15-obsidian-bridge.md) | Obsidian vault bridge, Wants wishlist, and Library sync |
-
----
-
-## Legal & Ethical Architecture
+## 📜 Legal & Ethical Architecture
 
 OmniRip is designed exclusively for **personal curation, format-shifting, and acoustic restoration** of content you are legally entitled to obtain (original purchases, your own creations, public domain records, and Creative Commons material). 
 

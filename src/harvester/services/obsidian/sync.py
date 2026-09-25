@@ -84,7 +84,11 @@ class ObsidianSync:
         for path, job in pending.items():
             state = getattr(job, "state", None)
             if state is State.COMPLETED:
-                output = str(getattr(job, "output_path", None) or job.display_name)
+                raw_out = getattr(job, "output_path", None)
+                if raw_out is not None:
+                    output = Path(raw_out).as_posix()
+                else:
+                    output = str(getattr(job, "display_name", "output"))
                 spectral = getattr(job, "spectral", None)
                 extra = []
                 if spectral is not None:
