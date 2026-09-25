@@ -14,6 +14,7 @@ from harvester.analysis.enhancement.eq import EQ_PRESET_BANKS
 from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
 from harvester.ui.report import ReportPanel
+from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
 from harvester.ui.visualizer import AudioVisualizer
 from harvester.ui.workbench import WorkbenchWidget
 
@@ -344,9 +345,9 @@ async def test_workbench_dead_space_elements_and_cached_download(tmp_path: Path)
         with patch.object(wb, "_trigger_enhancement_pregeneration"):
             wb.load_job(job)
 
-        # Verify visualizer is 10-band
-        vis = app.query_one("#wb-visualizer", AudioVisualizer)
-        assert vis.num_bands == 10
+        # Verify visual dashboard is mounted
+        dash = app.query_one("#wb-visual-dashboard", VisualDashboardWidget)
+        assert dash is not None
 
         # Verify download progress bar exists
         pb = app.query_one("#wb-download-progress", ProgressBar)
@@ -730,12 +731,20 @@ async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Pat
         assert page_vis.styles.display != "none"
         assert page_deck.styles.display == "none"
 
-        # 3. Verify all 5 visualizer engines exist inside wb-page-vis
-        assert app.query_one("#wb-visualizer", AudioVisualizer) is not None
-        assert app.query_one("#wb-vis-osc", AudioVisualizer) is not None
-        assert app.query_one("#wb-vis-mir", AudioVisualizer) is not None
-        assert app.query_one("#wb-vis-braille", AudioVisualizer) is not None
-        assert app.query_one("#wb-vis-vu", AudioVisualizer) is not None
+        # 3. Verify VisualDashboardWidget is mounted in clean empty state by default
+        dash = app.query_one("#wb-visual-dashboard", VisualDashboardWidget)
+        assert dash is not None
+        assert len(dash.cards) == 0
+        assert app.query_one("#vis-dash-empty-state") is not None
+
+        # Verify applying a preset populates cards dynamically
+        dash.apply_preset("quad")
+        assert len(dash.cards) == 4
+        assert len(app.query(VisualizerCard)) == 4
+
+        # Verify clearing returns to empty state
+        dash.clear_canvas()
+        assert len(dash.cards) == 0
 
         # 4. Top-level app nav bar tests
         btn_nav_tracks = app.query_one("#btn-nav-tracks", Button)

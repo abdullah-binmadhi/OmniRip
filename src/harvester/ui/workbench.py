@@ -67,6 +67,7 @@ from harvester.ui.operation_state import (
 from harvester.ui.repair import RepairPanel
 from harvester.ui.report import ReportPanel
 from harvester.ui.track_info import TrackInfoScreen
+from harvester.ui.visual_dashboard import VisualDashboardWidget
 from harvester.ui.visualizer import AudioVisualizer
 
 if TYPE_CHECKING:
@@ -978,28 +979,7 @@ class WorkbenchWidget(Widget):
                 yield RepairPanel()
 
             with Vertical(id="wb-page-vis"):
-                yield Label(
-                    "AUDIO VISUALIZATION STUDIO  [Multi-Engine Acoustic Analysis]",
-                    id="wb-vis-title",
-                    classes="wb-section-title",
-                )
-                with Horizontal(classes="wb-vis-row-top"):
-                    with Vertical(classes="wb-vis-cell"):
-                        yield Label("10-BAND SPECTRUM ANALYZER (fc Cutoff)", classes="wb-vis-label")
-                        yield AudioVisualizer(num_bands=10, mode="spectrum", cutoff_hz=self.cutoff_hz, id="wb-visualizer")
-                    with Vertical(classes="wb-vis-cell"):
-                        yield Label("PHOSPHOR WAVEFORM OSCILLOSCOPE", classes="wb-vis-label")
-                        yield AudioVisualizer(mode="oscilloscope", id="wb-vis-osc")
-                with Horizontal(classes="wb-vis-row-bot"):
-                    with Vertical(classes="wb-vis-cell"):
-                        yield Label("SYMMETRICAL MIRRORED DANCE", classes="wb-vis-label")
-                        yield AudioVisualizer(mode="mirrored", id="wb-vis-mir")
-                    with Vertical(classes="wb-vis-cell"):
-                        yield Label("BRAILLE WAVE MATRIX (2x4 Dot Matrix)", classes="wb-vis-label")
-                        yield AudioVisualizer(mode="braille", id="wb-vis-braille")
-                    with Vertical(classes="wb-vis-cell"):
-                        yield Label("STEREO VU DECK (dB Headroom)", classes="wb-vis-label")
-                        yield AudioVisualizer(mode="vu_meter", id="wb-vis-vu")
+                yield VisualDashboardWidget(id="wb-visual-dashboard")
 
             with Vertical(id="wb-page-report"):
                 yield ReportPanel(id="wb-report-panel")
@@ -1154,8 +1134,11 @@ class WorkbenchWidget(Widget):
         except Exception:
             pass
 
-        vis = self.query_one("#wb-visualizer", AudioVisualizer)
-        vis.set_cutoff(cutoff)
+        try:
+            vis = self.query_one("#wb-visualizer", AudioVisualizer)
+            vis.set_cutoff(cutoff)
+        except Exception:
+            pass
         self._update_inspector()
 
         # Default to MP3 stream

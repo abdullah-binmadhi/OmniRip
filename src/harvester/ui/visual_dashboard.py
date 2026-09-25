@@ -1,0 +1,640 @@
+"""Modular Dynamic Audio Visualizer Dashboard for OmniRip TUI."""
+
+from __future__ import annotations
+
+import uuid
+from typing import ClassVar
+
+import numpy as np
+from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.message import Message
+from textual.reactive import reactive
+from textual.screen import ModalScreen
+from textual.timer import Timer
+from textual.widget import Widget
+from textual.widgets import Button, Input, Label, Select
+
+from harvester.ui.visuals.base import (
+    PALETTES,
+    AudioFeatureContext,
+    BaseVisualizerEngine,
+    ColorPalette,
+)
+from harvester.ui.visuals.registry import CATEGORIES, VisualizerRegistry
+
+AVAILABLE_PALETTE_KEYS: list[str] = ["cyan", "neon", "matrix", "thermal", "sunset", "crt", "stanford"]
+
+
+class VisualizerEngineCanvas(Widget):
+    """Low-level canvas rendering a specific visualizer engine at 30 FPS."""
+
+    DEFAULT_CSS = """
+    VisualizerEngineCanvas {
+        height: 1fr;
+        width: 1fr;
+        min-height: 4;
+        background: transparent;
+        padding: 0;
+    }
+    """
+
+    def __init__(
+        self,
+        engine: BaseVisualizerEngine,
+        palette_key: str = "cyan",
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(id=id, classes=classes)
+        self.engine = engine
+        self.palette_key = palette_key
+        self.feature_ctx = AudioFeatureContext.synthesize_idle()
+        self._idle_phase = 0.0
+        self._anim_timer: Timer | None = None
+
+    def on_mount(self) -> None:
+        self._anim_timer = self.set_interval(1.0 / 30.0, self._on_tick)
+
+    def on_unmount(self) -> None:
+        if self._anim_timer:
+            self._anim_timer.stop()
+            self._anim_timer = None
+
+    def _on_tick(self) -> None:
+        self._idle_phase = (self._idle_phase + 0.08) % (2.0 * np.pi * 100.0)
+        if not self.feature_ctx.is_playing:
+            self.feature_ctx = AudioFeatureContext.synthesize_idle(self._idle_phase)
+        self.refresh()
+
+    def set_audio_features(self, ctx: AudioFeatureContext) -> None:
+        self.feature_ctx = ctx
+        self.refresh()
+
+    def render(self) -> Text:
+        w = max(self.engine.min_width, self.size.width)
+        h = max(self.engine.min_height, self.size.height)
+        palette = PALETTES.get(self.palette_key, PALETTES["cyan"])
+        return self.engine.render_frame(w, h, self.feature_ctx, self._idle_phase, palette)
+
+
+class VisualizerCard(Widget):
+    """An interactive card tile on the dashboard housing a visualizer engine."""
+
+    DEFAULT_CSS = """
+    VisualizerCard {
+        height: 1fr;
+        width: 1fr;
+        min-height: 8;
+        border: round $secondary;
+        background: #0d0e15;
+        margin: 0 1 1 0;
+        padding: 0;
+    }
+    .vis-card-header {
+        height: 1;
+        width: 1fr;
+        background: $surface;
+        padding: 0 1;
+        align: left middle;
+        border-bottom: solid $surface-lighten-1;
+    }
+    .vis-card-title {
+        width: 1fr;
+        height: 1;
+        color: $warning;
+        text-style: bold;
+    }
+    .vis-card-btn-palette {
+        min-width: 8;
+        height: 1;
+        border: none;
+        background: transparent;
+        color: $accent;
+        text-style: bold;
+        padding: 0;
+        margin-right: 1;
+    }
+    .vis-card-btn-palette:hover {
+        background: $panel;
+        color: #ffffff;
+    }
+    .vis-card-btn-close {
+        min-width: 3;
+        height: 1;
+        border: none;
+        background: transparent;
+        color: $error;
+        text-style: bold;
+        padding: 0;
+    }
+    .vis-card-btn-close:hover {
+        background: $error;
+        color: #ffffff;
+    }
+    """
+
+    class RemoveRequested(Message):
+        def __init__(self, card_id: str) -> None:
+            super().__init__()
+            self.card_id = card_id
+
+    def __init__(
+        self,
+        engine_id: str,
+        palette_key: str = "cyan",
+        card_id: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(id=id, classes=classes)
+        self.card_id = card_id or str(uuid.uuid4())[:8]
+        self.engine_id = engine_id
+        self.palette_key = palette_key
+        engine = VisualizerRegistry.get(engine_id)
+        if not engine:
+            from harvester.ui.visuals.registry import MirroredDanceEngine
+            engine = MirroredDanceEngine()
+        self.engine = engine
+        self.canvas = VisualizerEngineCanvas(engine=self.engine, palette_key=self.palette_key)
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="vis-card-header"):
+            yield Label(f"{self.engine.icon} {self.engine.name}", classes="vis-card-title")
+            yield Button(
+                f"[{self.palette_key.upper()}]",
+                id=f"btn-pal-{self.card_id}",
+                classes="vis-card-btn-palette",
+            )
+            yield Button("✕", id=f"btn-close-{self.card_id}", classes="vis-card-btn-close")
+        yield self.canvas
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == f"btn-close-{self.card_id}":
+            event.stop()
+            self.post_message(self.RemoveRequested(self.card_id))
+        elif event.button.id == f"btn-pal-{self.card_id}":
+            event.stop()
+            self.cycle_palette()
+
+    def cycle_palette(self) -> None:
+        try:
+            curr_idx = AVAILABLE_PALETTE_KEYS.index(self.palette_key)
+            next_idx = (curr_idx + 1) % len(AVAILABLE_PALETTE_KEYS)
+            self.palette_key = AVAILABLE_PALETTE_KEYS[next_idx]
+        except ValueError:
+            self.palette_key = "cyan"
+        self.canvas.palette_key = self.palette_key
+        btn = self.query_one(f"#btn-pal-{self.card_id}", Button)
+        btn.label = f"[{self.palette_key.upper()}]"
+
+    def feed_audio(self, ctx: AudioFeatureContext) -> None:
+        self.canvas.set_audio_features(ctx)
+
+
+class VisualCatalogModal(ModalScreen[str | None]):
+    """Catalog browser modal dialog to search, preview, and add visualizers."""
+
+    DEFAULT_CSS = """
+    VisualCatalogModal {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.75);
+    }
+    #vis-catalog-dialog {
+        width: 80;
+        height: 32;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    #vis-catalog-header {
+        height: 2;
+        width: 1fr;
+        color: $accent;
+        text-style: bold;
+        border-bottom: solid $secondary;
+        margin-bottom: 1;
+    }
+    #vis-catalog-filter-bar {
+        height: 3;
+        width: 1fr;
+        margin-bottom: 1;
+    }
+    #vis-catalog-search {
+        width: 1fr;
+        margin-right: 1;
+    }
+    #vis-catalog-category {
+        width: 30;
+    }
+    #vis-catalog-list {
+        height: 1fr;
+        width: 1fr;
+        background: $panel;
+        padding: 0 1;
+    }
+    .vis-item-row {
+        height: 4;
+        width: 1fr;
+        border-bottom: solid $surface-lighten-1;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    .vis-item-info {
+        width: 1fr;
+        height: 3;
+    }
+    .vis-item-name {
+        color: $warning;
+        text-style: bold;
+    }
+    .vis-item-desc {
+        color: $text-muted;
+    }
+    .vis-item-btn-add {
+        min-width: 12;
+        height: 3;
+        margin-left: 1;
+    }
+    #vis-catalog-footer {
+        height: 3;
+        width: 1fr;
+        align: right middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.query_text = ""
+        self.selected_category = "all"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="vis-catalog-dialog"):
+            yield Label("⌗ AUDIO VISUALIZER CATALOG [100 ENGINES]", id="vis-catalog-header")
+            with Horizontal(id="vis-catalog-filter-bar"):
+                yield Input(placeholder="Search visualizers (name, tags, description)...", id="vis-catalog-search")
+                cat_options = [("All Categories", "all")] + [
+                    (f"{meta[0]} {meta[1]}", key) for key, meta in CATEGORIES.items()
+                ]
+                yield Select(options=cat_options, value="all", id="vis-catalog-category", prompt="Filter Category")
+            with VerticalScroll(id="vis-catalog-list"):
+                yield from self._render_items()
+            with Horizontal(id="vis-catalog-footer"):
+                yield Button("CLOSE [ESC]", id="btn-catalog-close", variant="default")
+
+    def _render_items(self) -> ComposeResult:
+        engines = VisualizerRegistry.list_all()
+        if self.selected_category != "all":
+            engines = [e for e in engines if e.category == self.selected_category]
+        if self.query_text:
+            q = self.query_text.lower()
+            engines = [
+                e for e in engines
+                if q in e.name.lower() or q in e.description.lower() or q in e.category.lower() or q in e.id.lower()
+            ]
+
+        if not engines:
+            yield Label("No visualizer engines matched your search criteria.", classes="vis-item-desc")
+            return
+
+        for e in engines:
+            with Horizontal(classes="vis-item-row"):
+                with Vertical(classes="vis-item-info"):
+                    cat_name = CATEGORIES.get(e.category, ("", e.category, ""))[1]
+                    yield Label(f"{e.icon} {e.name}  [dim][{cat_name}][/dim]", classes="vis-item-name")
+                    yield Label(e.description, classes="vis-item-desc")
+                yield Button("+ ADD", name=e.id, variant="primary", classes="vis-item-btn-add")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "vis-catalog-search":
+            self.query_text = event.value
+            self._refresh_list()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "vis-catalog-category":
+            val = str(event.value) if event.value != Select.NULL else "all"
+            self.selected_category = val
+            self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        scroll = self.query_one("#vis-catalog-list", VerticalScroll)
+        scroll.remove_children()
+        engines = VisualizerRegistry.list_all()
+        if self.selected_category != "all":
+            engines = [e for e in engines if e.category == self.selected_category]
+        if self.query_text:
+            q = self.query_text.lower()
+            engines = [
+                e for e in engines
+                if q in e.name.lower() or q in e.description.lower() or q in e.category.lower() or q in e.id.lower()
+            ]
+
+        if not engines:
+            scroll.mount(Label("No visualizer engines matched your search criteria.", classes="vis-item-desc"))
+            return
+
+        for e in engines:
+            row = Horizontal(classes="vis-item-row")
+            scroll.mount(row)
+            info = Vertical(classes="vis-item-info")
+            row.mount(info)
+            cat_name = CATEGORIES.get(e.category, ("", e.category, ""))[1]
+            info.mount(Label(f"{e.icon} {e.name}  [dim][{cat_name}][/dim]", classes="vis-item-name"))
+            info.mount(Label(e.description, classes="vis-item-desc"))
+            row.mount(Button("+ ADD", name=e.id, variant="primary", classes="vis-item-btn-add"))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-catalog-close":
+            self.dismiss(None)
+        elif event.button.has_class("vis-item-btn-add"):
+            self.dismiss(event.button.name)
+
+
+class VisualDashboardWidget(Widget):
+    """Dynamic multi-engine Audio Visualizer Dashboard with custom layouts and empty state."""
+
+    DEFAULT_CSS = """
+    VisualDashboardWidget {
+        height: 1fr;
+        width: 1fr;
+        background: transparent;
+        padding: 0;
+    }
+    #vis-dash-toolbar {
+        height: 3;
+        width: 1fr;
+        background: $surface;
+        padding: 0 1;
+        align: left middle;
+        border-bottom: solid $secondary;
+    }
+    #vis-dash-title {
+        color: $accent;
+        text-style: bold;
+        width: auto;
+        margin-right: 2;
+    }
+    .vis-dash-btn {
+        height: 1;
+        min-width: 12;
+        margin-right: 1;
+        padding: 0 1;
+    }
+    #vis-dash-container {
+        height: 1fr;
+        width: 1fr;
+        padding: 1;
+        background: transparent;
+    }
+    #vis-dash-empty-state {
+        height: 1fr;
+        width: 1fr;
+        align: center middle;
+        background: transparent;
+        padding: 2;
+    }
+    #vis-empty-box {
+        width: 70;
+        height: auto;
+        border: round $primary;
+        background: $panel;
+        padding: 2;
+        align: center middle;
+    }
+    #vis-empty-title {
+        color: $accent;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #vis-empty-desc {
+        color: $text-muted;
+        text-align: center;
+        margin-bottom: 2;
+    }
+    #vis-empty-hero-btn {
+        min-width: 32;
+        margin-bottom: 2;
+    }
+    .vis-quickstart-row {
+        height: 3;
+        width: auto;
+        align: center middle;
+    }
+    .vis-quickstart-btn {
+        margin: 0 1;
+        min-width: 14;
+    }
+    #vis-dash-grid {
+        height: 1fr;
+        width: 1fr;
+        background: transparent;
+    }
+    .vis-grid-row {
+        height: 1fr;
+        width: 1fr;
+        margin-bottom: 0;
+    }
+    """
+
+    cards: reactive[list[dict[str, str]]] = reactive(list)
+
+    def __init__(self, id: str | None = None, classes: str | None = None) -> None:
+        super().__init__(id=id, classes=classes)
+        self._feature_ctx = AudioFeatureContext.synthesize_idle()
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="vis-dash-toolbar"):
+            yield Label("⌗ AUDIO VISUALIZATION STUDIO", id="vis-dash-title")
+            yield Button("＋ ADD VISUAL", id="btn-vis-add", variant="primary", classes="vis-dash-btn")
+            yield Button("◖ SOLO", id="btn-vis-preset-solo", variant="default", classes="vis-dash-btn")
+            yield Button("◫ DUAL", id="btn-vis-preset-dual", variant="default", classes="vis-dash-btn")
+            yield Button("⌸ QUAD", id="btn-vis-preset-quad", variant="default", classes="vis-dash-btn")
+            yield Button("✕ CLEAR", id="btn-vis-clear", variant="error", classes="vis-dash-btn")
+        with Container(id="vis-dash-container"):
+            with Vertical(id="vis-dash-empty-state"):
+                with Vertical(id="vis-empty-box"):
+                    yield Label("⌗ MODULAR AUDIO VISUALIZER DASHBOARD", id="vis-empty-title")
+                    yield Label(
+                        "Your visualizer dashboard is currently empty.\n"
+                        "Build a custom studio dashboard by picking engines from our catalog,\n"
+                        "or choose a quickstart preset below.",
+                        id="vis-empty-desc",
+                    )
+                    yield Button(
+                        "＋ BROWSE VISUAL CATALOG (100 ENGINES)",
+                        id="btn-empty-browse",
+                        variant="primary",
+                    )
+                    yield Label("QUICKSTART TEMPLATES:", classes="vis-item-name")
+                    with Horizontal(classes="vis-quickstart-row"):
+                        yield Button("◖ SOLO HERO", id="btn-empty-solo", classes="vis-quickstart-btn")
+                        yield Button("◫ DUAL SPLIT", id="btn-empty-dual", classes="vis-quickstart-btn")
+                        yield Button("⌸ STUDIO QUAD", id="btn-empty-quad", classes="vis-quickstart-btn")
+            with Vertical(id="vis-dash-grid"):
+                pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id or ""
+        if btn_id in ("btn-vis-add", "btn-empty-browse"):
+            event.stop()
+            self._open_catalog_modal()
+        elif btn_id in ("btn-vis-preset-solo", "btn-empty-solo"):
+            event.stop()
+            self.apply_preset("solo")
+        elif btn_id in ("btn-vis-preset-dual", "btn-empty-dual"):
+            event.stop()
+            self.apply_preset("dual")
+        elif btn_id in ("btn-vis-preset-quad", "btn-empty-quad"):
+            event.stop()
+            self.apply_preset("quad")
+        elif btn_id == "btn-vis-clear":
+            event.stop()
+            self.clear_canvas()
+
+    def _open_catalog_modal(self) -> None:
+        def on_modal_result(engine_id: str | None) -> None:
+            if engine_id:
+                self.add_card(engine_id)
+
+        self.app.push_screen(VisualCatalogModal(), on_modal_result)
+
+    def on_visualizer_card_remove_requested(self, event: VisualizerCard.RemoveRequested) -> None:
+        event.stop()
+        self.remove_card(event.card_id)
+
+    def add_card(self, engine_id: str, palette: str = "cyan") -> None:
+        """Add an engine card to the dashboard canvas."""
+        new_card = {
+            "card_id": str(uuid.uuid4())[:8],
+            "engine_id": engine_id,
+            "palette": palette,
+        }
+        curr = list(self.cards)
+        if len(curr) >= 6:
+            curr.pop(0)  # max 6 active cards per dashboard
+        curr.append(new_card)
+        self.cards = curr
+        self._refresh_canvas()
+
+    def remove_card(self, card_id: str) -> None:
+        """Remove a card by ID and re-tile the canvas."""
+        self.cards = [c for c in self.cards if c["card_id"] != card_id]
+        self._refresh_canvas()
+
+    def clear_canvas(self) -> None:
+        """Clear all visualizer cards, returning to the empty state."""
+        self.cards = []
+        self._refresh_canvas()
+
+    def apply_preset(self, preset_name: str) -> None:
+        """Apply a preset configuration of visualizer cards."""
+        if preset_name == "solo":
+            self.cards = [
+                {"card_id": "solo-1", "engine_id": "mirrored_dance", "palette": "cyan"}
+            ]
+        elif preset_name == "dual":
+            self.cards = [
+                {"card_id": "dual-1", "engine_id": "spectrum_10band", "palette": "cyan"},
+                {"card_id": "dual-2", "engine_id": "phosphor_crt_wave", "palette": "crt"},
+            ]
+        elif preset_name == "quad":
+            self.cards = [
+                {"card_id": "quad-1", "engine_id": "spectrum_10band", "palette": "cyan"},
+                {"card_id": "quad-2", "engine_id": "phosphor_crt_wave", "palette": "crt"},
+                {"card_id": "quad-3", "engine_id": "mirrored_dance", "palette": "neon"},
+                {"card_id": "quad-4", "engine_id": "stereo_vu_deck", "palette": "thermal"},
+            ]
+        self._refresh_canvas()
+
+    def _refresh_canvas(self) -> None:
+        try:
+            empty_box = self.query_one("#vis-dash-empty-state")
+            grid = self.query_one("#vis-dash-grid")
+        except Exception:
+            return
+
+        if not self.cards:
+            empty_box.styles.display = "block"
+            grid.styles.display = "none"
+            grid.remove_children()
+        else:
+            empty_box.styles.display = "none"
+            grid.styles.display = "block"
+            grid.remove_children()
+            n = len(self.cards)
+            if n <= 2:
+                row = Horizontal(classes="vis-grid-row")
+                grid.mount(row)
+                for item in self.cards:
+                    row.mount(
+                        VisualizerCard(
+                            engine_id=item["engine_id"],
+                            palette_key=item.get("palette", "cyan"),
+                            card_id=item["card_id"],
+                            id=f"vis-card-{item['card_id']}",
+                        )
+                    )
+            elif n <= 4:
+                row1 = Horizontal(classes="vis-grid-row")
+                row2 = Horizontal(classes="vis-grid-row")
+                grid.mount(row1)
+                grid.mount(row2)
+                for item in self.cards[:2]:
+                    row1.mount(
+                        VisualizerCard(
+                            engine_id=item["engine_id"],
+                            palette_key=item.get("palette", "cyan"),
+                            card_id=item["card_id"],
+                            id=f"vis-card-{item['card_id']}",
+                        )
+                    )
+                for item in self.cards[2:4]:
+                    row2.mount(
+                        VisualizerCard(
+                            engine_id=item["engine_id"],
+                            palette_key=item.get("palette", "cyan"),
+                            card_id=item["card_id"],
+                            id=f"vis-card-{item['card_id']}",
+                        )
+                    )
+            else:
+                row1 = Horizontal(classes="vis-grid-row")
+                row2 = Horizontal(classes="vis-grid-row")
+                grid.mount(row1)
+                grid.mount(row2)
+                for item in self.cards[:3]:
+                    row1.mount(
+                        VisualizerCard(
+                            engine_id=item["engine_id"],
+                            palette_key=item.get("palette", "cyan"),
+                            card_id=item["card_id"],
+                            id=f"vis-card-{item['card_id']}",
+                        )
+                    )
+                for item in self.cards[3:6]:
+                    row2.mount(
+                        VisualizerCard(
+                            engine_id=item["engine_id"],
+                            palette_key=item.get("palette", "cyan"),
+                            card_id=item["card_id"],
+                            id=f"vis-card-{item['card_id']}",
+                        )
+                    )
+
+    def feed_audio(
+        self,
+        levels: np.ndarray | None = None,
+        wave: np.ndarray | None = None,
+        is_playing: bool = False,
+    ) -> None:
+        """Route live audio features to all active visualizer cards."""
+        ctx = AudioFeatureContext(
+            levels_128=levels if levels is not None else np.zeros(128, dtype=np.float32),
+            waveform_l=wave if wave is not None else np.zeros(1024, dtype=np.float32),
+            is_playing=is_playing,
+        )
+        self._feature_ctx = ctx
+        for card in self.query(VisualizerCard):
+            card.feed_audio(ctx)
