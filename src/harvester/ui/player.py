@@ -231,13 +231,24 @@ class StudioTelemetryWidget(AudioVisualizer):
     """
 
     telemetry_mode: reactive[str] = reactive("LUFS")
+    target_lufs: reactive[float] = reactive(-14.0)
+    phase_expanded: reactive[bool] = reactive(False)
+
+    TARGET_PRESETS: dict[float, str] = {
+        -14.0: "Spotify / YouTube / Tidal",
+        -16.0: "Apple Music / AES TD1004",
+        -9.0: "Club / Streaming EDM",
+    }
 
     def __init__(self, id: str | None = "player-visualizer", classes: str | None = None) -> None:
         super().__init__(num_bands=20, id=id, classes=classes)
         self.telemetry_mode = "LUFS"
+        self.target_lufs = -14.0
+        self.phase_expanded = False
         self._lufs_integrated: float = -14.0
         self._lufs_momentary: float = -14.2
         self._true_peak_db: float = -0.4
+        self._peak_hold_db: float = -0.4
         self._dynamic_range_dr: float = 12.0
         self._phase_correlation: float = 0.88
         self._mid_energy_pct: float = 75.0
@@ -258,6 +269,39 @@ class StudioTelemetryWidget(AudioVisualizer):
         }
         return new_mode, descriptions.get(new_mode, new_mode)
 
+    def cycle_target_lufs(self) -> tuple[float, str]:
+        """Cycle through streaming loudness reference targets: -14 -> -16 -> -9 -> -14 dB."""
+        presets = [-14.0, -16.0, -9.0]
+        curr_idx = presets.index(self.target_lufs) if self.target_lufs in presets else 0
+        self.target_lufs = presets[(curr_idx + 1) % len(presets)]
+        self.refresh()
+        desc = self.TARGET_PRESETS.get(self.target_lufs, f"{self.target_lufs:.0f} LUFS")
+        return self.target_lufs, desc
+
+    def reset_peaks(self) -> None:
+        """Reset peak hold and goniometer drift to baseline levels."""
+        self._peak_hold_db = self._true_peak_db
+        self.refresh()
+
+    def on_click(self, event: events.Click) -> None:
+        """Handle direct mouse clicks on telemetry meter for fast tactical adjustments."""
+        event.stop()
+        if self.telemetry_mode == "LUFS":
+            target, desc = self.cycle_target_lufs()
+            self.app.notify(f"Loudness Target: {target:.0f} LUFS ({desc})", timeout=2.0)
+        elif self.telemetry_mode == "PHASE":
+            self.phase_expanded = not self.phase_expanded
+            mode_name = "Expanded Vectorscope" if self.phase_expanded else "Standard Phase"
+            self.refresh()
+            self.app.notify(f"Goniometer Mode: {mode_name}", timeout=2.0)
+        elif self.telemetry_mode == "RADAR":
+            fc = self.cutoff_hz if self.cutoff_hz else 20500.0
+            verdict = "True Lossless" if fc >= 19500.0 else "Transcode / Compressed"
+            self.app.notify(
+                f"Forensic Audit: fc={fc / 1000.0:.1f} kHz | Nyquist=22.05 kHz ({verdict})",
+                timeout=3.0,
+            )
+
     def update_telemetry(self, l_val: float, r_val: float) -> None:
         """Update live telemetry calculations from audio frame levels."""
         if not self.is_playing:
@@ -270,7 +314,10 @@ class StudioTelemetryWidget(AudioVisualizer):
         r_val = max(0.0001, min(1.0, r_val))
 
         peak = max(l_val, r_val)
-        self._true_peak_db = 20.0 * math.log10(peak) if peak > 0.001 else -60.0
+        current_peak = 20.0 * math.log10(peak) if peak > 0.001 else -60.0
+        self._true_peak_db = current_peak
+        if current_peak > self._peak_hold_db:
+            self._peak_hold_db = current_peak
 
         mid = (l_val + r_val) * 0.5
         side = abs(l_val - r_val) * 0.5
@@ -289,25 +336,33 @@ class StudioTelemetryWidget(AudioVisualizer):
         t = Text()
 
         if self.telemetry_mode == "LUFS":
-            t.append(" ── EBU R128 LOUDNESS & DYNAMICS ──\n", style="bold cyan")
+            target_short = {
+                -14.0: "Spotify/YT",
+                -16.0: "Apple/AES",
+                -9.0: "Club/EDM",
+            }.get(self.target_lufs, "Target")
+            t.append(
+                f" ── EBU R128 LOUDNESS [{self.target_lufs:.0f} LUFS {target_short}] ──\n",
+                style="bold cyan",
+            )
             norm = min(1.0, max(0.0, (self._lufs_momentary + 36.0) / 36.0))
             bar_len = 14
             filled = int(norm * bar_len)
             meter = "❚" * filled + "░" * (bar_len - filled)
             color = (
                 "bold green"
-                if self._lufs_momentary <= -14.0
+                if self._lufs_momentary <= self.target_lufs
                 else "bold yellow"
-                if self._lufs_momentary <= -11.0
+                if self._lufs_momentary <= self.target_lufs + 3.0
                 else "bold red"
             )
             t.append(" M ", style="bold white")
             t.append(f"[{self._lufs_momentary:5.1f} LUFS] ", style=color)
             t.append(f"{meter}\n", style=color)
 
-            delta = self._lufs_momentary - (-14.0)
+            delta = self._lufs_momentary - self.target_lufs
             delta_str = f"+{delta:.1f}" if delta > 0 else f"{delta:.1f}"
-            t.append(f" Ref: -14.0 LUFS ({delta_str} dB Target Match)\n", style="dim white")
+            t.append(f" Match: {delta_str} dB vs {self.target_lufs:.0f} Target\n", style="dim white")
             tp_style = "bold red" if self._true_peak_db > -0.2 else "bold green"
             t.append(" True-Peak: ", style="dim white")
             t.append(f"{self._true_peak_db:4.1f} dBTP", style=tp_style)
@@ -315,7 +370,8 @@ class StudioTelemetryWidget(AudioVisualizer):
             t.append(f"DR{int(self._dynamic_range_dr)}\n", style="bold bright_white")
 
         elif self.telemetry_mode == "PHASE":
-            t.append(" ── STEREO PHASE & VECTORSCOPE ───\n", style="bold magenta")
+            hdr = " ── GONIOMETER STEREO EXPANDED ──\n" if self.phase_expanded else " ── STEREO PHASE & VECTORSCOPE ───\n"
+            t.append(hdr, style="bold magenta")
             norm_p = min(1.0, max(0.0, (self._phase_correlation + 1.0) / 2.0))
             pos = int(norm_p * 18)
             pos = max(0, min(18, pos))
@@ -335,10 +391,16 @@ class StudioTelemetryWidget(AudioVisualizer):
             t.append(f" -1 [ {p_bar} ] +1\n", style="cyan")
             t.append(" Phase: ", style="dim white")
             t.append(f"{self._phase_correlation:+.2f} [{phase_status}]\n", style=p_style)
-            t.append(
-                f" Mid: {int(self._mid_energy_pct)}% • Side: {int(self._side_energy_pct)}% • Width: {self._stereo_width:.2f}x\n",
-                style="dim white",
-            )
+            if self.phase_expanded:
+                t.append(
+                    f" Mid/Side: {int(self._mid_energy_pct)}%/{int(self._side_energy_pct)}% • Spread: {self._stereo_width:.2f}x\n",
+                    style="dim cyan",
+                )
+            else:
+                t.append(
+                    f" Mid: {int(self._mid_energy_pct)}% • Side: {int(self._side_energy_pct)}% • Width: {self._stereo_width:.2f}x\n",
+                    style="dim white",
+                )
 
         else:  # RADAR (Forensic Anti-Fraud)
             t.append(" ── FORENSIC CUTOFF & INTEGRITY ──\n", style="bold yellow")
@@ -528,6 +590,38 @@ class AudioPlayerWidget(Widget):
             pass
             pass
 
+    def _update_stream_badge(
+        self,
+        path: Path | None,
+        is_enhanced: bool = False,
+        preset_name: str = "",
+    ) -> None:
+        """Update stream badge reflecting exact format, lossless status, and restoration preset."""
+        try:
+            badge = self.query_one("#player-stream-badge", Label)
+            if is_enhanced:
+                p_text = f" ({preset_name})" if preset_name else ""
+                badge.update(f"[bold green][ NEURAL RESTORED{p_text.upper()} ][/bold green]")
+                return
+
+            if not path:
+                badge.update("[dim white][ NO AUDIO LOADED ][/dim white]")
+                return
+
+            ext = path.suffix.lower()
+            if ext in {".flac", ".wav", ".aif", ".aiff"}:
+                badge.update(f"[bold bright_cyan][ {ext[1:].upper()} LOSSLESS ][/bold bright_cyan]")
+            elif ext in {".mp3"}:
+                badge.update("[bold yellow][ MP3 BASEBAND ][/bold yellow]")
+            elif ext in {".m4a", ".aac"}:
+                badge.update("[bold yellow][ AAC BASEBAND ][/bold yellow]")
+            elif ext in {".ogg", ".opus"}:
+                badge.update("[bold cyan][ OPUS BASEBAND ][/bold cyan]")
+            else:
+                badge.update("[bold cyan][ ORIGINAL BASEBAND ][/bold cyan]")
+        except Exception:
+            pass
+
     def load_track(
         self,
         path: Path,
@@ -541,6 +635,7 @@ class AudioPlayerWidget(Widget):
         self.elapsed_s = 0.0
         self.duration_s = self._probe_duration(self.current_track)
         self._update_time_label()
+        self._update_stream_badge(self.current_track, is_enhanced=False)
 
         vis = self.query_one("#player-visualizer", AudioVisualizer)
         vis.set_cutoff(cutoff_hz)
@@ -574,15 +669,7 @@ class AudioPlayerWidget(Widget):
         except Exception:
             pass
 
-        try:
-            badge = self.query_one("#player-stream-badge", Label)
-            if is_enhanced:
-                p_text = f" ({preset_name})" if preset_name else ""
-                badge.update(f"[bold green][ NEURAL RESTORED{p_text.upper()} ][/bold green]")
-            else:
-                badge.update("[bold cyan][ ORIGINAL MP3 (BASEBAND) ][/bold cyan]")
-        except Exception:
-            pass
+        self._update_stream_badge(self.current_track, is_enhanced=is_enhanced, preset_name=preset_name)
 
         if self.duration_s > 0:
             pct = min(1.0, self.elapsed_s / self.duration_s)
@@ -790,6 +877,20 @@ class AudioPlayerWidget(Widget):
         except Exception:
             pass
         self.app.notify(f"Telemetry Mode: {mode_desc}", timeout=2.0)
+
+    def cycle_telemetry_target(self) -> None:
+        """Cycle loudness target on studio telemetry radar."""
+        vis = self.query_one("#player-visualizer", AudioVisualizer)
+        if isinstance(vis, StudioTelemetryWidget):
+            target, desc = vis.cycle_target_lufs()
+            self.app.notify(f"Loudness Target: {target:.0f} LUFS ({desc})", timeout=2.0)
+
+    def reset_telemetry_peaks(self) -> None:
+        """Reset peak-hold meter values on studio telemetry radar."""
+        vis = self.query_one("#player-visualizer", AudioVisualizer)
+        if isinstance(vis, StudioTelemetryWidget):
+            vis.reset_peaks()
+            self.app.notify("Telemetry Peaks Reset", timeout=1.5)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-play":

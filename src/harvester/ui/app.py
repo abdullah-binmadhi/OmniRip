@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import typing
 from dataclasses import replace
 from pathlib import Path
@@ -34,6 +35,7 @@ from harvester.services.environment import (
 )
 from harvester.services.slskd_config import read_slskd_credentials
 from harvester.ui.bridge import FlushPlan, UiBridge
+from harvester.ui.help_modal import HelpModalScreen
 from harvester.ui.logconsole import LogConsole
 from harvester.ui.player import AudioPlayerWidget
 from harvester.ui.themes import cycle_theme, register_custom_themes
@@ -469,6 +471,10 @@ class HarvesterApp(App[None]):
         ("i", "open_track_info", "Track info"),
         ("d", "open_diagnostics", "Diagnostics"),
         ("v", "toggle_vis_mode", "Visualizer"),
+        ("t", "toggle_vis_mode", "Telemetry Mode"),
+        ("T", "cycle_telemetry_target", "LUFS Target"),
+        ("p", "reset_telemetry_peaks", "Reset Peaks"),
+        ("question_mark", "show_help", "Help"),
         ("f1", "nav_page_tracks", "Tracks"),
         ("f2", "nav_page_vis", "Visualizer"),
         ("f3", "nav_page_deck", "Deck"),
@@ -780,6 +786,19 @@ class HarvesterApp(App[None]):
     async def _submit_url(self, url: str) -> None:
         orchestrator = self.orchestrator
         assert orchestrator is not None
+
+        items = [u.strip() for u in re.split(r"[\r\n,;]+", url) if u.strip()]
+        if len(items) > 1:
+            queued_count = 0
+            for item in items:
+                try:
+                    await orchestrator.submit_url(item)
+                    queued_count += 1
+                except Exception as exc:
+                    self._write_log("WARNING", f"Could not enqueue {item}: {exc}")
+            self.notify(f"Enqueued {queued_count} batch download jobs", timeout=3.0)
+            return
+
         expand = self.query_one("#expand-playlists", Checkbox).value
         if expand and "list=" in url:
             entries = await orchestrator.probe_playlist(url)
@@ -964,6 +983,26 @@ class HarvesterApp(App[None]):
             player.toggle_vis_mode()
         except Exception:
             pass
+
+    def action_cycle_telemetry_target(self) -> None:
+        """Cycle loudness target reference on studio telemetry radar."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.cycle_telemetry_target()
+        except Exception:
+            pass
+
+    def action_reset_telemetry_peaks(self) -> None:
+        """Reset peak-hold meter values on studio telemetry radar."""
+        try:
+            player = self.query_one(AudioPlayerWidget)
+            player.reset_telemetry_peaks()
+        except Exception:
+            pass
+
+    def action_show_help(self) -> None:
+        """Open the fast keyboard cheatsheet & telemetry command overlay."""
+        self.push_screen(HelpModalScreen())
 
     def action_seek_backward(self) -> None:
         """Seek backward 5 seconds in player."""

@@ -303,15 +303,26 @@ graph LR
 
 Copy and run **one command** in your terminal:
 
-**macOS & Linux:**
+**macOS & Linux (1-Command):**
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/install.sh | bash
 ```
 
-**Windows (PowerShell):**
+**macOS (via Homebrew):**
+```sh
+brew install abdullah-binmadhi/tap/omnirip
+```
+
+**Windows (PowerShell 1-Command):**
 ```powershell
 irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/install.ps1 | iex
 ```
+
+**Standalone Zero-Dependency Binaries:**
+Download precompiled single-file binaries directly from [GitHub Releases](https://github.com/abdullah-binmadhi/OmniRip/releases):
+- `omnirip-macos-arm64` (Apple Silicon M1/M2/M3/M4)
+- `omnirip-linux-x86_64` (Linux x86_64)
+- `omnirip-windows-x64.exe` (Windows x64)
 
 **Instant Zero-Install (via `uvx`):**
 ```sh
@@ -371,7 +382,12 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 
 | Key | Action | Description |
 |:---:|:---|:---|
+| <kbd>?</kbd> | **Command Cheatsheet** | Open full keyboard shortcuts & studio telemetry guide modal |
 | <kbd>Space</kbd> | **Play / Pause** | Toggle real-time audio playback in the built-in studio player |
+| <kbd>←</kbd> / <kbd>→</kbd> | **Seek Track** | Jump playback backward or forward ±5 seconds (or click scrubber directly) |
+| <kbd>t</kbd> | **Telemetry Mode** | Cycle studio telemetry instrument: `LUFS` ➔ `PHASE` ➔ `RADAR` |
+| <kbd>T</kbd> / <kbd>Shift+T</kbd> | **LUFS Target** | Cycle reference target: `-14 LUFS` (Spotify/YT) ➔ `-16` (Apple) ➔ `-9` (Club) |
+| <kbd>p</kbd> | **Reset Peaks** | Clear peak hold and reset vectorscope drift to current baseline |
 | <kbd>F1</kbd>–<kbd>F5</kbd> | **Page Navigation** | Switch studio pages: `[F1]` Tracks & Logs, `[F2]` Visualizer, `[F3]` Deck, `[F4]` Repair, `[F5]` EQ |
 | <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
 | <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
@@ -380,6 +396,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 | <kbd>g</kbd> | **Genre Intent Mix** | Open the 20-Genre Intent Mixer modal with intensity controls |
 | <kbd>i</kbd> / <kbd>d</kbd> | **Info & Doctor** | Open the Track Info modal / system diagnostics doctor |
 | <kbd>F5</kbd> | **Repair** | Guided Repair: Quick Fix, MCQ wizard, section ranges, Local/Hosted engine |
+| <kbd>Ctrl</kbd>+<kbd>s</kbd> | **API Settings** | Open in-TUI credentials modal for Soulseek, AcoustID, and AI keys |
 | <kbd>Ctrl</kbd>+<kbd>p</kbd> | **Toggle Mode** | Switch between URL Hunt (Single Track) and Local Batch Audit |
 | <kbd>l</kbd> | **Log Cycle** | Cycle log telemetry levels: `INFO` → `DEBUG` → `WARN+ERROR` |
 | <kbd>e</kbd> | **Export Master** | Export enhanced master (320 kbps MP3, or 24-bit WAV/FLAC from Deck menu) |

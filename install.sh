@@ -73,6 +73,11 @@ REPO_URL="git+https://github.com/abdullah-binmadhi/OmniRip.git"
 
 uv tool install --force --from "${REPO_URL}" omnirip
 
+if [[ "$*" == *"--download-models"* ]]; then
+    echo -e "${GREEN}Provisioning AI neural models (Demucs + FlashSR)...${NC}"
+    "$HOME/.local/bin/omnirip" --download-models
+fi
+
 echo -e "\n${GREEN}======================================================${NC}"
 echo -e "${GREEN}  ✓ OmniRip successfully installed!${NC}"
 echo -e "  Run ${CYAN}omnirip${NC} anytime from your terminal."

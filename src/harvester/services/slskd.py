@@ -334,6 +334,47 @@ def _bool_or_none(value: Any) -> bool | None:
     return bool(value)
 
 
+def filter_search_responses(
+    responses: Iterable[SearchResponse],
+    *,
+    lossless_only: bool = False,
+    min_bitrate: int | None = None,
+    min_speed_kbps: int | None = None,
+    max_queue_depth: int | None = None,
+) -> list[SearchResponse]:
+    """Filter search responses by audio quality, peer speed, and queue length."""
+    results: list[SearchResponse] = []
+    for resp in responses:
+        if min_speed_kbps is not None and resp.speed_kbps is not None:
+            if resp.speed_kbps < min_speed_kbps:
+                continue
+        if max_queue_depth is not None and resp.queue_length is not None:
+            if resp.queue_length > max_queue_depth:
+                continue
+
+        filtered_files: list[SlskdFile] = []
+        for file in resp.files:
+            ext = Path(file.filename).suffix.lower()
+            if lossless_only:
+                if ext not in {".flac", ".wav", ".aif", ".aiff"}:
+                    continue
+            if min_bitrate is not None and file.bitrate is not None:
+                if file.bitrate < min_bitrate:
+                    continue
+            filtered_files.append(file)
+
+        if filtered_files:
+            results.append(
+                SearchResponse(
+                    user=resp.user,
+                    speed_kbps=resp.speed_kbps,
+                    queue_length=resp.queue_length,
+                    files=tuple(filtered_files),
+                )
+            )
+    return results
+
+
 _DEFAULT_DOWNLOAD_ROUTE = "/api/v0/transfers/downloads/{username}"
 
 
@@ -341,4 +382,5 @@ __all__ = [
     "SearchResponse",
     "SlskdFile",
     "SlskdService",
+    "filter_search_responses",
 ]
