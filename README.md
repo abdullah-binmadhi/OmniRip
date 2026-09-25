@@ -297,6 +297,48 @@ graph LR
 
 ---
 
+### 11. Studio Telemetry Radar & Smart Quality Filters
+
+```mermaid
+graph LR
+    subgraph TELEM["Live Studio Telemetry Radar"]
+        LUFS["EBU R128 Loudness Radar (-14 / -16 / -9 dB Targets)"]
+        PHASE["Stereo Phase Correlation & Goniometer (Mono-Safe)"]
+        RADAR["Forensic Cutoff Radar & Anti-Fraud Verification"]
+    end
+
+    subgraph FILTERS["P2P Swarm Quality Guard"]
+        LOSSLESS["Lossless Only (.flac / .wav / .aiff)"]
+        BITRATE["Minimum Bitrate Filter (>= 320 kbps)"]
+        SPEED["High-Speed Peers (> 500 KB/s)"]
+        QUEUE["Queue Depth Caps (Skip congested peers)"]
+    end
+
+    subgraph BATCH["Multi-URL Ingestion"]
+        INPUT["Paste URLs / Playlist list (newlines / commas)"]
+        DISPATCH["Non-blocking Sequential Job Queue"]
+    end
+
+    TELEM --> PLAYER["60 FPS In-App Audio Player"]
+    FILTERS --> HARVEST["Soulseek Swarm (slskd)"]
+    BATCH --> DISPATCH
+```
+
+- **Live EBU R128 Loudness Radar (`LUFS` Mode):** Real-time momentary bar meter and delta readout comparing playback energy against professional streaming target standards:
+  - **`-14 LUFS`** (Spotify / YouTube / Tidal)
+  - **`-16 LUFS`** (Apple Music / Podcasts / AES TD1004)
+  - **`-9 LUFS`** (Club / Commercial High-Energy EDM)
+- **Stereo Goniometer & Phase Vectorscope (`PHASE` Mode):** Live phase correlation bar (`[-1.0 .. +1.0]`) with mono-compatibility warnings and expandable Mid/Side energy spread calculations.
+- **Forensic Spectral Health (`RADAR` Mode):** Instant visual readout of high-frequency cutoff points, Nyquist bandwidth retention percentage, and anti-fraud authenticity verdicts (`VERIFIED TRUE LOSSLESS` vs `TRANSCODE FAKE`).
+- **Tactical Hotkeys & Cheatsheet (<kbd>?</kbd>):**
+  - Press <kbd>?</kbd> to open the in-app interactive keyboard cheatsheet overlay.
+  - Press <kbd>t</kbd> to cycle telemetry modes (`LUFS` ➔ `PHASE` ➔ `RADAR`).
+  - Press <kbd>T</kbd> / <kbd>Shift+T</kbd> to cycle loudness reference targets.
+  - Press <kbd>p</kbd> or click the radar directly to reset peak-hold meters.
+- **Multi-URL Batch Downloader:** Paste dozens of Spotify/YouTube links or search terms into the input box separated by commas, semicolons, or newlines for automated sequential acquisition.
+
+---
+
 ## ⚡ Quick Start (1-Command Install)
 
 ### 🚀 Instant Install & Run
