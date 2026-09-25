@@ -20,6 +20,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - uses: FedericoCarboni/setup-ffmpeg@v3
+
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

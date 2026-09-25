@@ -82,7 +82,7 @@ def test_flashsr_provider_air_band(tmp_path: Path):
 
 def test_flashsr_neural_path_uses_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """The neural path feeds the real pipeline and returns only the > cutoff band."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     cache = tmp_path / "models"
     manager = ModelManager(cache_dir=cache)
