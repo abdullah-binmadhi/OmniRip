@@ -454,3 +454,9 @@ VisualizerRegistry.register(MatrixDigitalRainEngine)
 VisualizerRegistry.register(LissajousHarmonicsEngine)
 VisualizerRegistry.register(AudioFlameFireEngine)
 
+# Register Phase 4 procedural engines (Completing all 100 engines across 8 packs)
+from harvester.ui.visuals.catalog_100 import register_catalog_100  # noqa: E402
+
+register_catalog_100()
+
+
