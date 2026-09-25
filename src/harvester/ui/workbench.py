@@ -167,23 +167,21 @@ class WorkbenchWidget(Widget):
         color: $accent;
         text-style: bold;
         padding: 0 1;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
     #wb-track-meta {
-        height: 1;
-        color: $text;
-        text-style: bold;
+        display: none;
+        height: 0;
     }
     #wb-cutoff-info {
-        height: 1;
-        color: $text-muted;
-        margin-bottom: 1;
+        display: none;
+        height: 0;
     }
     #wb-stream-row {
         height: 3;
         width: 1fr;
         align: left middle;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
     #wb-stream-row Button {
         width: 1fr;
@@ -197,7 +195,7 @@ class WorkbenchWidget(Widget):
         height: 3;
         width: 1fr;
         align: left middle;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
     #wb-preset-select {
         width: 1fr;
@@ -520,19 +518,22 @@ class WorkbenchWidget(Widget):
         display: none;
     }
     .wb-vis-row-top {
-        height: 10;
+        height: 1fr;
+        min-height: 8;
         width: 1fr;
-        margin-top: 1;
+        margin-top: 0;
         margin-bottom: 1;
     }
     .wb-vis-row-bot {
-        height: 10;
+        height: 1fr;
+        min-height: 8;
         width: 1fr;
-        margin-bottom: 1;
+        margin-bottom: 0;
     }
     .wb-vis-cell {
         width: 1fr;
-        height: 10;
+        height: 1fr;
+        min-height: 8;
         border: round $secondary;
         background: #0d0e15;
         padding: 0 1;
@@ -843,9 +844,9 @@ class WorkbenchWidget(Widget):
         self.path_enh = val
 
     def compose(self) -> ComposeResult:
-        yield Label("CURATION & ENHANCEMENT WORKBENCH", id="wb-header")
-        yield Label("No track selected — click a track in the table above", id="wb-track-meta")
-        yield Label("Cutoff fc: -- kHz | State: IDLE", id="wb-cutoff-info")
+        yield Label("OMNIRIP // WORKBENCH", id="wb-header")
+        yield Label("", id="wb-track-meta")
+        yield Label("", id="wb-cutoff-info")
 
         with Horizontal(id="wb-stream-row"):
             yield Button("[1] MP3", id="btn-stream-mp3", variant="primary")
@@ -1125,10 +1126,19 @@ class WorkbenchWidget(Widget):
 
         # Update metadata and inspector
         name = job.display_name
-        self.query_one("#wb-track-meta", Label).update(f"TRACK: {name}")
-        self.query_one("#wb-cutoff-info", Label).update(
-            f"Cutoff fc: {cutoff / 1000.0:.1f} kHz | Verdict: {job.spectral.verdict.value.upper()}"
-        )
+        try:
+            self.query_one("#wb-header", Label).update(
+                f"OMNIRIP WORKBENCH // {name}  [{cutoff / 1000.0:.1f} kHz | {job.spectral.verdict.value.upper()}]"
+            )
+        except Exception:
+            pass
+        try:
+            self.query_one("#wb-track-meta", Label).update(f"TRACK: {name}")
+            self.query_one("#wb-cutoff-info", Label).update(
+                f"Cutoff fc: {cutoff / 1000.0:.1f} kHz | Verdict: {job.spectral.verdict.value.upper()}"
+            )
+        except Exception:
+            pass
 
         vis = self.query_one("#wb-visualizer", AudioVisualizer)
         vis.set_cutoff(cutoff)

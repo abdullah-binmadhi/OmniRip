@@ -216,7 +216,7 @@ class RepairPanel(Widget):
 
     def compose(self) -> ComposeResult:
         yield Label("GUIDED REPAIR", id="rp-title")
-        yield Label("No track selected — pick a track above", id="rp-status")
+        yield Label("", id="rp-status")
 
         with Vertical(id="rp-quick"):
             yield Label("◈ ENGINE: —", id="rp-engine-badge")
