@@ -20,7 +20,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Install ffmpeg (Ubuntu / Windows)
+        if: runner.os != 'macOS'
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: which ffmpeg || brew install ffmpeg
 
       - uses: astral-sh/setup-uv@v5
         with:
