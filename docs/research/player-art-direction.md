@@ -117,48 +117,95 @@ Use current aesthetic revivals as precise ingredients, not as a single trend app
 
 The companion is a designed part of the preset's information hierarchy, not a decorative portrait pasted beside it. Give each built-in a companion frame, scene vocabulary, and restrained audio response that share the page palette and material language. The companion may occupy a sidebar, instrument inset, directory tile, status rail, or a small footer slot; its location is specified per design. Keep dialogue short and contextual, preserve legibility, and provide a reduced-motion mode.
 
-| Built-in | Scene and visual signature | Companion integration and response |
-| --- | --- | --- |
-| Y2K Aesthetic | Chrome utility window with a Frutiger-Aero accent: aqua glass cues, optical-disc shimmer, bubbles, and an oversized segmented readout. | Aimi sits in a compact desktop-widget frame; slow bubble drift and one CD-spectrum sweep; playful expression on a clear transient. |
-| Cyberpunk 2077 | Asymmetric district map, near-black field, clipped brackets, sparse rain-reflection marks, and role-based amber/cyan/red. | V-Kira appears as an intercepted-radio portrait in the side rail; rain is slow, while a transient may briefly charge an original energy-line prop. |
-| Matrix Terminal | One phosphor-green code-rain field, dark trailing values, strict mono labels, and a restrained CRT scan. | Trinity-X is an operator/status tile with a short log line; code flow is continuous but sparse, with a brief bright lead on strong transients. |
-| Lo-Fi Chill | Cassette-deck silhouette, warm paper/wood tones, broad waveform window, and soft grain implied by glyph density. | Maya occupies an `ON AIR` listening nook with mug-steam and window-rain motifs; breathing/sway only, no strobe or rapid color cycling. |
-| Tokyo Night | Indigo transit map, thin connected routes, station dots, and reflected-rain accents; keep the hierarchy calm. | Ren is a platform-status portrait with a route ticker; a single train-light pass can follow a track change, otherwise the scene stays quiet. |
-| Retrowave Sunset | Full-width road perspective, segmented low sun, palm silhouettes, VHS-like line interruptions, and coral-to-magenta horizon bands. | Chloe appears in an instrument-cluster inset; beat-synced road markers and a gentle bob, with chromatic split reserved for transitions. |
-| Industrial Decay | Open truss bays, uneven structural spans, soot and oxidized metal roles, bolt marks, and a sparse caution stripe. | Rust-01 occupies a maintenance log; a small gauge tremor or spark marks a strong transient, while idle remains still and legible. |
-| Deep Ocean | Narrow bathymetry shaft, sonar returns, broad navy negative space, and rare bioluminescent marks. | Marina is an ROV telemetry tile with depth and ping status; bubbles rise slowly, and bioluminescent trails appear only on detected events. |
-| Solar Flare | Dark observatory field, one dominant coronal-loop trace, and explicitly keyed wavelength channels. | Solara is an active-region observer; an arc and warm edge-light intensify on transients, not as a permanent fire texture. |
-| Acid Techno | 16-step sequencer is the page; numbered steps, accent/slide lanes, acid lime, and a small violet counter-accent. | Acid-DJ sits beside pattern/tempo readouts; the active step follows the audio pulse, with a short controlled flash on a strong transient. |
-| Vaporwave Mall | Floor-directory plan, central atrium, store-code rail, generous empty space, pastel tile cues, and a deliberately slow muzak strip. | Crystal is a kiosk/PA tile; fountain ripples and a distant announcement bubble create gentle, slightly uncanny motion without horror imagery. |
-| Dungeon Synth | Parchment cartouche, one illuminated initial, sparse engraved corners, muted sepia/plum, and cassette-grain character. | Morwen appears in a field chronicle; one torch ember or rune glint responds to a transient, with long quiet intervals. |
-| Chiptune Gameboy | Single dot-matrix viewport, four-level green-gray logic, chunky 8-bit sprite motifs, and hard pixel alignment. | Dot-Chan is a cartridge/battery badge; use discrete pixel-frame poses and `[A]`/`[B]` emotes, never smooth neon gradients. |
-| Nordic Aurora | Wide polar horizon, sparse latitude arcs, airy spacing, and narrow curtain ribbons against midnight blue. | Freya is an observation/time stamp; slow aurora drift and a breath-vapor accent; no abrupt flashes. |
-| Bioshock Steampunk | Neo-Deco crown and rails, mirrored geometry, deep teal, jewel-tone highlights, and matte brass used sparingly. | Ada is a telegraph/pressure slate; a pressure needle and water ripple share the page's geometry, with deliberate, mechanical motion. |
-| Quantum Void | Near-empty field, a few ket-register labels, probability outcomes, and a measured decoherence trace. | Nova is an outcome ledger; particle paths resolve into stable states on measurement, avoiding random glitch or noisy starfields. |
-| Hyprland Rice | Master/stack tile composition, deliberate gaps, thin active edge, workspace strip, and Catppuccin-derived roles. | Dotfile is the compact workspace/status companion; focus follows the selected pane, with a tiny status pulse instead of simulated blur. |
-| DOS Mpxplay | Commander-style fixed rows, selection bar, limited ANSI palette, block spectrum, and bottom function-key rail. | Commander Ken is file metadata/status, not a large portrait; use a blinking cursor and row selection, no gradients or faux scanline noise. |
-| Analog Mastering | Matte instrument face, aligned dual scales, loudness/true-peak ledger, and threshold colors with calibrated units. | Elena is a calibration sheet; VU ballistics and alignment markers follow measured level smoothly, without decorative bounce. |
-| Stellar Galaxy | Sparse RA/Dec chart, varied star density, constellation links, and rare gold object labels. | Astra is an object card with coordinates/magnitude; slow orbital drift and sparse twinkle, not an aurora curtain. |
-| Solo Stanford 3D Waterfall | One broad waterfall viewport with `TIME / FREQ / DEPTH` axes and a quiet lab rail. | CCRMA companion is a small research reticle/feature-stat panel; freeze/rotate state is explicit and the hero scope owns the motion. |
-| Dual Cyber Deck | Large primary scope, narrower telemetry/companion pane, distinct frame weights, and one shared bottom rail. | Companion links the two panes with a short signal/status line; pane focus is visible and does not change transport behavior. |
-| Quad Studio Master Deck | Four aligned console panes, common time ruler, master-bus header, and one focused-pane accent. | Companion is a four-bus monitor badge beside engineering notes; readings remain calibrated and stable across quadrants. |
+| Design ID | Built-in | Scene and visual signature | Companion integration and response |
+| --- | --- | --- | --- |
+| `preset_y2k_aesthetic` | Y2K Aesthetic | Chrome utility window with a Frutiger-Aero accent: aqua glass cues, optical-disc shimmer, bubbles, and an oversized segmented readout. | Aimi sits in a compact desktop-widget frame; slow bubble drift and one CD-spectrum sweep; playful expression on a clear transient. |
+| `preset_cyberpunk_2077` | Cyberpunk 2077 | Asymmetric district map, near-black field, clipped brackets, sparse rain-reflection marks, and role-based amber/cyan/red. | V-Kira appears as an intercepted-radio portrait in the side rail; rain is slow, while a transient may briefly charge an original energy-line prop. |
+| `preset_matrix_terminal` | Matrix Terminal | One phosphor-green code-rain field, dark trailing values, strict mono labels, and a restrained CRT scan. | Trinity-X is an operator/status tile with a short log line; code flow is continuous but sparse, with a brief bright lead on strong transients. |
+| `preset_lofi_chill` | Lo-Fi Chill | Cassette-deck silhouette, warm paper/wood tones, broad waveform window, and soft grain implied by glyph density. | Maya occupies an `ON AIR` listening nook with mug-steam and window-rain motifs; breathing/sway only, no strobe or rapid color cycling. |
+| `preset_tokyo_night` | Tokyo Night | Indigo transit map, thin connected routes, station dots, and reflected-rain accents; keep the hierarchy calm. | Ren is a platform-status portrait with a route ticker; a single train-light pass can follow a track change, otherwise the scene stays quiet. |
+| `preset_retrowave_sunset` | Retrowave Sunset | Full-width road perspective, segmented low sun, palm silhouettes, VHS-like line interruptions, and coral-to-magenta horizon bands. | Chloe appears in an instrument-cluster inset; beat-synced road markers and a gentle bob, with chromatic split reserved for transitions. |
+| `preset_industrial_decay` | Industrial Decay | Open truss bays, uneven structural spans, soot and oxidized metal roles, bolt marks, and a sparse caution stripe. | Rust-01 occupies a maintenance log; a small gauge tremor or spark marks a strong transient, while idle remains still and legible. |
+| `preset_deep_ocean` | Deep Ocean | Narrow bathymetry shaft, sonar returns, broad navy negative space, and rare bioluminescent marks. | Marina is an ROV telemetry tile with depth and ping status; bubbles rise slowly, and bioluminescent trails appear only on detected events. |
+| `preset_solar_flare` | Solar Flare | Dark observatory field, one dominant coronal-loop trace, and explicitly keyed wavelength channels. | Solara is an active-region observer; an arc and warm edge-light intensify on transients, not as a permanent fire texture. |
+| `preset_acid_techno` | Acid Techno | 16-step sequencer is the page; numbered steps, accent/slide lanes, acid lime, and a small violet counter-accent. | Acid-DJ sits beside pattern/tempo readouts; the active step follows the audio pulse, with a short controlled flash on a strong transient. |
+| `preset_vaporwave_mall` | Vaporwave Mall | Floor-directory plan, central atrium, store-code rail, generous empty space, pastel tile cues, and a deliberately slow muzak strip. | Crystal is a kiosk/PA tile; fountain ripples and a distant announcement bubble create gentle, slightly uncanny motion without horror imagery. |
+| `preset_dungeon_synth` | Dungeon Synth | Parchment cartouche, one illuminated initial, sparse engraved corners, muted sepia/plum, and cassette-grain character. | Morwen appears in a field chronicle; one torch ember or rune glint responds to a transient, with long quiet intervals. |
+| `preset_chiptune_gameboy` | Chiptune Gameboy | Single dot-matrix viewport, four-level green-gray logic, chunky 8-bit sprite motifs, and hard pixel alignment. | Dot-Chan is a cartridge/battery badge; use discrete pixel-frame poses and `[A]`/`[B]` emotes, never smooth neon gradients. |
+| `preset_nordic_aurora` | Nordic Aurora | Wide polar horizon, sparse latitude arcs, airy spacing, and narrow curtain ribbons against midnight blue. | Freya is an observation/time stamp; slow aurora drift and a breath-vapor accent; no abrupt flashes. |
+| `preset_bioshock_steampunk` | Bioshock Steampunk | Neo-Deco crown and rails, mirrored geometry, deep teal, jewel-tone highlights, and matte brass used sparingly. | Ada is a telegraph/pressure slate; a pressure needle and water ripple share the page's geometry, with deliberate, mechanical motion. |
+| `preset_quantum_void` | Quantum Void | Near-empty field, a few ket-register labels, probability outcomes, and a measured decoherence trace. | Nova is an outcome ledger; particle paths resolve into stable states on measurement, avoiding random glitch or noisy starfields. |
+| `preset_hyprland_rice` | Hyprland Rice | Master/stack tile composition, deliberate gaps, thin active edge, workspace strip, and Catppuccin-derived roles. | Dotfile is the compact workspace/status companion; focus follows the selected pane, with a tiny status pulse instead of simulated blur. |
+| `preset_dos_mpxplay` | DOS Mpxplay | Commander-style fixed rows, selection bar, limited ANSI palette, block spectrum, and bottom function-key rail. | Commander Ken is file metadata/status, not a large portrait; use a blinking cursor and row selection, no gradients or faux scanline noise. |
+| `preset_analog_mastering` | Analog Mastering | Matte instrument face, aligned dual scales, loudness/true-peak ledger, and threshold colors with calibrated units. | Elena is a calibration sheet; VU ballistics and alignment markers follow measured level smoothly, without decorative bounce. |
+| `preset_stellar_galaxy` | Stellar Galaxy | Sparse RA/Dec chart, varied star density, constellation links, and rare gold object labels. | Astra is an object card with coordinates/magnitude; slow orbital drift and sparse twinkle, not an aurora curtain. |
+| `builtin_solo_stanford` | Solo Stanford 3D Waterfall | One broad waterfall viewport with `TIME / FREQ / DEPTH` axes and a quiet lab rail. | CCRMA companion is a small research reticle/feature-stat panel; freeze/rotate state is explicit and the hero scope owns the motion. |
+| `builtin_dual_cyber` | Dual Cyber Deck | Large primary scope, narrower telemetry/companion pane, distinct frame weights, and one shared bottom rail. | Companion links the two panes with a short signal/status line; pane focus is visible and does not change transport behavior. |
+| `builtin_quad_matrix` | Quad Studio Master Deck | Four aligned console panes, common time ruler, master-bus header, and one focused-pane accent. | Companion is a four-bus monitor badge beside engineering notes; readings remain calibrated and stable across quadrants. |
 
 ## Dynamic Design Contract
 
-Each built-in design should provide data for these dimensions. They are an authoring vocabulary; the implementation may refine field names, but it must not collapse these into one generic theme switch.
+Each built-in design is authored data, not a hand-tuned screen. The engine reads the design record and applies rail placement, button vocabulary, panel geometry, frame glyphs, and motion at runtime. This section is the field-level schema; `player_designs.py` is the source of record and `player_layout.py` (Phase 4) is the consumer.
 
-- **Page chrome:** eyebrow/title/subtitle/motif; control-rail placement (`masthead`, `left rail`, `right rail`, `footer`, or split); rail axis; control order; label vocabulary; button frame/family.
+### Design Field Schema
+
+Fields on `PlayerPageDesign` as implemented in `src/harvester/ui/player_designs.py`:
+
+| Field | Type | Allowed values / format | Consumed by |
+| --- | --- | --- | --- |
+| `layout_id` | `str` | One of the 23 ids in the design table above | `PLAYER_PAGE_DESIGNS`, `PlayerStudioWidget.apply_layout` |
+| `eyebrow` | `str` | short uppercase kicker | compact masthead treatment |
+| `page_title` | `str` | unique per design | `#plr-page-title` |
+| `subtitle` | `str` | unique per design | `#plr-theme-subtitle` |
+| `motif` | `str` | original glyph/word strip | motif slot (masthead, companion frame, or footer) |
+| `dashboard_layout` | `str` | `balanced_rows`, `hero_left`, `hero_top`, `five_by_two`, `three_columns`, `split_columns`, `solo`, `dual`, `quad` | `VisualDashboardWidget.layout_style` |
+| `control_style` | `str` | `capsule`, `cutout`, `terminal`, `soft`, `flat`, `heavy`, `lcd`, `instrument` | button family selection |
+| `title_style` | `str` | Textual text-style subset: `bold`, `italic`, `underline`, or combinations | title label styling |
+| `companion_heading` | `str` | unique per design | `#plr-anime-companion` header |
+| `top_controls` | `tuple[str, ...]` (6 values) | label templates supporting `{gap}` and `{queue}` | order: home, presets, load, save, gap, popout |
+
+Dimensions the runtime engine must support (field names may be refined in Phase 4, but each dimension must exist and must not collapse into one generic theme switch):
+
+| Dimension | Type | Allowed values / format | Purpose |
+| --- | --- | --- | --- |
+| `rail` | `str` | `masthead`, `rail_left`, `rail_right`, `footer`, `split_hud`, `corner_hud` | docking of the page control bar |
+| `rail_axis` | `str` | `horizontal`, `vertical`, `grid` | button strip layout |
+| `button_family` | `str` | `keys`, `plaques`, `pills`, `toggles`, `kiosk`, `knobs`, `lcd`, `brackets` | variant, border, and weight of controls |
+| `button_frame` | `str` | template with `{label}`; e.g. `[F{n}:{label}]`, `【{label}】`, `> {label}` | transport label rendering |
+| `panel_slots` | `dict[str, str]` | `dashboard` (dashboard layout id); `companion` ∈ `rail_left`/`rail_right`/`footer`/`inset`/`hidden`; `dock` ∈ `footer`/`header`; `motif` ∈ `masthead`/`companion`/`footer`/`hidden` | panel geometry |
+| `frame_glyphs` | `str` | `box`, `double`, `heavy`, `ascii`, `tall`, `round`, `dashed`, `solid` plus one preset glyph set | per-edge borders and `border_title` treatment |
+| `border_roles` | `dict[str, str]` | edge or panel name → theme role (`primary`, `secondary`, `accent`, `surface`, `foreground`) | border color mapping |
+| `motion` | `tuple[...]` | `(kind, trigger, intensity, reduced)`; kind ∈ `odometer`, `marquee`, `blink`, `scanline`, `drift`, `pulse`, `step-blink`, `needle`; trigger ∈ `idle`, `playing`, `transient`, `track_change`, `selection`; intensity 0–2; reduced ∈ `hold`/`slow`/`hide` | `_tick_60fps` motion pass |
+
+Authoring rules:
+
+- **Page chrome:** eyebrow/title/subtitle/motif; control-rail placement and axis; control order; label vocabulary; button frame/family.
 - **Panel geometry:** one supported dashboard composition; companion slot and size; player-dock slot and height; focused-panel behavior; breakpoint/compact fallback.
 - **Visual language:** theme color roles (`background`, `surface`, `primary`, `secondary`, `accent`, `foreground`); border family and per-edge treatment; glyph/material vocabulary; visualizer family emphasis; density and renderer profile.
 - **Companion direction:** original character identity; scene recipe; prop/emote vocabulary; permitted mood set; audio response profile; dialogue tone; companion frame and slot.
 - **Motion:** one primary motion signature per page and at most one secondary accent. Define the audio/state event that triggers it, its intensity cap, and its reduced-motion behavior. Idle ambience must not masquerade as live audio.
 - **Fallbacks:** fit at compact terminal sizes; retain clear controls; use ASCII-safe borders/glyphs where width or font coverage is uncertain; hide secondary decoration before clipping required information.
 
+Legacy compatibility: user-saved layouts carry `ui_structure_style` and `button_style_mode`. `LEGACY_DASHBOARD_LAYOUTS` and `LEGACY_CONTROL_STYLES` in `player_designs.py` map those onto the vocabulary above. Built-in layouts resolve to their curated design; custom layouts fall back to the canonical design and remain editable.
+
 ### Terminal Rendering Fidelity
 
-Use a conservative Unicode/glyph renderer by default; terminal metadata cannot guarantee that a particular font includes every recent block glyph. Prefer **sextants** for filled/color portrait regions when available, with an explicit capability override before using newer octants. Use **braille** for fine line-art and sparse plots; **quadrants** and **half-blocks** are compatibility alternatives; preserve an ASCII fallback. Kitty/Sixel pixel protocols are an optional future mode, not a requirement for the standard PLAYER experience. [R41–R45]
+Default ladder: **sextant → quadrant → half-block → braille**, with octants only behind an explicit capability opt-in and ASCII as the universal fallback. Kitty/Sixel pixel protocols remain an optional future mode, not a requirement for the standard PLAYER experience. [R41–R45]
 
-- Separate shape from color: select a glyph by the local coverage pattern, then map foreground/background to the preset's theme roles. Do not use a renderer's glyph availability as the only signal for terminal capability.
+| Mode | Cell geometry | Colors per cell | Default role | Selection signal | Fallback |
+| --- | --- | --- | --- | --- | --- |
+| `octant` | 2×4 | foreground + background | opt-in only | explicit `ui.visual_fidelity = octant` when the font supports Unicode 16 | sextant |
+| `sextant` | 2×3 | foreground + background | default for filled/portrait regions | `auto` with Unicode 13 glyph coverage | quadrant |
+| `quadrant` | 2×2 | foreground + background | broad compatibility | `auto` fallback | half-block |
+| `halfblock` | 1×2 | foreground + background | universal truecolor | `auto` fallback | braille |
+| `braille` | 2×4 | single | line art, sparse plots, legacy terminals | `auto` fallback or explicit | ascii |
+| `ascii` | 1×2 | none | final fallback (no Unicode blocks, pipes) | capability failure or explicit | — |
+| `kitty` / `sixel` | pixel | truecolor | deferred | explicit opt-in only | sextant |
+
+Rules:
+
+- `ui.visual_fidelity` accepts `auto` or one of the mode names above; `auto` never selects octant without an explicit opt-in, and never relies on glyph availability as the only signal of terminal capability.
+- Separate shape from color: select a glyph by the local coverage pattern, then map foreground/background to the preset's theme roles.
 - Use ordered or error-diffusion dithering only where it supports the source material. Keep DOS and Game Boy palettes deliberately limited; preserve analog/natural gradients for mastering, ocean, solar, and stellar scenes.
 - Cache fitted artwork and unchanged cells. Prefer event-driven redraws and a shared frame clock over independent 60 FPS timers for the dashboard and companion.
 - The character art is the focal content. Dense backgrounds, particles, scanlines, and color cycling must yield to face/pose recognition and companion text.
@@ -184,6 +231,8 @@ Every built-in passes these checks before being considered art-directed:
 5. Audio-driven visuals use measured features; idle motion is visibly distinct from live response.
 6. Required labels and controls survive ASCII/limited-glyph fallback and narrow terminal layouts.
 7. References are translated into original composition; no shipped UI, logos, fonts, copied artwork, or protected character designs.
+8. Doc/code parity: the row's `layout_id` exists in `PLAYER_PAGE_DESIGNS` and `BUILTIN_LAYOUTS`; every field consumed by the engine is declared in the schema above; the ten renderer families stay unique within each preset.
+9. Renderer fidelity: the design declares its renderer profile, and required information survives the full fallback ladder down to `ascii`.
 
 ## Source register
 
