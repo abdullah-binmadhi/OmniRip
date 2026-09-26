@@ -1095,8 +1095,8 @@ class VisualDashboardWidget(Widget):
                     return
             return
 
-        row_count = 2 if mode == "five_by_two" else min(3, count)
-        for row_items in partition(cards, row_count):
+        parts = 2 if mode == "five_by_two" else min(3, count)
+        for row_items in partition(cards, parts):
             if not await make_row(grid, row_items):
                 return
 

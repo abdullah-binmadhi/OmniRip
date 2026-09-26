@@ -156,8 +156,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#ffb703", "#bc6c25", "#dda15e", "#606c38"],
         border_style="round",
     ),
-    "deep_space": StitchTheme(
-        theme_id="deep_space",
+    "deep_space_nebula": StitchTheme(
+        theme_id="deep_space_nebula",
         name="Deep Space Voyager",
         description="Minimalist obsidian with interstellar emerald nebula glow.",
         primary_color="#50fa7b",
@@ -169,8 +169,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#50fa7b", "#8be9fd", "#bd93f9", "#ff79c6"],
         border_style="tall",
     ),
-    "arcade_8bit": StitchTheme(
-        theme_id="arcade_8bit",
+    "chiptune_gameboy_dmg": StitchTheme(
+        theme_id="chiptune_gameboy_dmg",
         name="8-Bit Arcade Demoscene",
         description="Golden age arcade cabinet neon yellow, cobalt blue, and pixel art CRT scanlines.",
         primary_color="#ffd60a",
@@ -195,8 +195,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#39ff14", "#00f0ff", "#bf00ff", "#ffff00"],
         border_style="heavy",
     ),
-    "sunset_gold": StitchTheme(
-        theme_id="sunset_gold",
+    "dungeon_synth_crypt": StitchTheme(
+        theme_id="dungeon_synth_crypt",
         name="Sunset Gold & Amber",
         description="Warm vintage vacuum tube amber and golden phosphor glow.",
         primary_color="#ffb703",
@@ -208,8 +208,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#ffb703", "#fb8500", "#d62828", "#6a040f"],
         border_style="heavy",
     ),
-    "holographic_prism": StitchTheme(
-        theme_id="holographic_prism",
+    "nordic_aurora_fjord": StitchTheme(
+        theme_id="nordic_aurora_fjord",
         name="Holographic Prism",
         description="Iridescent opal, prismatic cyan, and full-spectrum light refraction.",
         primary_color="#b8f2e6",
@@ -247,8 +247,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#f7aef8", "#b388eb", "#72ddf7", "#80ffdb"],
         border_style="double",
     ),
-    "ccrma_stanford": StitchTheme(
-        theme_id="ccrma_stanford",
+    "bioshock_steampunk_rapture": StitchTheme(
+        theme_id="bioshock_steampunk_rapture",
         name="CCRMA Stanford Sound Lab",
         description="Stanford acoustic research lab amber phosphor and CRT terminal glow.",
         primary_color="#ff9e00",
@@ -260,8 +260,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#ff6000", "#ff9e00", "#ffea00", "#ffffff"],
         border_style="heavy",
     ),
-    "glitchcore_chaos": StitchTheme(
-        theme_id="glitchcore_chaos",
+    "hyprland_nord_rice": StitchTheme(
+        theme_id="hyprland_nord_rice",
         name="Glitchcore Chaos",
         description="Distorted magenta, radioactive green, and bitcrushed digital artifacting.",
         primary_color="#f72585",
@@ -273,8 +273,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#f72585", "#7209b7", "#3a0ca3", "#70e000"],
         border_style="ascii",
     ),
-    "biohazard_deck": StitchTheme(
-        theme_id="biohazard_deck",
+    "dos_mpxplay_classic": StitchTheme(
+        theme_id="dos_mpxplay_classic",
         name="Biohazard Cyberdeck",
         description="Toxic hazard yellow, nuclear lime, and radiation warning telemetry.",
         primary_color="#ffea00",
@@ -286,8 +286,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#aacc00", "#ffea00", "#ff5400", "#00f5d4"],
         border_style="heavy",
     ),
-    "golden_era": StitchTheme(
-        theme_id="golden_era",
+    "analog_mastering_console": StitchTheme(
+        theme_id="analog_mastering_console",
         name="Golden Era Audiophile",
         description="Luxury 24k gold, deep mahogany, and high-fidelity mastering suite styling.",
         primary_color="#ffd700",
@@ -299,8 +299,8 @@ STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
         gradient_stops=["#855a16", "#c5a059", "#ffd700", "#fff275"],
         border_style="round",
     ),
-    "minimalist_bauhaus": StitchTheme(
-        theme_id="minimalist_bauhaus",
+    "deep_ocean_abyss": StitchTheme(
+        theme_id="deep_ocean_abyss",
         name="Minimalist Bauhaus",
         description="Stark architectural balance: pure white, deep slate grey, and bold crimson accent.",
         primary_color="#ffffff",
