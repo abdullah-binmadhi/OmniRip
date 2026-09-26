@@ -68,7 +68,7 @@ def test_anime_palettes_and_custom_hex():
     )
 
     assert len(ANIME_PALETTES) == 10
-    for pal_id, pal_meta in ANIME_PALETTES.items():
+    for _pal_id, pal_meta in ANIME_PALETTES.items():
         assert "stops" in pal_meta
         assert len(pal_meta["stops"]) >= 2
         for stop_color, stop_pos in pal_meta["stops"]:
@@ -130,7 +130,6 @@ def test_anime_character_autofit_and_scaling():
     from harvester.ui.visuals.anime_characters import (
         list_all_anime_characters,
         render_animated_anime_frame,
-        fit_braille_art,
     )
 
     all_chars = list_all_anime_characters()

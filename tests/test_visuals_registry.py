@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from harvester.ui.visuals import (
+    PALETTES,
     AudioFeatureContext,
     BaseVisualizerEngine,
-    ColorPalette,
-    PALETTES,
     VisualizerRegistry,
 )
 

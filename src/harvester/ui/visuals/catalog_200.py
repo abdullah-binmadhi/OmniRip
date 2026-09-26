@@ -8,10 +8,7 @@ all 20 design presets (10 distinct graphs per preset with 0% overlap).
 from __future__ import annotations
 
 import math
-import random
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import ClassVar, Dict, List, Tuple
 
 import numpy as np
 from rich.style import Style
@@ -27,7 +24,7 @@ from harvester.ui.visuals.base import (
 RendererFn = Callable[[int, int, AudioFeatureContext, float, ColorPalette], Text]
 
 # Thematic Pack Category Metadata (Authentic Cyber-DAW and Audio Telemetry Glyphs)
-PACK_CATEGORIES: Dict[str, Tuple[str, str, str]] = {
+PACK_CATEGORIES: dict[str, tuple[str, str, str]] = {
     "pack1": ("⌗", "Spectral & FFT Analyzers", "Octave log spectrum, barycentric peak gravity, and transient envelopes"),
     "pack2": ("≋", "Analog Phosphor & Oscilloscopes", "Dual beam CRT, X-Y vector scopes, delayed sweep, and vacuum tube grids"),
     "pack3": ("▲", "Stanford 3D Waterfalls & Terrains", "CCRMA isometric perspective terrains, SunMusic horizon lines, and 3D meshes"),
@@ -509,9 +506,9 @@ def make_engine_class(
     return type(f"Engine_{engine_id}", (BaseVisualizerEngine,), attrs)
 
 
-def generate_catalog_200() -> List[type[BaseVisualizerEngine]]:
+def generate_catalog_200() -> list[type[BaseVisualizerEngine]]:
     """Generate all 208 distinct visualizer engine classes across 16 packs (13 engines each)."""
-    engine_classes: List[type[BaseVisualizerEngine]] = []
+    engine_classes: list[type[BaseVisualizerEngine]] = []
 
     pack_keys = list(PACK_CATEGORIES.keys())
     for pack_idx, pack_key in enumerate(pack_keys):

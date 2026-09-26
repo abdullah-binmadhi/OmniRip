@@ -13,10 +13,10 @@ import random
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Callable, List, Optional
 
 import numpy as np
 
@@ -25,13 +25,13 @@ from harvester.ui.visuals.base import AudioFeatureContext
 logger = logging.getLogger(__name__)
 
 
-class PlaybackState(str, Enum):
+class PlaybackState(StrEnum):
     STOPPED = "STOPPED"
     PLAYING = "PLAYING"
     PAUSED = "PAUSED"
 
 
-class LoopMode(str, Enum):
+class LoopMode(StrEnum):
     OFF = "OFF"
     TRACK = "TRACK"
     ALL = "ALL"
@@ -48,7 +48,7 @@ class PlaylistTrack:
     duration_seconds: float = 0.0
     sample_rate: int = 44100
     channels: int = 2
-    feature_track: List[AudioFeatureContext] = field(default_factory=list)
+    feature_track: list[AudioFeatureContext] = field(default_factory=list)
 
     @property
     def formatted_duration(self) -> str:
@@ -58,7 +58,7 @@ class PlaylistTrack:
         return f"{mins:02d}:{secs:02d}"
 
 
-def extract_60fps_features(y: np.ndarray, sr: int) -> List[AudioFeatureContext]:
+def extract_60fps_features(y: np.ndarray, sr: int) -> list[AudioFeatureContext]:
     """Compute an array of AudioFeatureContext frames at 60 frames per second.
 
     Each frame contains 128-band FFT energy levels, peak hold, L/R stereo waveforms,
@@ -80,7 +80,7 @@ def extract_60fps_features(y: np.ndarray, sr: int) -> List[AudioFeatureContext]:
     # Fast sliding window FFT parameters
     n_fft = 1024
     half_fft = n_fft // 2
-    frames: List[AudioFeatureContext] = []
+    frames: list[AudioFeatureContext] = []
 
     # Pre-calculate Hann window
     window = np.hanning(n_fft)
@@ -167,7 +167,7 @@ class VisionAudioPlayer:
     """Integrated music player with 60 FPS visualizer telemetry."""
 
     def __init__(self):
-        self.playlist: List[PlaylistTrack] = []
+        self.playlist: list[PlaylistTrack] = []
         self.current_index: int = -1
         self.state: PlaybackState = PlaybackState.STOPPED
         self.loop_mode: LoopMode = LoopMode.OFF
@@ -176,11 +176,11 @@ class VisionAudioPlayer:
         self._start_time: float = 0.0
         self._pause_time: float = 0.0
         self._elapsed_offset: float = 0.0
-        self._audio_process: Optional[subprocess.Popen] = None
-        self._on_track_change_listeners: List[Callable[[PlaylistTrack], None]] = []
+        self._audio_process: subprocess.Popen | None = None
+        self._on_track_change_listeners: list[Callable[[PlaylistTrack], None]] = []
 
     @property
-    def current_track(self) -> Optional[PlaylistTrack]:
+    def current_track(self) -> PlaylistTrack | None:
         """Return the currently selected track, or None if playlist is empty."""
         if 0 <= self.current_index < len(self.playlist):
             return self.playlist[self.current_index]
@@ -215,7 +215,7 @@ class VisionAudioPlayer:
         """Register a callback for track changes."""
         self._on_track_change_listeners.append(callback)
 
-    def load_track(self, file_path: Path) -> Optional[PlaylistTrack]:
+    def load_track(self, file_path: Path) -> PlaylistTrack | None:
         """Load an audio file, extract metadata, and precompute 60 FPS visual telemetry."""
         path = Path(file_path).expanduser().resolve()
         if not path.is_file():
@@ -292,7 +292,7 @@ class VisionAudioPlayer:
         self.playlist.clear()
         self.current_index = -1
 
-    def play(self, index: Optional[int] = None) -> None:
+    def play(self, index: int | None = None) -> None:
         """Start playing track at given index or current index."""
         if not self.playlist:
             return

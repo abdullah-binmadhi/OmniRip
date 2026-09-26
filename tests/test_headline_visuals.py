@@ -166,7 +166,7 @@ def test_palette_cycling_across_all_palettes():
     ctx = AudioFeatureContext.synthesize_idle(phase=1.0)
 
     for engine in engines:
-        for pal_key, palette in PALETTES.items():
+        for _pal_key, palette in PALETTES.items():
             rendered = engine.render_frame(40, 15, ctx, 1.0, palette)
             assert isinstance(rendered, Text)
             assert len(rendered.plain.split("\n")) == 15

@@ -12,7 +12,7 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,11 @@ class StitchTheme:
     background_color: str
     surface_color: str
     text_color: str
-    gradient_stops: List[str] = field(default_factory=list)
+    gradient_stops: list[str] = field(default_factory=list)
     border_style: str = "heavy"
     ascii_art_style: str = "block"
 
-    def to_css_dict(self) -> Dict[str, str]:
+    def to_css_dict(self) -> dict[str, str]:
         """Convert theme tokens to Textual CSS color mappings."""
         return {
             "primary": self.primary_color,
@@ -72,12 +72,12 @@ class StitchVisualDesign:
     theme: StitchTheme
     grid_columns: int = 12
     gap_distance: int = 1
-    engine_recommendations: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    engine_recommendations: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # 20 Curated Google Stitch Design Themes
-STITCH_BUILTIN_THEMES: Dict[str, StitchTheme] = {
+STITCH_BUILTIN_THEMES: dict[str, StitchTheme] = {
     "cyberpunk_2077": StitchTheme(
         theme_id="cyberpunk_2077",
         name="Cyberpunk 2077",
@@ -347,11 +347,11 @@ STITCH_BUILTIN_THEMES["neon_cyber"] = STITCH_BUILTIN_THEMES["cyberpunk_2077"]
 class StitchClient:
     """Client for Google Stitch API design synthesis and terminal theme tokens."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or load_configured_stitch_key()
-        self._custom_themes: Dict[str, StitchTheme] = {}
+        self._custom_themes: dict[str, StitchTheme] = {}
 
-    def get_all_themes(self) -> Dict[str, StitchTheme]:
+    def get_all_themes(self) -> dict[str, StitchTheme]:
         """Return all available Stitch themes (built-in and dynamically generated)."""
         merged = dict(STITCH_BUILTIN_THEMES)
         merged.update(self._custom_themes)
@@ -378,7 +378,7 @@ class StitchClient:
         prompt_lower = prompt.lower()
 
         # Engine recommendation rules based on Stitch semantic design tags
-        engines: List[str] = []
+        engines: list[str] = []
         if "3d" in prompt_lower or "landscape" in prompt_lower or "mountain" in prompt_lower:
             engines.extend(["stanford_sun_music_3d", "p3_wireframe_mountains", "p3_spectral_canyon"])
         elif "matrix" in prompt_lower or "rain" in prompt_lower or "code" in prompt_lower:

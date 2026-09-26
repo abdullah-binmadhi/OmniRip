@@ -7,9 +7,11 @@ extracted from authentic sources, complete with:
 - 5 real-time 60 FPS animation effects (scanline shimmer, audio pulse, color flow, hologram flicker, idle breathe)
 """
 
-from dataclasses import dataclass, field
+import functools
 import math
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+
+import numpy as np
 from rich.text import Text
 
 from harvester.ui.visuals.base import AudioFeatureContext
@@ -31,7 +33,7 @@ class AnimeCharacter:
 # 10 Multi-Stop Color Palettes for Anime Text Rendering
 # ---------------------------------------------------------------------------
 
-ANIME_PALETTES: Dict[str, Dict[str, object]] = {
+ANIME_PALETTES: dict[str, dict[str, object]] = {
     "cyberpunk_neon": {
         "name": "Cyberpunk Neon",
         "icon": "⌬",
@@ -98,7 +100,7 @@ ANIME_PALETTES: Dict[str, Dict[str, object]] = {
 # 5 Real-Time 60 FPS Animation FX Modes
 # ---------------------------------------------------------------------------
 
-ANIME_FX_MODES: Dict[str, Tuple[str, str]] = {
+ANIME_FX_MODES: dict[str, tuple[str, str]] = {
     "scanline_shimmer": ("≋", "CRT Scanline Shimmer (Holographic raster beam sweep)"),
     "audio_pulse": ("⚡", "Audio Bass Pulse (Reactive transient brightness flares)"),
     "color_flow": ("◈", "Color Flow Aurora (Continuous vertical gradient cycling)"),
@@ -199,8 +201,8 @@ _CHAR_METADATA = [
      "Shujin red school blazer\nPelham Blue Gibson double-cut\nDazzling Kita-aura sparkles", 30),
 ]
 
-ALL_ANIME_CHARACTERS: Dict[str, AnimeCharacter] = {}
-THEME_ANIME_CHARACTERS: Dict[str, AnimeCharacter] = {}
+ALL_ANIME_CHARACTERS: dict[str, AnimeCharacter] = {}
+THEME_ANIME_CHARACTERS: dict[str, AnimeCharacter] = {}
 
 for char_id, preset_id, name, title, outfit_desc, art_idx in _CHAR_METADATA:
     art = _RAW[art_idx] if art_idx < len(_RAW) else _RAW[0]
@@ -228,7 +230,7 @@ def get_anime_character(preset_or_char_id: str) -> AnimeCharacter:
     return THEME_ANIME_CHARACTERS.get("preset_y2k_aesthetic", list(ALL_ANIME_CHARACTERS.values())[0])
 
 
-def list_all_anime_characters() -> List[AnimeCharacter]:
+def list_all_anime_characters() -> list[AnimeCharacter]:
     """Return all 31 available Braille anime characters."""
     return list(ALL_ANIME_CHARACTERS.values())
 
@@ -237,7 +239,7 @@ def list_all_anime_characters() -> List[AnimeCharacter]:
 # Color Gradient Math & Real-Time Animated Rendering Pipeline
 # ---------------------------------------------------------------------------
 
-def _hex_to_rgb(hex_code: str) -> Tuple[int, int, int]:
+def _hex_to_rgb(hex_code: str) -> tuple[int, int, int]:
     h = hex_code.lstrip("#")
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
@@ -251,7 +253,7 @@ def _rgb_to_hex(r: float, g: float, b: float) -> str:
     return f"#{ir:02x}{ig:02x}{ib:02x}"
 
 
-def _interpolate_color_stops(stops: List[Tuple[str, float]], t: float) -> str:
+def _interpolate_color_stops(stops: list[tuple[str, float]], t: float) -> str:
     """Interpolate along multi-stop RGB gradient where t in [0.0, 1.0]."""
     t = max(0.0, min(1.0, t))
     if t <= stops[0][1]:
@@ -274,7 +276,7 @@ def _interpolate_color_stops(stops: List[Tuple[str, float]], t: float) -> str:
     return stops[0][0]
 
 
-def _build_custom_stops(hex_code: str) -> List[Tuple[str, float]]:
+def _build_custom_stops(hex_code: str) -> list[tuple[str, float]]:
     """Build a rich 3-stop gradient from an arbitrary user hex code."""
     r, g, b = _hex_to_rgb(hex_code)
     # Bright highlight
@@ -286,9 +288,6 @@ def _build_custom_stops(hex_code: str) -> List[Tuple[str, float]]:
     return [(br, 0.0), (mid, 0.5), (drk, 1.0)]
 
 
-import functools
-import numpy as np
-
 # Map dot position (row 0..3, col 0..1) to bit index in Unicode braille offset (0..255)
 DOT_MAP = [
     (0, 0, 0x01), (1, 0, 0x02), (2, 0, 0x04), (3, 0, 0x40),
@@ -297,10 +296,10 @@ DOT_MAP = [
 
 
 def _braille_to_dot_grid(text: str) -> np.ndarray:
-    raw_lines = [l.rstrip() for l in text.split("\n") if l.strip()]
+    raw_lines = [line.rstrip() for line in text.split("\n") if line.strip()]
     if not raw_lines:
         return np.zeros((0, 0), dtype=bool)
-    max_c = max(len(l) for l in raw_lines)
+    max_c = max(len(line) for line in raw_lines)
     grid = np.zeros((len(raw_lines) * 4, max_c * 2), dtype=bool)
     for r_idx, line in enumerate(raw_lines):
         for c_idx, ch in enumerate(line):
@@ -371,10 +370,10 @@ def fit_braille_art(text: str, max_cols: int = 34, max_lines: int = 28) -> str:
 def render_animated_anime_frame(
     character: AnimeCharacter,
     palette_id: str = "cyberpunk_neon",
-    custom_hex: Optional[str] = None,
+    custom_hex: str | None = None,
     fx_mode: str = "scanline_shimmer",
     tick: int = 0,
-    ctx: Optional[AudioFeatureContext] = None,
+    ctx: AudioFeatureContext | None = None,
     max_lines: int = 32,
     max_cols: int = 70,
 ) -> Text:
@@ -392,18 +391,18 @@ def render_animated_anime_frame(
     """
     # Proportional downscaling via 2D Braille dot-matrix pooling
     fitted_art = fit_braille_art(character.ascii_art, max_cols=max_cols, max_lines=max_lines)
-    raw_lines = [l for l in fitted_art.split("\n") if l.strip()]
+    raw_lines = [line for line in fitted_art.split("\n") if line.strip()]
     if not raw_lines:
         return Text("No Braille Art Available", style="dim")
 
     # Center lines horizontally within max_cols
     centered_lines: list[str] = []
-    for l in raw_lines[:max_lines]:
-        if len(l) < max_cols:
-            pad = max(0, (max_cols - len(l)) // 2)
-            centered_lines.append(" " * pad + l)
+    for line in raw_lines[:max_lines]:
+        if len(line) < max_cols:
+            pad = max(0, (max_cols - len(line)) // 2)
+            centered_lines.append(" " * pad + line)
         else:
-            centered_lines.append(l[:max_cols])
+            centered_lines.append(line[:max_cols])
 
     total_lines = len(centered_lines)
     lines_to_render = centered_lines
