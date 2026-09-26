@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 from rich.text import Text
@@ -19,11 +19,14 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select
 
+from harvester.services.stitch import StitchTheme
+from harvester.ui.full_vision_designs import SUPPORTED_DASHBOARD_LAYOUTS
 from harvester.ui.visuals.audio_features import build_feature_track
 from harvester.ui.visuals.base import (
     PALETTES,
     AudioFeatureContext,
     BaseVisualizerEngine,
+    ColorPalette,
 )
 from harvester.ui.visuals.registry import CATEGORIES, VisualizerRegistry
 
@@ -49,10 +52,14 @@ class VisualizerEngineCanvas(Widget):
         palette_key: str = "cyan",
         id: str | None = None,
         classes: str | None = None,
+        palette_override: ColorPalette | None = None,
+        clock_managed_externally: bool = False,
     ) -> None:
         super().__init__(id=id, classes=classes)
         self.engine = engine
         self.palette_key = palette_key
+        self.palette_override = palette_override
+        self.clock_managed_externally = clock_managed_externally
         self.feature_ctx = AudioFeatureContext.synthesize_idle()
         self._idle_phase = 0.0
         self._anim_timer: Timer | None = None
@@ -62,7 +69,8 @@ class VisualizerEngineCanvas(Widget):
         self._live_ctx: AudioFeatureContext | None = None
 
     def on_mount(self) -> None:
-        self._anim_timer = self.set_interval(1.0 / 60.0, self._on_tick)
+        if not self.clock_managed_externally:
+            self._anim_timer = self.set_interval(1.0 / 60.0, self._on_tick)
 
     def on_unmount(self) -> None:
         if self._anim_timer:
@@ -70,15 +78,19 @@ class VisualizerEngineCanvas(Widget):
             self._anim_timer = None
 
     def _on_tick(self) -> None:
+        self.advance_frame()
+
+    def advance_frame(self, ctx: AudioFeatureContext | None = None) -> None:
+        """Advance one animation frame; parent dashboards can own the clock."""
         self._idle_phase = (self._idle_phase + 0.04) % (2.0 * np.pi * 100.0)
         if self._feature_track:
-            # Play the pre-computed feature track in step with the audio. The
-            # index is advanced before display so the first tick after install
-            # moves to the second frame rather than re-showing the first.
             self._feature_idx = (self._feature_idx + 1) % len(self._feature_track)
             self.feature_ctx = self._feature_track[self._feature_idx]
+            self._live_ctx = None
+        elif ctx is not None:
+            self._live_ctx = ctx
+            self.feature_ctx = ctx
         elif self._live_ctx is None:
-            # No real audio routed: keep the card alive on standby synthesis.
             self.feature_ctx = AudioFeatureContext.synthesize_idle(self._idle_phase)
         self.refresh()
 
@@ -116,7 +128,7 @@ class VisualizerEngineCanvas(Widget):
     def render(self) -> Text:
         w = max(self.engine.min_width, self.size.width)
         h = max(self.engine.min_height, self.size.height)
-        palette = PALETTES.get(self.palette_key, PALETTES["cyan"])
+        palette = self.palette_override or PALETTES.get(self.palette_key, PALETTES["cyan"])
         return self.engine.render_frame(w, h, self.feature_ctx, self._idle_phase, palette)
 
 
@@ -155,6 +167,11 @@ class VisualizerCard(Widget):
     VisualizerCard.-tall {
         height: 2fr;
         min-height: 14;
+    }
+    VisualizerCard.-read-only .vis-card-btn-palette,
+    VisualizerCard.-read-only .vis-card-btn-close,
+    VisualizerCard.-read-only .vis-card-arrange-bar {
+        display: none;
     }
     .vis-grid-col {
         width: 1fr;
@@ -273,17 +290,56 @@ class VisualizerCard(Widget):
         card_id: str | None = None,
         id: str | None = None,
         classes: str | None = None,
+        palette_override: ColorPalette | None = None,
+        theme: StitchTheme | None = None,
+        is_read_only: bool = False,
+        clock_managed_externally: bool = False,
     ) -> None:
         super().__init__(id=id, classes=classes)
         self.card_id = card_id or str(uuid.uuid4())[:8]
         self.engine_id = engine_id
         self.palette_key = palette_key
+        self.palette_override = palette_override
+        self.theme = theme
+        self.is_read_only = is_read_only
+        self.clock_managed_externally = clock_managed_externally
+        if is_read_only:
+            self.add_class("-read-only")
         engine = VisualizerRegistry.get(engine_id)
         if not engine:
             from harvester.ui.visuals.registry import MirroredDanceEngine
             engine = MirroredDanceEngine()
         self.engine = engine
-        self.canvas = VisualizerEngineCanvas(engine=self.engine, palette_key=self.palette_key)
+        self.canvas = VisualizerEngineCanvas(
+            engine=self.engine,
+            palette_key=self.palette_key,
+            palette_override=self.palette_override,
+            clock_managed_externally=self.clock_managed_externally,
+        )
+
+    def on_mount(self) -> None:
+        if self.theme is not None:
+            self.apply_theme(self.theme)
+
+    def apply_theme(self, theme: StitchTheme) -> None:
+        """Apply the theme's panel material after the card's children are mounted."""
+        allowed_borders = {"heavy", "double", "round", "ascii", "tall", "solid", "dashed"}
+        border_type = cast(
+            Literal["heavy", "double", "round", "ascii", "tall", "solid", "dashed"],
+            theme.border_style if theme.border_style in allowed_borders else "heavy",
+        )
+        self.styles.background = theme.surface_color
+        self.styles.border = (border_type, theme.primary_color)
+        header = self.query_one(".vis-card-header", Horizontal)
+        header.styles.background = theme.surface_color
+        header.styles.border_bottom = ("solid", theme.secondary_color)
+        title = self.query_one(".vis-card-title", Label)
+        title.styles.color = theme.primary_color
+        self.canvas.styles.background = theme.background_color
+        palette_button = self.query_one(f"#btn-pal-{self.card_id}", Button)
+        palette_button.styles.color = theme.accent_color
+        close_button = self.query_one(f"#btn-close-{self.card_id}", Button)
+        close_button.styles.color = theme.accent_color
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="vis-card-header"):
@@ -312,6 +368,8 @@ class VisualizerCard(Widget):
         self.focus()
 
     def on_key(self, event: events.Key) -> None:
+        if self.is_read_only:
+            return
         k = event.key
         if k in ("left", "h"):
             event.stop()
@@ -333,6 +391,9 @@ class VisualizerCard(Widget):
             self.post_message(self.ResizeRequested(self.card_id, "tall"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if self.is_read_only:
+            event.stop()
+            return
         bid = event.button.id or ""
         if bid == f"btn-close-{self.card_id}":
             event.stop()
@@ -359,19 +420,33 @@ class VisualizerCard(Widget):
             event.stop()
             self.post_message(self.ResizeRequested(self.card_id, "tall"))
 
+    def set_read_only(self, read_only: bool) -> None:
+        self.is_read_only = read_only
+        if read_only:
+            self.add_class("-read-only")
+        else:
+            self.remove_class("-read-only")
+
     def cycle_palette(self) -> None:
+        if self.is_read_only:
+            return
         try:
             curr_idx = AVAILABLE_PALETTE_KEYS.index(self.palette_key)
             next_idx = (curr_idx + 1) % len(AVAILABLE_PALETTE_KEYS)
             self.palette_key = AVAILABLE_PALETTE_KEYS[next_idx]
         except ValueError:
             self.palette_key = "cyan"
+        self.palette_override = None
+        self.canvas.palette_override = None
         self.canvas.palette_key = self.palette_key
         btn = self.query_one(f"#btn-pal-{self.card_id}", Button)
         btn.label = f"[{self.palette_key.upper()}]"
 
     def feed_audio(self, ctx: AudioFeatureContext) -> None:
         self.canvas.set_audio_features(ctx)
+
+    def tick_frame(self, ctx: AudioFeatureContext | None = None) -> None:
+        self.canvas.advance_frame(ctx)
 
     def set_feature_track(self, track: Sequence[AudioFeatureContext]) -> None:
         self.canvas.set_feature_track(track)
@@ -677,15 +752,41 @@ class VisualDashboardWidget(Widget):
     }
     """
 
-    cards: reactive[list[dict[str, str]]] = reactive(list)
+    cards: reactive[list[dict[str, Any]]] = reactive(list)
     layout_style: reactive[str] = reactive("auto")
     gap_size: reactive[int] = reactive(0)
     is_arrange_mode: reactive[bool] = reactive(False)
     selected_card_id: reactive[str | None] = reactive(None)
 
-    def __init__(self, id: str | None = None, classes: str | None = None) -> None:
+    def __init__(
+        self,
+        id: str | None = None,
+        classes: str | None = None,
+        clock_managed_externally: bool = False,
+    ) -> None:
         super().__init__(id=id, classes=classes)
         self._feature_ctx = AudioFeatureContext.synthesize_idle()
+        self._has_live_audio = False
+        self.clock_managed_externally = clock_managed_externally
+        self._anim_timer: Timer | None = None
+        self.is_editable = True
+
+    def on_mount(self) -> None:
+        if not self.clock_managed_externally:
+            self._anim_timer = self.set_interval(1.0 / 60.0, self.tick_frame)
+
+    def on_unmount(self) -> None:
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
+
+    def tick_frame(self, ctx: AudioFeatureContext | None = None) -> None:
+        if ctx is not None:
+            self._feature_ctx = ctx
+            self._has_live_audio = True
+        frame_ctx = self._feature_ctx if self._has_live_audio else None
+        for card in self.query(VisualizerCard):
+            card.tick_frame(frame_ctx)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="vis-dash-toolbar"):
@@ -725,7 +826,17 @@ class VisualDashboardWidget(Widget):
             with Vertical(id="vis-dash-grid"):
                 pass
 
+    def set_editable(self, editable: bool) -> None:
+        """Toggle curated preset lock without constraining user-owned layouts."""
+        self.is_editable = editable
+        self.query_one("#vis-dash-toolbar").styles.display = "block" if editable else "none"
+        for card in self.query(VisualizerCard):
+            card.set_read_only(not editable)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if not self.is_editable:
+            event.stop()
+            return
         btn_id = event.button.id or ""
         if btn_id in ("btn-vis-add", "btn-empty-browse"):
             event.stop()
@@ -777,6 +888,8 @@ class VisualDashboardWidget(Widget):
 
     def add_card(self, engine_id: str, palette: str = "cyan") -> None:
         """Add an engine card to the dashboard canvas."""
+        if not self.is_editable:
+            return
         new_card = {
             "card_id": str(uuid.uuid4())[:8],
             "engine_id": engine_id,
@@ -791,16 +904,22 @@ class VisualDashboardWidget(Widget):
 
     def remove_card(self, card_id: str) -> None:
         """Remove a card by ID and re-tile the canvas."""
+        if not self.is_editable:
+            return
         self.cards = [c for c in self.cards if c["card_id"] != card_id]
         self._refresh_canvas()
 
     def clear_canvas(self) -> None:
         """Clear all visualizer cards, returning to the empty state."""
+        if not self.is_editable:
+            return
         self.cards = []
         self._refresh_canvas()
 
     def apply_preset(self, preset_name: str) -> None:
         """Apply a preset configuration of visualizer cards."""
+        if not self.is_editable:
+            return
         if preset_name == "solo":
             self.cards = [
                 {"card_id": "solo-1", "engine_id": "mirrored_dance", "palette": "cyan"}
@@ -825,6 +944,10 @@ class VisualDashboardWidget(Widget):
             palette_key=item.get("palette", "cyan"),
             card_id=item["card_id"],
             id=f"vis-card-{item['card_id']}",
+            palette_override=item.get("palette_override"),
+            theme=item.get("theme"),
+            is_read_only=not self.is_editable,
+            clock_managed_externally=True,
         )
         if item.get("span") == "full":
             card.add_class("-span-full")
@@ -839,147 +962,143 @@ class VisualDashboardWidget(Widget):
         return card
 
     def _refresh_canvas(self) -> None:
-        try:
-            empty_box = self.query_one("#vis-dash-empty-state")
-            grid = self.query_one("#vis-dash-grid")
-        except Exception:
+        empty_box = self.query_one("#vis-dash-empty-state")
+        grid = self.query_one("#vis-dash-grid")
+        has_cards = bool(self.cards)
+        empty_box.styles.display = "none" if has_cards else "block"
+        grid.styles.display = "block" if has_cards else "none"
+        self.run_worker(
+            self._rebuild_canvas,
+            group="dashboard-layout",
+            exclusive=True,
+        )
+
+    async def _rebuild_canvas(self) -> None:
+        grid = self.query_one("#vis-dash-grid")
+        await grid.remove_children()
+        if self.cards:
+            await self._mount_dynamic_layout(grid)
+        self._focus_selected_card()
+
+    async def _mount_dynamic_layout(self, grid: Widget) -> None:
+        """Mount every card using an explicit, tested page-layout strategy."""
+        cards = list(self.cards)
+        count = len(cards)
+        if not count:
             return
+        mode = self.layout_style if self.layout_style in SUPPORTED_DASHBOARD_LAYOUTS else "balanced_rows"
 
-        if not self.cards:
-            empty_box.styles.display = "block"
-            grid.styles.display = "none"
-            grid.remove_children()
-        else:
-            empty_box.styles.display = "none"
-            grid.styles.display = "block"
-            grid.remove_children()
-            self._mount_dynamic_layout(grid)
+        def partition(items: list[dict[str, Any]], parts: int) -> list[list[dict[str, Any]]]:
+            quotient, remainder = divmod(len(items), parts)
+            groups: list[list[dict[str, Any]]] = []
+            start = 0
+            for index in range(parts):
+                size = quotient + (1 if index < remainder else 0)
+                if size:
+                    groups.append(items[start : start + size])
+                start += size
+            return groups
 
-    def _mount_dynamic_layout(self, grid: Widget) -> None:
-        style = self.layout_style.lower()
-        cards = self.cards
-        n = len(cards)
-        if n == 0:
-            return
+        async def mount_children(parent: Widget, *children: Widget) -> bool:
+            """Mount children unless Textual has started pruning this layout."""
+            if not parent.is_attached:
+                return False
+            await parent.mount(*children)
+            return all(child.is_attached for child in children)
 
-        # 1. Master-Stack / Termusic Layout (Inspired by termusic ratatui constraints)
-        # Left Hero panel (or 2 tall panels) + Right satellite column + Bottom full telemetry bar
-        if "master_stack" in style or "termusic" in style:
-            top_area = Horizontal(classes="vis-grid-row", id="vis-layout-top")
-            top_area.styles.height = "3fr" if n >= 5 else "1fr"
-            if self.gap_size > 0:
-                top_area.styles.margin_bottom = self.gap_size
-            grid.mount(top_area)
-
-            # Left hero column (2fr width)
-            left_col = Vertical(classes="vis-grid-col -hero")
-            top_area.mount(left_col)
-            card0 = self._create_card(cards[0])
-            card0.add_class("-hero")
-            left_col.mount(card0)
-
-            # Right satellite column (1fr width)
-            right_col = Vertical(classes="vis-grid-col -sidebar")
-            top_area.mount(right_col)
-            right_limit = min(n, 5 if n >= 6 else n)
-            for item in cards[1:right_limit]:
-                right_col.mount(self._create_card(item))
-
-            # Bottom hardware telemetry rack if remaining cards exist
-            if n > right_limit:
-                bottom_row = Horizontal(classes="vis-grid-row", id="vis-layout-bottom")
-                bottom_row.styles.height = "1fr"
-                grid.mount(bottom_row)
-                for item in cards[right_limit:]:
-                    bottom_row.mount(self._create_card(item))
-            return
-
-        # 2. Three-Column Studio (Left scopes, Center giant hero waterfall, Right forensics)
-        if "three_column" in style or "studio_quad" in style or ("studio" in style and n >= 5):
-            main_row = Horizontal(classes="vis-grid-row")
-            if self.gap_size > 0:
-                main_row.styles.margin_bottom = self.gap_size
-            grid.mount(main_row)
-            col_left = Vertical(classes="vis-grid-col")
-            col_center = Vertical(classes="vis-grid-col -hero")
-            col_right = Vertical(classes="vis-grid-col")
-            main_row.mount(col_left)
-            main_row.mount(col_center)
-            main_row.mount(col_right)
-
-            # Center hero gets cards[0]
-            c_hero = self._create_card(cards[0])
-            c_hero.add_class("-hero")
-            col_center.mount(c_hero)
-            rem = cards[1:]
-            half = len(rem) // 2
-            for item in rem[:half]:
-                col_left.mount(self._create_card(item))
-            for item in rem[half:]:
-                col_right.mount(self._create_card(item))
-            return
-
-        # 3. Hero Top Split Bottom
-        if "hero_top" in style or ("split" in style and n >= 4):
-            row_top = Horizontal(classes="vis-grid-row")
-            row_top.styles.height = "2fr"
-            row_bot = Horizontal(classes="vis-grid-row")
-            row_bot.styles.height = "1fr"
-            if self.gap_size > 0:
-                row_top.styles.margin_bottom = self.gap_size
-                row_bot.styles.margin_bottom = self.gap_size
-            grid.mount(row_top)
-            grid.mount(row_bot)
-            top_count = 2 if n >= 6 else 1
-            for item in cards[:top_count]:
-                c = self._create_card(item)
-                c.add_class("-hero")
-                row_top.mount(c)
-            for item in cards[top_count:]:
-                row_bot.mount(self._create_card(item))
-            return
-
-        # 4. Multi-tier rack / DOS MPXPlay / Asymmetric BSPWM / Auto-balanced flow
-        # Guarantees 100% of all cards (7, 8, 9, 10, etc.) are mounted without dropping any!
-        if n <= 3:
+        async def make_row(
+            parent: Widget,
+            items: list[dict[str, Any]],
+            height: str = "1fr",
+        ) -> bool:
             row = Horizontal(classes="vis-grid-row")
-            if self.gap_size > 0:
-                row.styles.margin_bottom = self.gap_size
-            grid.mount(row)
-            for item in cards:
-                row.mount(self._create_card(item))
-        elif n <= 6:
-            row1 = Horizontal(classes="vis-grid-row")
-            row2 = Horizontal(classes="vis-grid-row")
-            if self.gap_size > 0:
-                row1.styles.margin_bottom = self.gap_size
-                row2.styles.margin_bottom = self.gap_size
-            grid.mount(row1)
-            grid.mount(row2)
-            half = (n + 1) // 2
-            for item in cards[:half]:
-                row1.mount(self._create_card(item))
-            for item in cards[half:]:
-                row2.mount(self._create_card(item))
-        else:
-            # 7 to 10+ cards: 3 rows balanced
-            row1 = Horizontal(classes="vis-grid-row")
-            row2 = Horizontal(classes="vis-grid-row")
-            row3 = Horizontal(classes="vis-grid-row")
-            if self.gap_size > 0:
-                row1.styles.margin_bottom = self.gap_size
-                row2.styles.margin_bottom = self.gap_size
-                row3.styles.margin_bottom = self.gap_size
-            grid.mount(row1)
-            grid.mount(row2)
-            grid.mount(row3)
-            chunk = (n + 2) // 3
-            for item in cards[:chunk]:
-                row1.mount(self._create_card(item))
-            for item in cards[chunk:chunk * 2]:
-                row2.mount(self._create_card(item))
-            for item in cards[chunk * 2:]:
-                row3.mount(self._create_card(item))
+            row.styles.height = height
+            if self.gap_size:
+                row.styles.margin = (0, 0, self.gap_size, 0)
+            if not await mount_children(parent, row):
+                return False
+            return await mount_children(
+                row, *(self._create_card(item) for item in items)
+            )
+
+        if mode == "hero_left" and count > 2:
+            shell = Horizontal(classes="vis-grid-row")
+            if not await mount_children(grid, shell):
+                return
+            hero_column = Vertical(classes="vis-grid-col")
+            detail_column = Vertical(classes="vis-grid-col -hero")
+            if not await mount_children(shell, hero_column, detail_column):
+                return
+            hero = self._create_card(cards[0])
+            hero.add_class("-tall")
+            if not await mount_children(hero_column, hero):
+                return
+            for row_items in partition(cards[1:], 3):
+                if not await make_row(detail_column, row_items):
+                    return
+            return
+
+        if mode == "hero_top" and count > 1:
+            hero_row = Horizontal(classes="vis-grid-row")
+            hero_row.styles.height = "2fr"
+            if not await mount_children(grid, hero_row):
+                return
+            hero = self._create_card(cards[0])
+            hero.add_class("-hero")
+            if not await mount_children(hero_row, hero):
+                return
+            for row_items in partition(cards[1:], min(2, count - 1)):
+                if not await make_row(grid, row_items):
+                    return
+            return
+
+        if mode == "three_columns" and count > 2:
+            shell = Horizontal(classes="vis-grid-row")
+            if not await mount_children(grid, shell):
+                return
+            for column_index in range(3):
+                column = Vertical(classes="vis-grid-col")
+                if not await mount_children(shell, column):
+                    return
+                if not await mount_children(
+                    column,
+                    *(self._create_card(item) for item in cards[column_index::3]),
+                ):
+                    return
+            return
+
+        if mode == "split_columns" and count > 1:
+            shell = Horizontal(classes="vis-grid-row")
+            if not await mount_children(grid, shell):
+                return
+            for column_items in partition(cards, 2):
+                column = Vertical(classes="vis-grid-col")
+                if not await mount_children(shell, column):
+                    return
+                if not await mount_children(
+                    column, *(self._create_card(item) for item in column_items)
+                ):
+                    return
+            return
+
+        if mode == "solo" or count == 1:
+            await make_row(grid, cards)
+            return
+
+        if mode == "dual" or (count == 2 and mode != "quad"):
+            await make_row(grid, cards)
+            return
+
+        if mode == "quad":
+            for row_items in partition(cards, 2):
+                if not await make_row(grid, row_items):
+                    return
+            return
+
+        row_count = 2 if mode == "five_by_two" else min(3, count)
+        for row_items in partition(cards, row_count):
+            if not await make_row(grid, row_items):
+                return
 
     def on_visualizer_card_select_requested(self, event: VisualizerCard.SelectRequested) -> None:
         event.stop()
@@ -1085,7 +1204,6 @@ class VisualDashboardWidget(Widget):
             cards.insert(idx + 2, item)
         self.cards = cards
         self._refresh_canvas()
-        self._focus_selected_card()
 
     def toggle_card_span(self, card_id: str) -> None:
         cards = [dict(c) for c in self.cards]
@@ -1095,7 +1213,6 @@ class VisualDashboardWidget(Widget):
                 break
         self.cards = cards
         self._refresh_canvas()
-        self._focus_selected_card()
 
     def toggle_card_tall(self, card_id: str) -> None:
         cards = [dict(c) for c in self.cards]
@@ -1105,7 +1222,6 @@ class VisualDashboardWidget(Widget):
                 break
         self.cards = cards
         self._refresh_canvas()
-        self._focus_selected_card()
 
     def feed_audio(
         self,
@@ -1128,6 +1244,7 @@ class VisualDashboardWidget(Widget):
                 is_playing=bool(is_playing) and has_data,
             )
         self._feature_ctx = ctx
+        self._has_live_audio = True
         for card in self.query(VisualizerCard):
             card.feed_audio(ctx)
 
@@ -1142,6 +1259,7 @@ class VisualDashboardWidget(Widget):
             card.set_feature_track(frames)
         if frames:
             self._feature_ctx = frames[0]
+            self._has_live_audio = False
 
     def load_audio_features(self, audio_file: Path) -> None:
         """Decode a routed track and hand its real feature frames to every card.
@@ -1153,5 +1271,7 @@ class VisualDashboardWidget(Widget):
 
     def clear_audio_features(self) -> None:
         """Drop any routed feature track and return every card to standby."""
+        self._feature_ctx = AudioFeatureContext.synthesize_idle()
+        self._has_live_audio = False
         for card in self.query(VisualizerCard):
             card.canvas.clear_feature_track()

@@ -75,6 +75,12 @@ harvester/
 │   │   ├── workbench.py             # 5-page workbench: tracks, visualizer, deck, EQ, repair
 │   │   ├── repair.py                # guided Repair page: Quick Fix, wizard, ranges
 │   │   ├── track_info.py            # Track Info modal (credits/tags/speakers/models)
+│   │   ├── visual_dashboard.py      # Async layout container + keyboard arrange mode
+│   │   ├── full_vision.py           # Dashboard presets + telemetry orchestrator
+│   │   ├── visuals/
+│   │   │   ├── registry.py          # VisualizerRegistry
+│   │   │   ├── catalog_100.py       # Core visualizer engine catalog
+│   │   │   └── catalog_200.py       # Legacy parameterized engines catalog
 │   │   ├── screens/
 │   │   │   ├── main.py
 │   │   │   ├── dirpicker.py         # DirectoryTree modal

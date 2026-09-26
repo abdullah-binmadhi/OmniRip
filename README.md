@@ -460,7 +460,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 | **Lossless Exports**| FFmpeg + Mutagen | 24-bit 48 kHz WAV (ID3 TXXX) & FLAC (Vorbis provenance comments) |
 | **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, MSST de-reverb |
 | **Guided Repair** | Acoustic Fingerprints | Quick Fix, 10-question MCQ wizard, section ranges, Local/Hosted MVSEP |
-| **Visualizer** | 7-Mode Terminal Engine | Spectrogram waterfall, stereo Lissajous phase scope, spectrum, VU meters |
+| **Visualizer** | 200-Renderer Dashboard Engine | Spectrogram waterfalls, stereo Lissajous phase scopes, fractal generation, fluid dynamics, and 200 distinct 60 FPS visual engines mapped uniquely across 20 curated presets |
 | **Batch Engine** | `harvester.batch` | Serial walk, safe atomic swap with `.trash/` rollback, Markdown reports |
 | **Memory Engine** | `harvester.util.memory`| MPS FP16 acceleration, dynamic chunk scaling, automatic `purge_neural_vram()` |
 | **Second Brain** | Obsidian Sync API | 2-way sync, Wants wishlist queue, album notes, Studio preset links |
