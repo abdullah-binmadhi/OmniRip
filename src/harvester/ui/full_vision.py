@@ -347,8 +347,7 @@ class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
                         with Vertical(classes="preset-card-info"):
                             yield Label(f"✨ {ly.name}", classes="preset-card-name")
                             yield Label(ly.description[:70], classes="preset-card-desc")
-                        btn = Button("APPLY", variant="primary", classes="preset-apply-btn")
-                        btn.name = ly.layout_id
+                        btn = Button("APPLY", variant="primary", classes="preset-apply-btn", id=f"btn-preset-apply-{ly.layout_id}")
                         yield btn
             with Horizontal(id="preset-footer"):
                 yield Button("CLOSE", variant="default", id="btn-preset-close")
@@ -366,8 +365,9 @@ class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-preset-close":
             self.dismiss(None)
-        elif event.button.has_class("preset-apply-btn") and event.button.name:
-            layout = self.layout_store.get_layout(event.button.name)
+        elif event.button.id and event.button.id.startswith("btn-preset-apply-"):
+            layout_id = event.button.id[len("btn-preset-apply-"):]
+            layout = self.layout_store.get_layout(layout_id)
             self.dismiss(layout)
 
 
@@ -492,7 +492,6 @@ class FullVisionStudioWidget(Container):
             yield Label("⛶ FULL VISION STUDIO", id="fvs-brand")
             yield Button("1: OMNIRIP", variant="warning", id="btn-fvs-omnirip", classes="fvs-top-btn")
             yield Button("✨ PRESETS (20)", variant="primary", id="btn-fvs-presets", classes="fvs-top-btn")
-            yield Button("🎨 STITCH THEME", id="btn-fvs-theme", classes="fvs-top-btn")
             yield Button("📐 LOAD LAYOUT", id="btn-fvs-load-layout", classes="fvs-top-btn")
             yield Button("💾 SAVE LAYOUT", id="btn-fvs-save-layout", classes="fvs-top-btn")
             yield Button("GAP: (1)", id="btn-fvs-gap", classes="fvs-top-btn")
@@ -542,7 +541,7 @@ class FullVisionStudioWidget(Container):
         self.set_interval(1.0 / 60.0, self._tick_60fps)
 
     def apply_layout(self, layout: VisionLayout) -> None:
-        """Apply a full visual layout to the canvas."""
+        """Apply a full visual layout and transform the entire TUI design."""
         self.current_layout = layout
         self.active_gap = layout.gap_distance
         self.current_theme = self.stitch_client.get_theme(layout.stitch_theme_id)
@@ -553,6 +552,38 @@ class FullVisionStudioWidget(Container):
         except Exception:
             pass
 
+        theme = self.current_theme
+        border_type = theme.border_style if theme.border_style in ("heavy", "double", "round", "ascii", "tall", "solid", "dashed") else "heavy"
+
+        # 1. Transform Root Canvas Studio Background
+        try:
+            self.styles.background = theme.background_color
+        except Exception:
+            pass
+
+        # 2. Transform Top Control Bar
+        try:
+            top_bar = self.query_one("#fvs-top-bar")
+            top_bar.styles.background = theme.surface_color
+            top_bar.styles.border_bottom = (border_type, theme.primary_color)
+            brand = self.query_one("#fvs-brand", Label)
+            brand.styles.color = theme.primary_color
+        except Exception:
+            pass
+
+        # 3. Transform Bottom Music Player Dock
+        try:
+            dock = self.query_one("#fvs-bottom-dock")
+            dock.styles.background = theme.surface_color
+            dock.styles.border_top = (border_type, theme.secondary_color)
+            title_lbl = self.query_one("#fvs-now-playing-title", Label)
+            title_lbl.styles.color = theme.primary_color
+            elapsed_lbl = self.query_one("#fvs-time-elapsed", Label)
+            elapsed_lbl.styles.color = theme.primary_color
+        except Exception:
+            pass
+
+        # 4. Canvas & Dashboard Cards Layout
         dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
         dash_cards = []
@@ -566,6 +597,23 @@ class FullVisionStudioWidget(Container):
             })
         dash.cards = dash_cards
         dash._refresh_canvas()
+
+        # 5. Transform instantiated card borders and colors to match preset theme
+        try:
+            cards_container = dash.query_one("#vis-cards-container")
+            cards_container.styles.background = theme.background_color
+            for card in dash.query("VisualizerCard"):
+                card.styles.background = theme.surface_color
+                card.styles.border = (border_type, theme.primary_color)
+                try:
+                    header = card.query_one(".vis-card-header")
+                    header.styles.background = theme.surface_color
+                    title = card.query_one(".vis-card-title", Label)
+                    title.styles.color = theme.primary_color
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _on_track_changed(self, track: PlaylistTrack) -> None:
         """Update track information in UI."""
@@ -642,8 +690,6 @@ class FullVisionStudioWidget(Container):
             self.app.push_screen(PresetCatalogModal(self.layout_store), self._handle_preset_selected)
         elif btn_id == "btn-fvs-gap":
             self._cycle_gap()
-        elif btn_id == "btn-fvs-theme":
-            self._cycle_stitch_theme()
         elif btn_id == "btn-fvs-add-song":
             self.app.push_screen(AddSongModal(), self._handle_add_song)
         elif btn_id == "btn-fvs-save-layout":
@@ -677,32 +723,6 @@ class FullVisionStudioWidget(Container):
         dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
         dash._refresh_canvas()
-
-    def _cycle_stitch_theme(self) -> None:
-        """Cycle through Google Stitch design themes."""
-        themes = list(self.stitch_client.get_all_themes().values())
-        if not themes:
-            return
-
-        current_idx = 0
-        for i, t in enumerate(themes):
-            if t.theme_id == self.current_theme.theme_id:
-                current_idx = i
-                break
-
-        next_idx = (current_idx + 1) % len(themes)
-        self.current_theme = themes[next_idx]
-        btn = self.query_one("#btn-fvs-theme", Button)
-        btn.label = f"🎨 {self.current_theme.name[:12]}"
-
-        # Apply Stitch theme accent colors to borders and top bar
-        try:
-            top_bar = self.query_one("#fvs-top-bar")
-            top_bar.styles.border_bottom = ("heavy", self.current_theme.primary_color)
-            brand = self.query_one("#fvs-brand", Label)
-            brand.styles.color = self.current_theme.primary_color
-        except Exception:
-            pass
 
     def _cycle_layout(self) -> None:
         """Cycle through available layouts."""
