@@ -1,5 +1,7 @@
 """Unit tests for the terminal render-fidelity engine."""
 
+import time
+
 import numpy as np
 
 from harvester.ui.render_fidelity import (
@@ -88,6 +90,35 @@ def test_render_to_text_plain_text_matches_cells():
     rows = [[Cell("a", "#ffffff"), Cell("b", "#ffffff")], [Cell("c", "#00ff00")]]
     text = render_to_text(rows)
     assert text.plain == "ab\nc"
+
+
+def test_halfblock_golden_orientation():
+    top = render_bitmap(np.array([[1.0], [0.0]]), "halfblock")
+    bottom = render_bitmap(np.array([[0.0], [1.0]]), "halfblock")
+    full = render_bitmap(np.array([[1.0], [1.0]]), "halfblock")
+    assert top[0][0].char == "▀"
+    assert bottom[0][0].char == "▄"
+    assert full[0][0].char == "█"
+
+
+def test_ascii_fallback_renders_without_unicode_glyphs():
+    from harvester.ui.render_fidelity import ASCII_RAMP
+
+    rows = render_bitmap(np.linspace(0.0, 1.0, 40).reshape(8, 5), "ascii")
+    chars = [cell.char for row in rows for cell in row]
+    assert chars
+    assert all(char in ASCII_RAMP for char in chars)
+
+
+def test_render_bitmap_frame_budget():
+    grid = np.random.default_rng(11).random((96, 140))  # 32 rows x 70 columns of cells
+    for mode in CELL_GEOMETRY:
+        runs = 6
+        start = time.perf_counter()
+        for _ in range(runs):
+            render_bitmap(grid, mode, fg="#ffffff", bg="#000000")
+        average_ms = (time.perf_counter() - start) / runs * 1000.0
+        assert average_ms < 8.0, f"{mode} averaged {average_ms:.2f} ms per frame"
 
 
 def test_mode_detection_and_override():

@@ -65,6 +65,19 @@ async def test_player_studio_compose():
         assert "[>> EXEC]" in str(play_btn.label)
 
 
+def test_legacy_full_vision_module_is_removed():
+    """Regression: the PLAYER rename must not leave old module names behind."""
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("harvester.ui.full_vision")
+    importlib.import_module("harvester.ui.player_studio")
+
+    from harvester.ui.player_studio import PlayerStudioWidget
+
+    assert "fvs-" not in PlayerStudioWidget.DEFAULT_CSS
+
+
 @pytest.mark.asyncio
 async def test_preset_catalog_modal_and_apply():
     from harvester.services.vision_layout_store import VisionLayoutStore

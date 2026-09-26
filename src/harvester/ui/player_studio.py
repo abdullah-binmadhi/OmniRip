@@ -13,7 +13,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
 
 import numpy as np
 from textual import events
@@ -137,7 +136,7 @@ def launch_player_external() -> bool:
         return False
 
 
-class SaveLayoutModal(ModalScreen[Optional[str]]):
+class SaveLayoutModal(ModalScreen[str | None]):
     """Modal dialog for saving the current canvas design blueprint."""
 
     DEFAULT_CSS = """
@@ -201,7 +200,7 @@ class SaveLayoutModal(ModalScreen[Optional[str]]):
             self.dismiss(None)
 
 
-class AddSongModal(ModalScreen[Optional[Path]]):
+class AddSongModal(ModalScreen[Path | None]):
     """Modal dialog for loading a music file into the playlist."""
 
     DEFAULT_CSS = """
@@ -280,7 +279,7 @@ class AddSongModal(ModalScreen[Optional[Path]]):
             self.dismiss(None)
 
 
-class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
+class PresetCatalogModal(ModalScreen[VisionLayout | None]):
     """Modal dialog for choosing from the 20 curated Google Stitch design presets."""
 
     DEFAULT_CSS = """
@@ -383,7 +382,7 @@ class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
             self.dismiss(layout)
 
 
-class AnimeCharacterSelectModal(ModalScreen[Optional[AnimeCharacter]]):
+class AnimeCharacterSelectModal(ModalScreen[AnimeCharacter | None]):
     """Modal dialog for selecting from 31 authentic Braille anime companions."""
 
     DEFAULT_CSS = """
@@ -489,7 +488,7 @@ class AnimeCharacterSelectModal(ModalScreen[Optional[AnimeCharacter]]):
             self.dismiss(None)
 
 
-class AnimePaletteSelectModal(ModalScreen[Optional[Tuple[str, Optional[str]]]]):
+class AnimePaletteSelectModal(ModalScreen[tuple[str, str | None] | None]):
     """Modal dialog for selecting anime color palette or picking a custom hex color."""
 
     DEFAULT_CSS = """
@@ -563,7 +562,7 @@ class AnimePaletteSelectModal(ModalScreen[Optional[Tuple[str, Optional[str]]]]):
     }
     """
 
-    def __init__(self, active_palette: str = "cyberpunk_neon", custom_hex: Optional[str] = None):
+    def __init__(self, active_palette: str = "cyberpunk_neon", custom_hex: str | None = None):
         super().__init__()
         self.active_palette = active_palette
         self.custom_hex = custom_hex or "#00f0ff"
@@ -702,11 +701,11 @@ class AnimeCompanionWidget(Vertical):
 
     def __init__(
         self,
-        character: Optional[AnimeCharacter] = None,
+        character: AnimeCharacter | None = None,
         palette_id: str = "cyberpunk_neon",
-        custom_hex: Optional[str] = None,
+        custom_hex: str | None = None,
         fx_mode: str = "scanline_shimmer",
-        id: Optional[str] = None,
+        id: str | None = None,
         clock_managed_externally: bool = False,
     ):
         super().__init__(id=id)
@@ -715,7 +714,7 @@ class AnimeCompanionWidget(Vertical):
         self.custom_hex = custom_hex
         self.fx_mode = fx_mode
         self.tick = 0
-        self.audio_ctx: Optional[AudioFeatureContext] = None
+        self.audio_ctx: AudioFeatureContext | None = None
         self.clock_managed_externally = clock_managed_externally
         self._anim_timer = None
         self.session = CompanionSession()
@@ -753,7 +752,7 @@ class AnimeCompanionWidget(Vertical):
             return self.custom_hex.upper()
         return self.palette_id.upper()
 
-    def set_motif(self, text: Optional[str]) -> None:
+    def set_motif(self, text: str | None) -> None:
         """Show or hide the preset motif line inside the companion frame."""
         try:
             label = self.query_one("#anime-char-motif", Label)
@@ -842,7 +841,7 @@ class AnimeCompanionWidget(Vertical):
         except Exception:
             pass
 
-    def update_character(self, character: AnimeCharacter, theme: Optional[StitchTheme] = None) -> None:
+    def update_character(self, character: AnimeCharacter, theme: StitchTheme | None = None) -> None:
         self.character = character
         self.session.set_design(character.preset_id)
         try:
@@ -877,11 +876,11 @@ class AnimeCompanionWidget(Vertical):
         elif btn_id == "btn-char-color":
             self.app.push_screen(AnimePaletteSelectModal(active_palette=self.palette_id, custom_hex=self.custom_hex), self._on_palette_selected)
 
-    def _on_character_selected(self, character: Optional[AnimeCharacter]) -> None:
+    def _on_character_selected(self, character: AnimeCharacter | None) -> None:
         if character:
             self.update_character(character)
 
-    def _on_palette_selected(self, result: Optional[Tuple[str, Optional[str]]]) -> None:
+    def _on_palette_selected(self, result: tuple[str, str | None] | None) -> None:
         if result:
             pal_id, custom_hex = result
             self.palette_id = pal_id
@@ -1023,8 +1022,8 @@ class PlayerStudioWidget(Container):
         self.stitch_client = StitchClient()
         self.layout_store = layout_store or VisionLayoutStore()
         self.player = VisionAudioPlayer()
-        self.current_layout: Optional[VisionLayout] = None
-        self.current_design: Optional[PlayerPageDesign] = None
+        self.current_layout: VisionLayout | None = None
+        self.current_design: PlayerPageDesign | None = None
         self.current_theme: StitchTheme = self.stitch_client.get_theme("neon_cyber")
         self.active_gap: int = 1
         self.palette = theme_palette(self.current_theme)
@@ -1552,7 +1551,7 @@ class PlayerStudioWidget(Container):
             except Exception:
                 pass
 
-    def _handle_preset_selected(self, layout: Optional[VisionLayout]) -> None:
+    def _handle_preset_selected(self, layout: VisionLayout | None) -> None:
         """Apply a full preset design including Stitch theme and visuals layout."""
         if layout:
             self.apply_layout(layout)
@@ -1582,13 +1581,13 @@ class PlayerStudioWidget(Container):
         next_idx = (current_idx + 1) % len(layouts)
         self.apply_layout(layouts[next_idx])
 
-    def _handle_add_song(self, path: Optional[Path]) -> None:
+    def _handle_add_song(self, path: Path | None) -> None:
         if path and path.exists():
             track = self.player.load_track(path)
             if track:
                 self.player.play()
 
-    def _handle_save_layout(self, name: Optional[str]) -> None:
+    def _handle_save_layout(self, name: str | None) -> None:
         if not name:
             return
 

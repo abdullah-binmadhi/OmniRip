@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import os
 import unicodedata
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 from rich.style import Style
@@ -122,7 +122,7 @@ SEXTANT_TABLE = _with_specials(_build_named_table("BLOCK SEXTANT-", 0x1FB00, 0x1
 OCTANT_TABLE = _with_specials(_build_named_table("BLOCK OCTANT-", 0x1CD00, 0x1CE00, 2), 0b11111111, 2)
 QUADRANT_TABLE = _with_specials(_build_quadrant_table(), 0b1111, 2)
 BRAILLE_TABLE = _build_braille_table()
-HALFBLOCK_TABLE = {0b00: " ", 0b01: "▄", 0b10: "▀", 0b11: "█"}
+HALFBLOCK_TABLE = {0b00: " ", 0b01: "▀", 0b10: "▄", 0b11: "█"}
 
 PATTERN_TABLES: dict[str, dict[int, str]] = {
     "octant": OCTANT_TABLE,
@@ -233,63 +233,30 @@ def _pad_grid(grid: np.ndarray, rows_per_cell: int, cols_per_cell: int) -> np.nd
 def _nearest_pattern(mask: int, table: Mapping[int, str]) -> str:
     if mask in table:
         return table[mask]
-    best_mask = 0
+    best_mask: int | None = None
     best_distance = mask.bit_length() + 1
     for candidate in sorted(table):
+        if candidate == 0:
+            continue  # never collapse a lit cell to blank
         distance = bin(mask ^ candidate).count("1")
         if distance < best_distance:
             best_mask, best_distance = candidate, distance
+    if best_mask is None:
+        return table.get(0, " ")
     return table[best_mask]
 
 
-def _cell_mask(values: np.ndarray, threshold: float) -> int:
-    mask = 0
-    height, width = values.shape
-    for row in range(height):
-        for column in range(width):
-            if values[row, column] > threshold:
-                mask |= 1 << (row * width + column)
-    return mask
+_LOOKUP_CACHE: dict[str, tuple[str, ...]] = {}
 
 
-def _cell_coverage(values: np.ndarray) -> dict[int, float]:
-    """Coverage weight for each sub-cell, used by shape-vector matching."""
-    height, width = values.shape
-    return {
-        1 << (row * width + column): float(values[row, column])
-        for row in range(height)
-        for column in range(width)
-    }
-
-
-def _match_mask(values: np.ndarray, table: Mapping[int, str], threshold: float, shape_match: bool) -> int:
-    mask = _cell_mask(values, threshold)
-    if not shape_match or mask in table:
-        return mask
-    coverage = _cell_coverage(values)
-    best_mask = mask
-    best_score = -1.0
-    for candidate in sorted(table):
-        score = sum(weight for bit, weight in coverage.items() if candidate & bit)
-        score -= sum(weight for bit, weight in coverage.items() if not candidate & bit) * 0.5
-        if score > best_score:
-            best_mask, best_score = candidate, score
-    return best_mask
-
-
-def _braille_char(values: np.ndarray, threshold: float) -> str:
-    mask = 0
-    for row in range(4):
-        for column in range(2):
-            if values[row, column] > threshold:
-                mask |= _BRAILLE_BITS[row][column]
-    return BRAILLE_TABLE.get(mask, chr(0x2800))
-
-
-def _ascii_char(values: np.ndarray, threshold: float, table: Mapping[int, str]) -> str:
-    mean = float(np.mean(values))
-    index = int(round(mean * (len(ASCII_RAMP) - 1)))
-    return ASCII_RAMP[max(0, min(len(ASCII_RAMP) - 1, index))]
+def _pattern_lookup(mode: str) -> tuple[str, ...]:
+    """256-entry mask-to-glyph table with nearest-pattern fallback baked in."""
+    cached = _LOOKUP_CACHE.get(mode)
+    if cached is None:
+        table = PATTERN_TABLES.get(mode, {})
+        cached = tuple(_nearest_pattern(mask, table) for mask in range(256))
+        _LOOKUP_CACHE[mode] = cached
+    return cached
 
 
 def render_bitmap(
@@ -300,7 +267,6 @@ def render_bitmap(
     bg: str | None = None,
     threshold: float = 0.5,
     dither: str | None = None,
-    shape_match: bool = True,
 ) -> list[list[Cell]]:
     """Render a coverage grid into terminal cells for the requested mode."""
     if mode not in MODES:
@@ -315,22 +281,38 @@ def render_bitmap(
 
     rows_per_cell, cols_per_cell = CELL_GEOMETRY[mode]
     work = _pad_grid(work, rows_per_cell, cols_per_cell)
-    table = PATTERN_TABLES.get(mode, {})
+    cell_rows = work.shape[0] // rows_per_cell
+    cell_cols = work.shape[1] // cols_per_cell
+    cells = work.reshape(cell_rows, rows_per_cell, cell_cols, cols_per_cell).transpose(0, 2, 1, 3)
+    on = cells > threshold
 
-    rows: list[list[Cell]] = []
-    for y in range(0, work.shape[0], rows_per_cell):
-        row: list[Cell] = []
-        for x in range(0, work.shape[1], cols_per_cell):
-            values = work[y : y + rows_per_cell, x : x + cols_per_cell]
-            if mode == "ascii":
-                row.append(Cell(_ascii_char(values, threshold, table), fg, None))
-            elif mode == "braille":
-                row.append(Cell(_braille_char(values, threshold), fg, None))
-            else:
-                mask = _match_mask(values, table, threshold, shape_match)
-                row.append(Cell(_nearest_pattern(mask, table), fg, bg))
-        rows.append(row)
-    return rows
+    if mode == "ascii":
+        means = cells.mean(axis=(2, 3))
+        indices = np.clip(
+            np.round(means * (len(ASCII_RAMP) - 1)).astype(int),
+            0,
+            len(ASCII_RAMP) - 1,
+        )
+        return [
+            [Cell(ASCII_RAMP[int(indices[r][c])], fg, None) for c in range(cell_cols)]
+            for r in range(cell_rows)
+        ]
+
+    if mode == "braille":
+        braille_bits = np.array(_BRAILLE_BITS, dtype=np.int64)
+        masks = (on * braille_bits).sum(axis=(2, 3))
+        return [
+            [Cell(BRAILLE_TABLE[int(masks[r][c])], fg, None) for c in range(cell_cols)]
+            for r in range(cell_rows)
+        ]
+
+    bit_values = (1 << np.arange(rows_per_cell * cols_per_cell)).reshape(rows_per_cell, cols_per_cell)
+    masks = (on * bit_values).sum(axis=(2, 3))
+    lookup = _pattern_lookup(mode)
+    return [
+        [Cell(lookup[int(masks[r][c])], fg, bg) for c in range(cell_cols)]
+        for r in range(cell_rows)
+    ]
 
 
 def _cell_style(cell: Cell, default_fg: str | None) -> Style | None:

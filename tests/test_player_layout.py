@@ -134,6 +134,43 @@ async def test_page_grammar_applies_rail_slots_and_frames(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_motion_reduced_modes(monkeypatch):
+    base = PLAYER_PAGE_DESIGNS["preset_y2k_aesthetic"]
+    app = _PlayerApp()
+    async with app.run_test(size=(140, 40)) as pilot:
+        studio = app.query_one(PlayerStudioWidget)
+        motif = app.query_one("#plr-motif", Label)
+        subtitle = app.query_one("#plr-theme-subtitle", Label)
+
+        hidden = replace(base, motion=(("blink", "idle", 1.0, "hide"),))
+        monkeypatch.setitem(PLAYER_PAGE_DESIGNS, hidden.layout_id, hidden)
+        studio.apply_layout(_layout(hidden.layout_id))
+        await pilot.pause()
+        driver = MotionDriver()
+        for _ in range(5):
+            driver.observe(studio, studio._resolved_page)
+        assert str(motif.render()) == base.motif
+
+        slow = replace(base, motion=(("marquee", "playing", 1.0, "slow"),))
+        monkeypatch.setitem(PLAYER_PAGE_DESIGNS, slow.layout_id, slow)
+        studio.apply_layout(_layout(slow.layout_id))
+        await pilot.pause()
+        driver = MotionDriver()
+        driver.tick = 8
+        driver.observe(studio, studio._resolved_page)
+        assert str(subtitle.render()) == slow.subtitle[2:] + slow.subtitle[:2]
+
+        held = replace(base, motion=(("marquee", "playing", 1.0, "hide"),))
+        monkeypatch.setitem(PLAYER_PAGE_DESIGNS, held.layout_id, held)
+        studio.apply_layout(_layout(held.layout_id))
+        await pilot.pause()
+        driver = MotionDriver()
+        driver.tick = 20
+        driver.observe(studio, studio._resolved_page)
+        assert str(subtitle.render()) == held.subtitle
+
+
+@pytest.mark.asyncio
 async def test_theme_palette_drives_chrome_cards_companion_and_scene():
     layout = _layout("preset_matrix_terminal")
     app = _PlayerApp()

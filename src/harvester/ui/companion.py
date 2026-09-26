@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import random
 import statistics
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Mapping, Optional
+from enum import StrEnum
 
 from harvester.ui.visuals.base import AudioFeatureContext
 
 
-class Mood(str, Enum):
+class Mood(StrEnum):
     SLEEPY = "sleepy"
     CHILL = "chill"
     FOCUS = "focus"
@@ -65,13 +65,13 @@ class BpmEstimator:
     min_gap: float = 0.15
     max_gap: float = 2.0
 
-    bpm: Optional[float] = None
+    bpm: float | None = None
     intervals: list[float] = field(default_factory=list)
     _clock: float = 0.0
-    _last_onset: Optional[float] = None
+    _last_onset: float | None = None
     _quiet_for: float = 0.0
 
-    def observe(self, ctx: AudioFeatureContext, dt: float) -> Optional[float]:
+    def observe(self, ctx: AudioFeatureContext, dt: float) -> float | None:
         """Advance the estimator by one frame and return the current BPM."""
         self._clock += dt
         quiet = (not ctx.is_playing) or ctx.rms_db < QUIET_RMS_DB
@@ -104,10 +104,10 @@ class MoodEngine:
     """Classify audio frames into authored moods with hysteresis."""
 
     mood: Mood = Mood.CHILL
-    bpm: Optional[float] = None
+    bpm: float | None = None
     _idle_for: float = 0.0
     _hype_for: float = 0.0
-    _candidate: Optional[Mood] = None
+    _candidate: Mood | None = None
     _candidate_for: float = 0.0
     _cooldown: float = 0.0
     _estimator: BpmEstimator = field(default_factory=BpmEstimator)
@@ -228,7 +228,7 @@ class SceneEngine:
         width: int,
         tick: int,
         mood: Mood = Mood.CHILL,
-        scene_id: Optional[str] = None,
+        scene_id: str | None = None,
     ) -> str:
         """Render one deterministic ambient line for the companion panel."""
         recipe = self.recipe_for(scene_id or self.scene_id)

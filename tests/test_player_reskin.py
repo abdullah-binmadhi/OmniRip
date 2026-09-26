@@ -68,7 +68,7 @@ class _PlayerApp(App):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("size", [(100, 30), (200, 50)])
+@pytest.mark.parametrize("size", [(80, 24), (100, 30), (200, 50)])
 async def test_every_builtin_applies_and_keeps_core_panels_visible(size):
     app = _PlayerApp()
     async with app.run_test(size=size) as pilot:
