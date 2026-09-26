@@ -1,4 +1,4 @@
-"""Full Vision Studio: Terminal Music Player & Visual Design Canvas.
+"""PLAYER Studio: Terminal Music Player & Visual Design Canvas.
 
 Integrates Google Stitch API design tokens, custom visualizer layouts (with
 persistent save/load), 60 FPS audio feature synchronization, and a complete
@@ -41,7 +41,7 @@ from harvester.services.vision_player import (
     PlaylistTrack,
     VisionAudioPlayer,
 )
-from harvester.ui.full_vision_designs import FullVisionDesign, get_full_vision_design
+from harvester.ui.player_designs import PlayerPageDesign, get_player_design
 from harvester.ui.visual_dashboard import (
     VisualDashboardWidget,
 )
@@ -58,13 +58,13 @@ from harvester.ui.visuals.base import AudioFeatureContext, ColorPalette
 logger = logging.getLogger(__name__)
 
 
-def launch_full_vision_external() -> bool:
-    """Launch Full Vision Studio in a new external macOS Terminal or iTerm tab."""
+def launch_player_external() -> bool:
+    """Launch PLAYER Studio in a new external macOS Terminal or iTerm tab."""
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
     venv_python = repo_root / ".venv" / "bin" / "python3"
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
 
-    cmd_script = f"cd '{repo_root}' && '{python_bin}' -m harvester.ui.full_vision"
+    cmd_script = f"cd '{repo_root}' && '{python_bin}' -m harvester.ui.player_studio"
 
     if sys.platform == "darwin":
         # Check if iTerm2 or standard Terminal is preferred
@@ -107,7 +107,7 @@ def launch_full_vision_external() -> bool:
                 check=False,
             )
             if res.returncode == 0:
-                logger.info("Successfully launched Full Vision in new macOS terminal window.")
+                logger.info("Successfully launched PLAYER in new macOS terminal window.")
                 return True
             else:
                 logger.warning("AppleScript launch returned %d: %s", res.returncode, res.stderr)
@@ -117,13 +117,13 @@ def launch_full_vision_external() -> bool:
     # Fallback: spawn background terminal process if tmux or standard terminal
     try:
         subprocess.Popen(
-            [python_bin, "-m", "harvester.ui.full_vision"],
+            [python_bin, "-m", "harvester.ui.player_studio"],
             cwd=str(repo_root),
             start_new_session=True,
         )
         return True
     except Exception as exc:
-        logger.error("Failed to launch background Full Vision process: %s", exc)
+        logger.error("Failed to launch background PLAYER process: %s", exc)
         return False
 
 
@@ -171,7 +171,7 @@ class SaveLayoutModal(ModalScreen[Optional[str]]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="save-layout-box"):
-            yield Label("💾  SAVE FULL VISION CANVAS DESIGN", id="save-layout-title")
+            yield Label("💾  SAVE PLAYER CANVAS DESIGN", id="save-layout-title")
             yield Label("Layout Name:")
             yield Input(value=self.initial_name, id="input-layout-name", classes="save-input")
             yield Label("Description:")
@@ -805,17 +805,17 @@ class AnimeCompanionWidget(Vertical):
             self._update_meta_label()
 
 
-class FullVisionStudioWidget(Container):
+class PlayerStudioWidget(Container):
     """Main studio widget comprising the visual canvas, top toolbar, and bottom player dock."""
 
     DEFAULT_CSS = """
-    FullVisionStudioWidget {
+    PlayerStudioWidget {
         width: 100%;
         height: 100%;
         layout: vertical;
         background: #0a0e14;
     }
-    #fvs-top-bar {
+    #plr-top-bar {
         width: 100%;
         height: 3;
         background: #121820;
@@ -823,34 +823,34 @@ class FullVisionStudioWidget(Container):
         align: left middle;
         padding: 0 1;
     }
-    #fvs-page-title {
+    #plr-page-title {
         color: #00ffcc;
         text-style: bold;
         width: 24;
         content-align: left middle;
     }
-    #fvs-theme-subtitle {
+    #plr-theme-subtitle {
         color: #8b949e;
         width: 1fr;
         content-align: left middle;
     }
-    .fvs-top-btn {
+    .plr-top-btn {
         margin: 0 1;
         height: 3;
         min-height: 3;
     }
-    #fvs-canvas-container {
+    #plr-canvas-container {
         width: 100%;
         height: 1fr;
         padding: 0;
         margin: 0;
         layout: horizontal;
     }
-    #fvs-dashboard {
+    #plr-dashboard {
         width: 1fr;
         height: 100%;
     }
-    #fvs-bottom-dock {
+    #plr-bottom-dock {
         width: 100%;
         height: 7;
         min-height: 7;
@@ -859,26 +859,26 @@ class FullVisionStudioWidget(Container):
         layout: horizontal;
         padding: 0 1;
     }
-    #fvs-track-info-col {
+    #plr-track-info-col {
         width: 32;
         height: 100%;
         layout: vertical;
         padding-top: 1;
     }
-    #fvs-now-playing-title {
+    #plr-now-playing-title {
         color: #00ffcc;
         text-style: bold;
     }
-    #fvs-now-playing-meta {
+    #plr-now-playing-meta {
         color: #8b949e;
     }
-    #fvs-player-center-col {
+    #plr-player-center-col {
         width: 1fr;
         height: 100%;
         layout: vertical;
         align: center middle;
     }
-    #fvs-transport-row {
+    #plr-transport-row {
         height: 3;
         align: center middle;
     }
@@ -888,27 +888,27 @@ class FullVisionStudioWidget(Container):
         height: 3;
         min-height: 3;
     }
-    #fvs-scrubber-row {
+    #plr-scrubber-row {
         width: 100%;
         height: 2;
         align: center middle;
         layout: horizontal;
     }
-    #fvs-time-elapsed {
+    #plr-time-elapsed {
         width: 8;
         color: #00ffcc;
         text-align: right;
     }
-    #fvs-scrubber {
+    #plr-scrubber {
         width: 1fr;
         margin: 0 1;
     }
-    #fvs-time-total {
+    #plr-time-total {
         width: 8;
         color: #8b949e;
         text-align: left;
     }
-    #fvs-player-right-col {
+    #plr-player-right-col {
         width: 32;
         height: 100%;
         layout: vertical;
@@ -927,57 +927,57 @@ class FullVisionStudioWidget(Container):
         self.layout_store = layout_store or VisionLayoutStore()
         self.player = VisionAudioPlayer()
         self.current_layout: Optional[VisionLayout] = None
-        self.current_design: Optional[FullVisionDesign] = None
+        self.current_design: Optional[PlayerPageDesign] = None
         self.current_theme: StitchTheme = self.stitch_client.get_theme("neon_cyber")
         self.active_gap: int = 1
 
     def compose(self) -> ComposeResult:
         # 1. Top Control Bar
-        with Horizontal(id="fvs-top-bar"):
-            yield Label("⛶ FULL VISION STUDIO", id="fvs-page-title")
-            yield Label("SYSTEM NOMINAL", id="fvs-theme-subtitle")
-            yield Button("1: OMNIRIP", variant="warning", id="btn-fvs-omnirip", classes="fvs-top-btn")
-            yield Button("✨ PRESETS (20)", variant="primary", id="btn-fvs-presets", classes="fvs-top-btn")
-            yield Button("📐 LOAD LAYOUT", id="btn-fvs-load-layout", classes="fvs-top-btn")
-            yield Button("💾 SAVE LAYOUT", id="btn-fvs-save-layout", classes="fvs-top-btn")
-            yield Button("GAP: (1)", id="btn-fvs-gap", classes="fvs-top-btn")
-            yield Button("↗ NEW TAB", id="btn-fvs-popout", classes="fvs-top-btn")
+        with Horizontal(id="plr-top-bar"):
+            yield Label("⛶ PLAYER STUDIO", id="plr-page-title")
+            yield Label("SYSTEM NOMINAL", id="plr-theme-subtitle")
+            yield Button("1: OMNIRIP", variant="warning", id="btn-plr-omnirip", classes="plr-top-btn")
+            yield Button("✨ PRESETS (20)", variant="primary", id="btn-plr-presets", classes="plr-top-btn")
+            yield Button("📐 LOAD LAYOUT", id="btn-plr-load-layout", classes="plr-top-btn")
+            yield Button("💾 SAVE LAYOUT", id="btn-plr-save-layout", classes="plr-top-btn")
+            yield Button("GAP: (1)", id="btn-plr-gap", classes="plr-top-btn")
+            yield Button("↗ NEW TAB", id="btn-plr-popout", classes="plr-top-btn")
 
         # 2. Main Visual Canvas & Anime Companion Side Panel
-        with Horizontal(id="fvs-canvas-container"):
-            yield VisualDashboardWidget(id="fvs-dashboard", clock_managed_externally=True)
+        with Horizontal(id="plr-canvas-container"):
+            yield VisualDashboardWidget(id="plr-dashboard", clock_managed_externally=True)
             yield AnimeCompanionWidget(
-                id="fvs-anime-companion",
+                id="plr-anime-companion",
                 clock_managed_externally=True,
             )
 
         # 3. Bottom Music Player Dock
-        with Horizontal(id="fvs-bottom-dock"):
+        with Horizontal(id="plr-bottom-dock"):
             # Left: Track Metadata
-            with Vertical(id="fvs-track-info-col"):
-                yield Label("🎵 Standby Synthesizer", id="fvs-now-playing-title")
-                yield Label("60 FPS Telemetry | Real-Time Sync", id="fvs-now-playing-meta")
+            with Vertical(id="plr-track-info-col"):
+                yield Label("🎵 Standby Synthesizer", id="plr-now-playing-title")
+                yield Label("60 FPS Telemetry | Real-Time Sync", id="plr-now-playing-meta")
 
             # Center: Transport Controls & Scrubber
-            with Vertical(id="fvs-player-center-col"):
-                with Horizontal(id="fvs-transport-row"):
-                    yield Button("⏮ PREV", id="btn-fvs-prev", classes="transport-btn")
-                    yield Button("▶ PLAY", variant="primary", id="btn-fvs-play", classes="transport-btn")
-                    yield Button("⏹ STOP", id="btn-fvs-stop", classes="transport-btn")
-                    yield Button("⏭ NEXT", id="btn-fvs-next", classes="transport-btn")
-                    yield Button("🔁 LOOP: OFF", id="btn-fvs-loop", classes="transport-btn")
-                    yield Button("🔀 SHUFFLE: OFF", id="btn-fvs-shuffle", classes="transport-btn")
+            with Vertical(id="plr-player-center-col"):
+                with Horizontal(id="plr-transport-row"):
+                    yield Button("⏮ PREV", id="btn-plr-prev", classes="transport-btn")
+                    yield Button("▶ PLAY", variant="primary", id="btn-plr-play", classes="transport-btn")
+                    yield Button("⏹ STOP", id="btn-plr-stop", classes="transport-btn")
+                    yield Button("⏭ NEXT", id="btn-plr-next", classes="transport-btn")
+                    yield Button("🔁 LOOP: OFF", id="btn-plr-loop", classes="transport-btn")
+                    yield Button("🔀 SHUFFLE: OFF", id="btn-plr-shuffle", classes="transport-btn")
 
-                with Horizontal(id="fvs-scrubber-row"):
-                    yield Label("00:00", id="fvs-time-elapsed")
-                    yield ProgressBar(id="fvs-scrubber", show_eta=False, show_percentage=False)
-                    yield Label("00:00", id="fvs-time-total")
+                with Horizontal(id="plr-scrubber-row"):
+                    yield Label("00:00", id="plr-time-elapsed")
+                    yield ProgressBar(id="plr-scrubber", show_eta=False, show_percentage=False)
+                    yield Label("00:00", id="plr-time-total")
 
             # Right: Audio Actions
-            with Vertical(id="fvs-player-right-col"):
+            with Vertical(id="plr-player-right-col"):
                 with Horizontal():
-                    yield Button("+ LOAD SONG", variant="success", id="btn-fvs-add-song", classes="playlist-btn")
-                    yield Button("QUEUE (0)", id="btn-fvs-queue", classes="playlist-btn")
+                    yield Button("+ LOAD SONG", variant="success", id="btn-plr-add-song", classes="playlist-btn")
+                    yield Button("QUEUE (0)", id="btn-plr-queue", classes="playlist-btn")
 
     def on_mount(self) -> None:
         """Initialize 60 FPS animation loop, default layout, and player listener."""
@@ -995,11 +995,11 @@ class FullVisionStudioWidget(Container):
         self.active_gap = layout.gap_distance
         self.current_theme = self.stitch_client.get_theme(layout.stitch_theme_id)
 
-        design = get_full_vision_design(layout.layout_id)
-        self.current_design = design or get_full_vision_design("preset_matrix_terminal")
+        design = get_player_design(layout.layout_id)
+        self.current_design = design or get_player_design("preset_matrix_terminal")
 
         try:
-            gap_btn = self.query_one("#btn-fvs-gap", Button)
+            gap_btn = self.query_one("#btn-plr-gap", Button)
             gap_btn.label = f"GAP: ({self.active_gap})"
         except Exception:
             pass
@@ -1013,30 +1013,30 @@ class FullVisionStudioWidget(Container):
             pass
 
         try:
-            top_bar = self.query_one("#fvs-top-bar")
+            top_bar = self.query_one("#plr-top-bar")
             top_bar.styles.background = theme.surface_color
             top_bar.styles.border_bottom = (border_type, theme.primary_color)
-            brand = self.query_one("#fvs-page-title", Label)
+            brand = self.query_one("#plr-page-title", Label)
             brand.styles.color = theme.primary_color
             brand.update(self.current_design.page_title)
 
-            sub = self.query_one("#fvs-theme-subtitle", Label)
+            sub = self.query_one("#plr-theme-subtitle", Label)
             sub.update(self.current_design.subtitle)
         except Exception:
             pass
 
         try:
-            dock = self.query_one("#fvs-bottom-dock")
+            dock = self.query_one("#plr-bottom-dock")
             dock.styles.background = theme.surface_color
             dock.styles.border_top = (border_type, theme.secondary_color)
-            title_lbl = self.query_one("#fvs-now-playing-title", Label)
+            title_lbl = self.query_one("#plr-now-playing-title", Label)
             title_lbl.styles.color = theme.primary_color
-            elapsed_lbl = self.query_one("#fvs-time-elapsed", Label)
+            elapsed_lbl = self.query_one("#plr-time-elapsed", Label)
             elapsed_lbl.styles.color = theme.primary_color
         except Exception:
             pass
 
-        dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
         dash.set_editable(not layout.is_builtin)
         dash.layout_style = self.current_design.dashboard_layout
@@ -1068,7 +1068,7 @@ class FullVisionStudioWidget(Container):
         try:
             char_id = layout.anime_character_id or layout.layout_id
             character = get_anime_character(char_id)
-            companion = self.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+            companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
             companion.update_character(character, theme)
         except Exception:
             pass
@@ -1086,132 +1086,132 @@ class FullVisionStudioWidget(Container):
         # Map button labels based on mode
         style_maps = {
             "dos_keys": {
-                "#btn-fvs-omnirip": "[F1:OMNIRIP]",
-                "#btn-fvs-presets": "[F2:PRESETS]",
-                "#btn-fvs-load-layout": "[F3:LOAD]",
-                "#btn-fvs-save-layout": "[F4:SAVE]",
-                "#btn-fvs-gap": f"[F5:GAP:{self.active_gap}]",
-                "#btn-fvs-popout": "[F6:TAB]",
-                "#btn-fvs-prev": "[F7:PREV]",
-                "#btn-fvs-play": "[F8:PLAY]",
-                "#btn-fvs-stop": "[F9:STOP]",
-                "#btn-fvs-next": "[F10:NEXT]",
-                "#btn-fvs-loop": f"[F11:LOOP:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[F12:SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[+LOAD SONG]",
-                "#btn-fvs-queue": f"[QUEUE:{len(self.player.playlist)}]",
+                "#btn-plr-omnirip": "[F1:OMNIRIP]",
+                "#btn-plr-presets": "[F2:PRESETS]",
+                "#btn-plr-load-layout": "[F3:LOAD]",
+                "#btn-plr-save-layout": "[F4:SAVE]",
+                "#btn-plr-gap": f"[F5:GAP:{self.active_gap}]",
+                "#btn-plr-popout": "[F6:TAB]",
+                "#btn-plr-prev": "[F7:PREV]",
+                "#btn-plr-play": "[F8:PLAY]",
+                "#btn-plr-stop": "[F9:STOP]",
+                "#btn-plr-next": "[F10:NEXT]",
+                "#btn-plr-loop": f"[F11:LOOP:{self.player.loop_mode.value[:3]}]",
+                "#btn-plr-shuffle": f"[F12:SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-plr-add-song": "[+LOAD SONG]",
+                "#btn-plr-queue": f"[QUEUE:{len(self.player.playlist)}]",
             },
             "cyber_brackets": {
-                "#btn-fvs-omnirip": "[// OMNIRIP //]",
-                "#btn-fvs-presets": "[// PRESETS:20 //]",
-                "#btn-fvs-load-layout": "[// IMPORT //]",
-                "#btn-fvs-save-layout": "[// EXPORT //]",
-                "#btn-fvs-gap": f"[// GAP:{self.active_gap} //]",
-                "#btn-fvs-popout": "[// SHELL //]",
-                "#btn-fvs-prev": "[<< SCAN]",
-                "#btn-fvs-play": "[>> EXEC]",
-                "#btn-fvs-stop": "[## HALT]",
-                "#btn-fvs-next": "[>> SEEK]",
-                "#btn-fvs-loop": f"[↺ LOOP:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[∿ SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[++ AUDIO_SRC]",
-                "#btn-fvs-queue": f"[Q_BUFF:{len(self.player.playlist)}]",
+                "#btn-plr-omnirip": "[// OMNIRIP //]",
+                "#btn-plr-presets": "[// PRESETS:20 //]",
+                "#btn-plr-load-layout": "[// IMPORT //]",
+                "#btn-plr-save-layout": "[// EXPORT //]",
+                "#btn-plr-gap": f"[// GAP:{self.active_gap} //]",
+                "#btn-plr-popout": "[// SHELL //]",
+                "#btn-plr-prev": "[<< SCAN]",
+                "#btn-plr-play": "[>> EXEC]",
+                "#btn-plr-stop": "[## HALT]",
+                "#btn-plr-next": "[>> SEEK]",
+                "#btn-plr-loop": f"[↺ LOOP:{self.player.loop_mode.value[:3]}]",
+                "#btn-plr-shuffle": f"[∿ SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-plr-add-song": "[++ AUDIO_SRC]",
+                "#btn-plr-queue": f"[Q_BUFF:{len(self.player.playlist)}]",
             },
             "retro_arcade": {
-                "#btn-fvs-omnirip": "[🪙 1P/OMNI]",
-                "#btn-fvs-presets": "[🕹️ PRESETS]",
-                "#btn-fvs-load-layout": "[📂 LOAD]",
-                "#btn-fvs-save-layout": "[💾 SAVE]",
-                "#btn-fvs-gap": f"[● GAP:{self.active_gap}]",
-                "#btn-fvs-popout": "[↗ NEW]",
-                "#btn-fvs-prev": "[◀ REV]",
-                "#btn-fvs-play": "[★ START]",
-                "#btn-fvs-stop": "[■ OVER]",
-                "#btn-fvs-next": "[▶ FWD]",
-                "#btn-fvs-loop": f"[🔄 RPT:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[🎲 RND:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[INSERT COIN]",
-                "#btn-fvs-queue": f"[STAGE:{len(self.player.playlist)}]",
+                "#btn-plr-omnirip": "[🪙 1P/OMNI]",
+                "#btn-plr-presets": "[🕹️ PRESETS]",
+                "#btn-plr-load-layout": "[📂 LOAD]",
+                "#btn-plr-save-layout": "[💾 SAVE]",
+                "#btn-plr-gap": f"[● GAP:{self.active_gap}]",
+                "#btn-plr-popout": "[↗ NEW]",
+                "#btn-plr-prev": "[◀ REV]",
+                "#btn-plr-play": "[★ START]",
+                "#btn-plr-stop": "[■ OVER]",
+                "#btn-plr-next": "[▶ FWD]",
+                "#btn-plr-loop": f"[🔄 RPT:{self.player.loop_mode.value[:3]}]",
+                "#btn-plr-shuffle": f"[🎲 RND:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-plr-add-song": "[INSERT COIN]",
+                "#btn-plr-queue": f"[STAGE:{len(self.player.playlist)}]",
             },
             "cozy_soft": {
-                "#btn-fvs-omnirip": "☕ omnirip",
-                "#btn-fvs-presets": "✿ presets",
-                "#btn-fvs-load-layout": "♡ load",
-                "#btn-fvs-save-layout": "☁ save",
-                "#btn-fvs-gap": f"⋆ gap ({self.active_gap})",
-                "#btn-fvs-popout": "↗ tab",
-                "#btn-fvs-prev": "⏮ softly",
-                "#btn-fvs-play": "▶ listen",
-                "#btn-fvs-stop": "⏹ rest",
-                "#btn-fvs-next": "⏭ skip",
-                "#btn-fvs-loop": f"↻ loop: {self.player.loop_mode.value}",
-                "#btn-fvs-shuffle": f"~ shuffle: {'on' if self.player.shuffle else 'off'}",
-                "#btn-fvs-add-song": "♪ add track",
-                "#btn-fvs-queue": f"tea queue ({len(self.player.playlist)})",
+                "#btn-plr-omnirip": "☕ omnirip",
+                "#btn-plr-presets": "✿ presets",
+                "#btn-plr-load-layout": "♡ load",
+                "#btn-plr-save-layout": "☁ save",
+                "#btn-plr-gap": f"⋆ gap ({self.active_gap})",
+                "#btn-plr-popout": "↗ tab",
+                "#btn-plr-prev": "⏮ softly",
+                "#btn-plr-play": "▶ listen",
+                "#btn-plr-stop": "⏹ rest",
+                "#btn-plr-next": "⏭ skip",
+                "#btn-plr-loop": f"↻ loop: {self.player.loop_mode.value}",
+                "#btn-plr-shuffle": f"~ shuffle: {'on' if self.player.shuffle else 'off'}",
+                "#btn-plr-add-song": "♪ add track",
+                "#btn-plr-queue": f"tea queue ({len(self.player.playlist)})",
             },
             "tactile_knobs": {
-                "#btn-fvs-omnirip": "[CH-1: OMNI]",
-                "#btn-fvs-presets": "[BNK: PRESETS]",
-                "#btn-fvs-load-layout": "[INP: LOAD]",
-                "#btn-fvs-save-layout": "[ROM: SAVE]",
-                "#btn-fvs-gap": f"[ATT: GAP-{self.active_gap}]",
-                "#btn-fvs-popout": "[AUX: TAB]",
-                "#btn-fvs-prev": "|<< REWIND",
-                "#btn-fvs-play": "> PLAY",
-                "#btn-fvs-stop": "[] STOP",
-                "#btn-fvs-next": ">>| FAST-FWD",
-                "#btn-fvs-loop": f"(RPT: {self.player.loop_mode.value[:3]})",
-                "#btn-fvs-shuffle": f"(RND: {'ON' if self.player.shuffle_mode else 'OFF'})",
-                "#btn-fvs-add-song": "[REC INP]",
-                "#btn-fvs-queue": f"[TRK-Q: {len(self.player.playlist)}]",
+                "#btn-plr-omnirip": "[CH-1: OMNI]",
+                "#btn-plr-presets": "[BNK: PRESETS]",
+                "#btn-plr-load-layout": "[INP: LOAD]",
+                "#btn-plr-save-layout": "[ROM: SAVE]",
+                "#btn-plr-gap": f"[ATT: GAP-{self.active_gap}]",
+                "#btn-plr-popout": "[AUX: TAB]",
+                "#btn-plr-prev": "|<< REWIND",
+                "#btn-plr-play": "> PLAY",
+                "#btn-plr-stop": "[] STOP",
+                "#btn-plr-next": ">>| FAST-FWD",
+                "#btn-plr-loop": f"(RPT: {self.player.loop_mode.value[:3]})",
+                "#btn-plr-shuffle": f"(RND: {'ON' if self.player.shuffle_mode else 'OFF'})",
+                "#btn-plr-add-song": "[REC INP]",
+                "#btn-plr-queue": f"[TRK-Q: {len(self.player.playlist)}]",
             },
             "hud_caps": {
-                "#btn-fvs-omnirip": "1//OMNI",
-                "#btn-fvs-presets": "2//PRESETS",
-                "#btn-fvs-load-layout": "3//LOAD",
-                "#btn-fvs-save-layout": "4//SAVE",
-                "#btn-fvs-gap": f"5//GAP:{self.active_gap}",
-                "#btn-fvs-popout": "6//POPOUT",
-                "#btn-fvs-prev": "◄◄ REV",
-                "#btn-fvs-play": "► IGNITION",
-                "#btn-fvs-stop": "■ BRAKE",
-                "#btn-fvs-next": "►► FWD",
-                "#btn-fvs-loop": f"↺ LAP:{self.player.loop_mode.value[:3]}",
-                "#btn-fvs-shuffle": f"⇄ DRIFT:{'ON' if self.player.shuffle_mode else 'OFF'}",
-                "#btn-fvs-add-song": "+ TELEMETRY",
-                "#btn-fvs-queue": f"GRID:[{len(self.player.playlist)}]",
+                "#btn-plr-omnirip": "1//OMNI",
+                "#btn-plr-presets": "2//PRESETS",
+                "#btn-plr-load-layout": "3//LOAD",
+                "#btn-plr-save-layout": "4//SAVE",
+                "#btn-plr-gap": f"5//GAP:{self.active_gap}",
+                "#btn-plr-popout": "6//POPOUT",
+                "#btn-plr-prev": "◄◄ REV",
+                "#btn-plr-play": "► IGNITION",
+                "#btn-plr-stop": "■ BRAKE",
+                "#btn-plr-next": "►► FWD",
+                "#btn-plr-loop": f"↺ LAP:{self.player.loop_mode.value[:3]}",
+                "#btn-plr-shuffle": f"⇄ DRIFT:{'ON' if self.player.shuffle_mode else 'OFF'}",
+                "#btn-plr-add-song": "+ TELEMETRY",
+                "#btn-plr-queue": f"GRID:[{len(self.player.playlist)}]",
             },
             "bracket_caps": {
-                "#btn-fvs-omnirip": "【OMNIRIP】",
-                "#btn-fvs-presets": "【PRESETS】",
-                "#btn-fvs-load-layout": "【LOAD】",
-                "#btn-fvs-save-layout": "【SAVE】",
-                "#btn-fvs-gap": f"【GAP:{self.active_gap}】",
-                "#btn-fvs-popout": "【TAB】",
-                "#btn-fvs-prev": "【⏮ PREV】",
-                "#btn-fvs-play": "【▶ PLAY】",
-                "#btn-fvs-stop": "【⏹ STOP】",
-                "#btn-fvs-next": "【⏭ NEXT】",
-                "#btn-fvs-loop": f"【🔁 {self.player.loop_mode.value[:3]}】",
-                "#btn-fvs-shuffle": f"【🔀 {'ON' if self.player.shuffle_mode else 'OFF'}】",
-                "#btn-fvs-add-song": "【+ SONG】",
-                "#btn-fvs-queue": f"【Q:{len(self.player.playlist)}】",
+                "#btn-plr-omnirip": "【OMNIRIP】",
+                "#btn-plr-presets": "【PRESETS】",
+                "#btn-plr-load-layout": "【LOAD】",
+                "#btn-plr-save-layout": "【SAVE】",
+                "#btn-plr-gap": f"【GAP:{self.active_gap}】",
+                "#btn-plr-popout": "【TAB】",
+                "#btn-plr-prev": "【⏮ PREV】",
+                "#btn-plr-play": "【▶ PLAY】",
+                "#btn-plr-stop": "【⏹ STOP】",
+                "#btn-plr-next": "【⏭ NEXT】",
+                "#btn-plr-loop": f"【🔁 {self.player.loop_mode.value[:3]}】",
+                "#btn-plr-shuffle": f"【🔀 {'ON' if self.player.shuffle_mode else 'OFF'}】",
+                "#btn-plr-add-song": "【+ SONG】",
+                "#btn-plr-queue": f"【Q:{len(self.player.playlist)}】",
             },
             "pill": {
-                "#btn-fvs-omnirip": "( 1: OMNIRIP )",
-                "#btn-fvs-presets": "( ✨ PRESETS )",
-                "#btn-fvs-load-layout": "( 📐 LOAD )",
-                "#btn-fvs-save-layout": "( 💾 SAVE )",
-                "#btn-fvs-gap": f"( ⚬ GAP: {self.active_gap} )",
-                "#btn-fvs-popout": "( ↗ TAB )",
-                "#btn-fvs-prev": "◀ PREV",
-                "#btn-fvs-play": "▶ PLAY",
-                "#btn-fvs-stop": "■ STOP",
-                "#btn-fvs-next": "▶▶ NEXT",
-                "#btn-fvs-loop": f"🔁 {self.player.loop_mode.value}",
-                "#btn-fvs-shuffle": f"🔀 {'ON' if self.player.shuffle else 'OFF'}",
-                "#btn-fvs-add-song": "+ LOAD SONG",
-                "#btn-fvs-queue": f"QUEUE ({len(self.player.playlist)})",
+                "#btn-plr-omnirip": "( 1: OMNIRIP )",
+                "#btn-plr-presets": "( ✨ PRESETS )",
+                "#btn-plr-load-layout": "( 📐 LOAD )",
+                "#btn-plr-save-layout": "( 💾 SAVE )",
+                "#btn-plr-gap": f"( ⚬ GAP: {self.active_gap} )",
+                "#btn-plr-popout": "( ↗ TAB )",
+                "#btn-plr-prev": "◀ PREV",
+                "#btn-plr-play": "▶ PLAY",
+                "#btn-plr-stop": "■ STOP",
+                "#btn-plr-next": "▶▶ NEXT",
+                "#btn-plr-loop": f"🔁 {self.player.loop_mode.value}",
+                "#btn-plr-shuffle": f"🔀 {'ON' if self.player.shuffle else 'OFF'}",
+                "#btn-plr-add-song": "+ LOAD SONG",
+                "#btn-plr-queue": f"QUEUE ({len(self.player.playlist)})",
             },
         }
 
@@ -1225,8 +1225,8 @@ class FullVisionStudioWidget(Container):
 
         # Structural layout sizing adjustments per style
         try:
-            dock = self.query_one("#fvs-bottom-dock")
-            top_bar = self.query_one("#fvs-top-bar")
+            dock = self.query_one("#plr-bottom-dock")
+            top_bar = self.query_one("#plr-top-bar")
             top_bar.styles.height = 3
             dock.styles.height = 6 if structure in ("dos_mpxplay", "rackmount_hardware") else 7
         except Exception:
@@ -1238,12 +1238,12 @@ class FullVisionStudioWidget(Container):
             return
 
         button_ids = (
-            "#btn-fvs-omnirip",
-            "#btn-fvs-presets",
-            "#btn-fvs-load-layout",
-            "#btn-fvs-save-layout",
-            "#btn-fvs-gap",
-            "#btn-fvs-popout",
+            "#btn-plr-omnirip",
+            "#btn-plr-presets",
+            "#btn-plr-load-layout",
+            "#btn-plr-save-layout",
+            "#btn-plr-gap",
+            "#btn-plr-popout",
         )
         values = {
             "gap": self.active_gap,
@@ -1275,10 +1275,10 @@ class FullVisionStudioWidget(Container):
     def _on_track_changed(self, track: PlaylistTrack) -> None:
         """Update track information in UI."""
         try:
-            title_lbl = self.query_one("#fvs-now-playing-title", Label)
-            meta_lbl = self.query_one("#fvs-now-playing-meta", Label)
-            total_lbl = self.query_one("#fvs-time-total", Label)
-            queue_btn = self.query_one("#btn-fvs-queue", Button)
+            title_lbl = self.query_one("#plr-now-playing-title", Label)
+            meta_lbl = self.query_one("#plr-now-playing-meta", Label)
+            total_lbl = self.query_one("#plr-time-total", Label)
+            queue_btn = self.query_one("#btn-plr-queue", Button)
 
             title_lbl.update(f"🎵 {track.title[:28]}")
             meta_lbl.update(f"{track.artist} | {track.sample_rate}Hz | 60 FPS")
@@ -1301,8 +1301,8 @@ class FullVisionStudioWidget(Container):
             pos = self.player.current_position_seconds
             dur = self.player.current_track.duration_seconds
             try:
-                scrubber = self.query_one("#fvs-scrubber", ProgressBar)
-                elapsed_lbl = self.query_one("#fvs-time-elapsed", Label)
+                scrubber = self.query_one("#plr-scrubber", ProgressBar)
+                elapsed_lbl = self.query_one("#plr-time-elapsed", Label)
                 if dur > 0:
                     scrubber.progress = (pos / dur) * 100.0
                 elapsed_lbl.update(self.player.formatted_position)
@@ -1311,7 +1311,7 @@ class FullVisionStudioWidget(Container):
 
         # Update Play/Pause button label
         try:
-            play_btn = self.query_one("#btn-fvs-play", Button)
+            play_btn = self.query_one("#btn-plr-play", Button)
             is_playing = self.player.state == PlaybackState.PLAYING
             label = Content(self._play_pause_label(is_playing))
             if str(play_btn.label) != label:
@@ -1322,9 +1322,9 @@ class FullVisionStudioWidget(Container):
 
         # Feed feature frame to all active canvas cards and anime companion
         try:
-            dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
+            dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
             dash.tick_frame(ctx)
-            companion = self.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+            companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
             companion.feed_audio(ctx)
             companion._tick_60fps()
         except Exception:
@@ -1333,38 +1333,38 @@ class FullVisionStudioWidget(Container):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
 
-        if btn_id == "btn-fvs-play":
+        if btn_id == "btn-plr-play":
             self.player.toggle_play_pause()
-        elif btn_id == "btn-fvs-stop":
+        elif btn_id == "btn-plr-stop":
             self.player.stop()
-        elif btn_id == "btn-fvs-next":
+        elif btn_id == "btn-plr-next":
             self.player.next_track()
-        elif btn_id == "btn-fvs-prev":
+        elif btn_id == "btn-plr-prev":
             self.player.prev_track()
-        elif btn_id == "btn-fvs-loop":
+        elif btn_id == "btn-plr-loop":
             self.player.toggle_loop()
             if self.current_layout is not None:
                 self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
                 self._apply_design_control_labels()
-        elif btn_id == "btn-fvs-shuffle":
+        elif btn_id == "btn-plr-shuffle":
             self.player.toggle_shuffle()
             if self.current_layout is not None:
                 self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
                 self._apply_design_control_labels()
-        elif btn_id == "btn-fvs-omnirip":
+        elif btn_id == "btn-plr-omnirip":
             self._return_to_omnirip()
-        elif btn_id == "btn-fvs-presets":
+        elif btn_id == "btn-plr-presets":
             self.app.push_screen(PresetCatalogModal(self.layout_store), self._handle_preset_selected)
-        elif btn_id == "btn-fvs-gap":
+        elif btn_id == "btn-plr-gap":
             self._cycle_gap()
-        elif btn_id == "btn-fvs-add-song":
+        elif btn_id == "btn-plr-add-song":
             self.app.push_screen(AddSongModal(), self._handle_add_song)
-        elif btn_id == "btn-fvs-save-layout":
+        elif btn_id == "btn-plr-save-layout":
             self.app.push_screen(SaveLayoutModal(), self._handle_save_layout)
-        elif btn_id == "btn-fvs-load-layout":
+        elif btn_id == "btn-plr-load-layout":
             self._cycle_layout()
-        elif btn_id == "btn-fvs-popout":
-            launch_full_vision_external()
+        elif btn_id == "btn-plr-popout":
+            launch_player_external()
 
     def _return_to_omnirip(self) -> None:
         """Return to the OmniRip main workstation view."""
@@ -1386,7 +1386,7 @@ class FullVisionStudioWidget(Container):
         self.active_gap = (self.active_gap + 1) % 5
         self._apply_design_control_labels()
 
-        dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
         dash._refresh_canvas()
 
@@ -1416,7 +1416,7 @@ class FullVisionStudioWidget(Container):
         if not name:
             return
 
-        dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
         cards = []
         for idx, item in enumerate(dash.cards):
             cards.append(
@@ -1443,11 +1443,11 @@ class FullVisionStudioWidget(Container):
         self.current_layout = layout
 
 
-class FullVisionScreen(ModalScreen):
-    """In-app fullscreen modal studio for Full Vision."""
+class PlayerScreen(ModalScreen):
+    """In-app fullscreen modal studio for PLAYER."""
 
     DEFAULT_CSS = """
-    FullVisionScreen {
+    PlayerScreen {
         width: 100%;
         height: 100%;
         background: #0a0e14;
@@ -1455,15 +1455,15 @@ class FullVisionScreen(ModalScreen):
     """
 
     def compose(self) -> ComposeResult:
-        yield FullVisionStudioWidget()
+        yield PlayerStudioWidget()
 
     def on_key(self, event: events.Key) -> None:
         if event.key in ("1", "escape"):
             self.dismiss()
 
 
-class FullVisionApp(App):
-    """Standalone Textual application for Full Vision Studio."""
+class PlayerApp(App):
+    """Standalone Textual application for PLAYER Studio."""
 
     CSS = """
     Screen {
@@ -1472,13 +1472,13 @@ class FullVisionApp(App):
     """
 
     def compose(self) -> ComposeResult:
-        yield FullVisionStudioWidget()
+        yield PlayerStudioWidget()
         yield Footer()
 
 
 def main():
-    """Entry point for standalone `omnirip-vision` terminal execution."""
-    app = FullVisionApp()
+    """Entry point for standalone `omnirip-player` terminal execution."""
+    app = PlayerApp()
     app.run()
 
 

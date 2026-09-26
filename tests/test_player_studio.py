@@ -1,36 +1,36 @@
-"""Unit tests for Full Vision Studio UI composition and interactions."""
+"""Unit tests for PLAYER Studio UI composition and interactions."""
 
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from harvester.ui.full_vision import FullVisionStudioWidget
+from harvester.ui.player_studio import PlayerStudioWidget
 
 
-class DummyVisionApp(App):
+class DummyPlayerApp(App):
     def compose(self) -> ComposeResult:
-        yield FullVisionStudioWidget()
+        yield PlayerStudioWidget()
 
 
 @pytest.mark.asyncio
-async def test_full_vision_studio_compose():
-    app = DummyVisionApp()
+async def test_player_studio_compose():
+    app = DummyPlayerApp()
     async with app.run_test():
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         assert studio is not None
 
         # Check top bar buttons (labels come from the selected page design).
-        presets_btn = app.query_one("#btn-fvs-presets")
+        presets_btn = app.query_one("#btn-plr-presets")
         assert str(presets_btn.label) == studio.current_design.top_controls[1]
 
-        omnirip_btn = app.query_one("#btn-fvs-omnirip")
+        omnirip_btn = app.query_one("#btn-plr-omnirip")
         assert str(omnirip_btn.label) == studio.current_design.top_controls[0]
 
-        gap_btn = app.query_one("#btn-fvs-gap")
+        gap_btn = app.query_one("#btn-plr-gap")
         assert str(gap_btn.label) == studio.current_design.top_controls[4].format(gap=1)
 
         # Check music player dock
-        play_btn = app.query_one("#btn-fvs-play")
+        play_btn = app.query_one("#btn-plr-play")
         assert str(play_btn.label) == "[>> EXEC]"
 
         # Test gap cycle
@@ -42,12 +42,12 @@ async def test_full_vision_studio_compose():
         assert matrix_layout is not None
         studio.apply_layout(matrix_layout)
         assert studio.current_theme.theme_id == "matrix_terminal"
-        top_bar = studio.query_one("#fvs-top-bar")
+        top_bar = studio.query_one("#plr-top-bar")
         assert top_bar.styles.background.hex.lower() == studio.current_theme.surface_color.lower()
 
         # Verify Anime Companion Character and Outfit Lore
-        from harvester.ui.full_vision import AnimeCompanionWidget
-        companion = studio.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+        from harvester.ui.player_studio import AnimeCompanionWidget
+        companion = studio.query_one("#plr-anime-companion", AnimeCompanionWidget)
         assert companion is not None
         assert "Trinity-X" in companion.character.name
         assert "trenchcoat" in companion.character.outfit_desc.lower()
@@ -68,7 +68,7 @@ async def test_full_vision_studio_compose():
 @pytest.mark.asyncio
 async def test_preset_catalog_modal_and_apply():
     from harvester.services.vision_layout_store import VisionLayoutStore
-    from harvester.ui.full_vision import PresetCatalogModal
+    from harvester.ui.player_studio import PresetCatalogModal
 
     store = VisionLayoutStore()
     modal = PresetCatalogModal(store)
@@ -95,7 +95,7 @@ async def test_preset_catalog_modal_and_apply():
 
 @pytest.mark.asyncio
 async def test_anime_companion_interactions_and_modals():
-    from harvester.ui.full_vision import (
+    from harvester.ui.player_studio import (
         AnimeCharacterSelectModal,
         AnimeCompanionWidget,
         AnimePaletteSelectModal,

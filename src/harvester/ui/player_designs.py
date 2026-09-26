@@ -1,4 +1,4 @@
-"""Art direction for every built-in Full Vision page.
+"""Art direction for every built-in PLAYER page.
 
 A design is a terminal-native page brief: its hierarchy, layout strategy, frame,
 controls, and companion treatment. Audio renderer assignments live with the
@@ -50,8 +50,8 @@ LEGACY_CONTROL_STYLES = {
 
 
 @dataclass(frozen=True, slots=True)
-class FullVisionDesign:
-    """One curated visual language for a built-in Full Vision layout."""
+class PlayerPageDesign:
+    """One curated visual language for a built-in PLAYER layout."""
 
     layout_id: str
     eyebrow: str
@@ -65,8 +65,8 @@ class FullVisionDesign:
     top_controls: tuple[str, str, str, str, str, str]
 
 
-FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
-    "preset_y2k_aesthetic": FullVisionDesign(
+PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
+    "preset_y2k_aesthetic": PlayerPageDesign(
         "preset_y2k_aesthetic",
         "DESKTOP 2K / STARTUP",
         "AQUA OS 2000",
@@ -78,7 +78,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "AQUA BUDDY // WINDOW 01",
         ("⌂ DESKTOP", "✦ STYLES", "▣ OPEN", "↓ SAVE", "GAP {gap}", "↗ NEW TAB"),
     ),
-    "preset_cyberpunk_2077": FullVisionDesign(
+    "preset_cyberpunk_2077": PlayerPageDesign(
         "preset_cyberpunk_2077",
         "NIGHT CITY / NETRUNNER",
         "AFTERIMAGE 2077",
@@ -90,7 +90,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "NIGHT CITY OPERATIVE",
         ("◈ MAIN", "⚡ LOADOUT", "⇧ IMPORT", "⇩ EXPORT", "GAP {gap}", "⌑ JACK OUT"),
     ),
-    "preset_matrix_terminal": FullVisionDesign(
+    "preset_matrix_terminal": PlayerPageDesign(
         "preset_matrix_terminal",
         "SIMULATION / NODE 01",
         "PHOSPHOR CORE",
@@ -102,7 +102,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "RESIDUAL AGENT // CONNECTED",
         ("[HOME]", "[MODES]", "[READ]", "[WRITE]", "[GAP {gap}]", "[SHELL]"),
     ),
-    "preset_lofi_chill": FullVisionDesign(
+    "preset_lofi_chill": PlayerPageDesign(
         "preset_lofi_chill",
         "STUDY SESSION / SIDE A",
         "AFTERNOON TAPE",
@@ -114,7 +114,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "STUDY BUDDY // TEA BREAK",
         ("☕ HOME", "✿ MOODS", "♡ OPEN", "☁ KEEP", "GAP {gap}", "↗ ROOM"),
     ),
-    "preset_tokyo_night": FullVisionDesign(
+    "preset_tokyo_night": PlayerPageDesign(
         "preset_tokyo_night",
         "TOKYO / AFTER HOURS",
         "SHIBUYA AFTER RAIN",
@@ -126,7 +126,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "MIDNIGHT RIDER // PLATFORM 03",
         ("⌂ STATION", "◆ SCENES", "↧ BOARD", "↓ STORE", "GAP {gap}", "↗ PLATFORM"),
     ),
-    "preset_retrowave_sunset": FullVisionDesign(
+    "preset_retrowave_sunset": PlayerPageDesign(
         "preset_retrowave_sunset",
         "COASTAL CIRCUIT / 1984",
         "SUNSET DRIVE '84",
@@ -138,7 +138,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "OUTRUN PILOT // GOLDEN HOUR",
         ("⌂ GARAGE", "◈ SETS", "▣ LOAD", "▣ SAVE", "GAP {gap}", "↗ OUTRUN"),
     ),
-    "preset_industrial_decay": FullVisionDesign(
+    "preset_industrial_decay": PlayerPageDesign(
         "preset_industrial_decay",
         "SECTOR 09 / BASSWORKS",
         "RUST & PRESSURE",
@@ -150,7 +150,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "SECTOR WARDEN // SHIFT 03",
         ("⌂ CONTROL", "! PROFILES", "▣ LOAD", "↓ LOG", "GAP {gap}", "↗ EXIT"),
     ),
-    "preset_deep_ocean": FullVisionDesign(
+    "preset_deep_ocean": PlayerPageDesign(
         "preset_deep_ocean",
         "ABYSSAL LISTENING POST",
         "TRENCH / −4,200 M",
@@ -162,7 +162,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "ABYSS DIVER // PRESSURE SUIT",
         ("⌂ LAB", "◉ MISSIONS", "▣ DEPLOY", "↓ LOG", "GAP {gap}", "↗ SUB"),
     ),
-    "preset_solar_flare": FullVisionDesign(
+    "preset_solar_flare": PlayerPageDesign(
         "preset_solar_flare",
         "CORONA OBSERVATORY",
         "ACTIVE REGION / X-RAY",
@@ -174,7 +174,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "CORONA OBSERVER // HELIO LAB",
         ("⌂ FLIGHT", "☼ FLARES", "▣ LOAD", "↓ RECORD", "GAP {gap}", "↗ ORBIT"),
     ),
-    "preset_acid_techno": FullVisionDesign(
+    "preset_acid_techno": PlayerPageDesign(
         "preset_acid_techno",
         "303 RESONANCE LAB",
         "PATTERN A / LIVE",
@@ -186,7 +186,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "ACID OPERATOR // PATTERN A",
         ("◂ MIXER", "⚡ PATTERNS", "▣ LOAD", "↓ STORE", "GAP {gap}", "↗ LIVE"),
     ),
-    "preset_vaporwave_mall": FullVisionDesign(
+    "preset_vaporwave_mall": PlayerPageDesign(
         "preset_vaporwave_mall",
         "NORTH WING / LEVEL 03",
         "MALL DIRECTORY",
@@ -198,7 +198,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "MALL WALKER // ATRIUM LEVEL 03",
         ("⌂ ATRIUM", "◈ DIRECTORY", "▣ ENTER", "↓ POLAROID", "GAP {gap}", "↗ MALL"),
     ),
-    "preset_dungeon_synth": FullVisionDesign(
+    "preset_dungeon_synth": PlayerPageDesign(
         "preset_dungeon_synth",
         "THE CRYPT ARCHIVE / VOL. VII",
         "THE STONE GATE",
@@ -210,7 +210,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "CRYPT KEEPER // THE LOWER HALL",
         ("⌂ CAMP", "♜ TOMES", "▣ UNSEAL", "↓ CHRONICLE", "GAP {gap}", "↗ PORTAL"),
     ),
-    "preset_chiptune_gameboy": FullVisionDesign(
+    "preset_chiptune_gameboy": PlayerPageDesign(
         "preset_chiptune_gameboy",
         "POCKET SOUND / DMG-01",
         "DOT MATRIX AUDIO",
@@ -222,7 +222,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "POCKET COMPANION // PIXEL MODE",
         ("⌂ HOME", "◉ CARTS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ LINK"),
     ),
-    "preset_nordic_aurora": FullVisionDesign(
+    "preset_nordic_aurora": PlayerPageDesign(
         "preset_nordic_aurora",
         "BOREALIS FIELD STATION",
         "QUIET SKY / KIRUNA",
@@ -234,7 +234,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "BOREALIS SCOUT // WINTER WATCH",
         ("⌂ STATION", "✧ LAYERS", "▣ LOAD", "↓ JOURNAL", "GAP {gap}", "↗ FIELD"),
     ),
-    "preset_bioshock_steampunk": FullVisionDesign(
+    "preset_bioshock_steampunk": PlayerPageDesign(
         "preset_bioshock_steampunk",
         "RAPTURE / BATHYSPHERE 01",
         "THE BRASS BALLROOM",
@@ -246,7 +246,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "BATHYSPHERE DIVER // RAPTURE",
         ("⌂ DOCK", "◈ PROFILES", "▣ DIVE", "↓ JOURNAL", "GAP {gap}", "↗ ASCEND"),
     ),
-    "preset_quantum_void": FullVisionDesign(
+    "preset_quantum_void": PlayerPageDesign(
         "preset_quantum_void",
         "VACUUM STATE MONITOR",
         "SUPERPOSITION WINDOW",
@@ -258,7 +258,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "STATE OBSERVER // PHASE UNRESOLVED",
         ("⌂ LAB", "⌬ STATES", "▣ MEASURE", "↓ RECORD", "GAP {gap}", "↗ COLLAPSE"),
     ),
-    "preset_hyprland_rice": FullVisionDesign(
+    "preset_hyprland_rice": PlayerPageDesign(
         "preset_hyprland_rice",
         "WAYLAND / WORKSPACE 03",
         "NORD TILE MAP",
@@ -270,7 +270,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "WORKSPACE COMPANION // FLOATING",
         ("⌂ SPACE", "◫ THEMES", "▣ TILE IN", "↓ SAVE RICE", "GAP {gap}", "↗ FLOAT"),
     ),
-    "preset_dos_mpxplay": FullVisionDesign(
+    "preset_dos_mpxplay": PlayerPageDesign(
         "preset_dos_mpxplay",
         "MPXPLAY / ANSI RIG",
         "C:\\MUSIC\\LIVE",
@@ -282,7 +282,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "DOS BUDDY // ANSI SESSION",
         ("OMNI", "PRESETS", "LOAD", "SAVE", "GAP {gap}", "SHELL"),
     ),
-    "preset_analog_mastering": FullVisionDesign(
+    "preset_analog_mastering": PlayerPageDesign(
         "preset_analog_mastering",
         "MASTERING REFERENCE",
         "MONITOR A / AES17",
@@ -294,7 +294,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "MASTERING ENGINEER // CONTROL ROOM",
         ("⌂ CONSOLE", "◈ BANKS", "RECALL", "STORE", "GAP {gap}", "PATCH BAY"),
     ),
-    "preset_stellar_galaxy": FullVisionDesign(
+    "preset_stellar_galaxy": PlayerPageDesign(
         "preset_stellar_galaxy",
         "DEEP FIELD OBSERVATORY",
         "VOYAGER / INTERSTELLAR",
@@ -306,7 +306,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "FIELD ASTRONOMER // DEEP SPACE",
         ("⌂ MISSION", "✦ STARS", "▣ LOAD", "↓ ARCHIVE", "GAP {gap}", "↗ LAUNCH"),
     ),
-    "builtin_solo_stanford": FullVisionDesign(
+    "builtin_solo_stanford": PlayerPageDesign(
         "builtin_solo_stanford",
         "CCRMA / STANFORD SOUND LAB",
         "3D WATERFALL",
@@ -318,7 +318,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "CCRMA RESEARCH COMPANION",
         ("⌂ HOME", "⌗ MODES", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ OPEN"),
     ),
-    "builtin_dual_cyber": FullVisionDesign(
+    "builtin_dual_cyber": PlayerPageDesign(
         "builtin_dual_cyber",
         "CYBERDECK / RAIN × PHASE",
         "TWO SIGNALS",
@@ -330,7 +330,7 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
         "CYBERDECK COMPANION // LINKED",
         ("⌂ HOME", "◈ FEEDS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ SHELL"),
     ),
-    "builtin_quad_matrix": FullVisionDesign(
+    "builtin_quad_matrix": PlayerPageDesign(
         "builtin_quad_matrix",
         "MASTER DECK / FOUR CHANNEL",
         "CONTROL ROOM",
@@ -345,6 +345,6 @@ FULL_VISION_DESIGNS: dict[str, FullVisionDesign] = {
 }
 
 
-def get_full_vision_design(layout_id: str) -> FullVisionDesign | None:
+def get_player_design(layout_id: str) -> PlayerPageDesign | None:
     """Return the curated design for a built-in layout, or ``None`` for user layouts."""
-    return FULL_VISION_DESIGNS.get(layout_id)
+    return PLAYER_PAGE_DESIGNS.get(layout_id)

@@ -467,7 +467,7 @@ class HarvesterApp(App[None]):
         ("bracket_left", "seek_backward_15", "Seek -15s"),
         ("bracket_right", "seek_forward_15", "Seek +15s"),
         ("1", "switch_to_omnirip", "1: OmniRip"),
-        ("2", "switch_to_full_vision", "2: Full Vision"),
+        ("2", "switch_to_player", "2: PLAYER"),
         ("i", "open_track_info", "Track info"),
         ("d", "open_diagnostics", "Diagnostics"),
         ("v", "toggle_vis_mode", "Visualizer"),
@@ -549,7 +549,7 @@ class HarvesterApp(App[None]):
                     yield Button("SETTINGS", id="btn-settings")
             with Horizontal(id="app-nav-bar"):
                 yield Button("1: OMNIRIP", id="btn-nav-omnirip", classes="app-nav-btn app-nav-active")
-                yield Button("2: FULL VISION", id="btn-nav-full-vision", variant="warning", classes="app-nav-btn")
+                yield Button("2: PLAYER", id="btn-nav-player", variant="warning", classes="app-nav-btn")
                 yield Button("⌗ TRACKS", id="btn-nav-tracks", classes="app-nav-btn")
                 yield Button("≋ VISUALS", id="btn-nav-vis", classes="app-nav-btn")
                 yield Button("⌬ REPAIR", id="btn-nav-repair", classes="app-nav-btn")
@@ -669,8 +669,8 @@ class HarvesterApp(App[None]):
             self.action_open_settings()
         elif event.button.id == "btn-nav-omnirip":
             self.action_switch_to_omnirip()
-        elif event.button.id == "btn-nav-full-vision":
-            self.action_switch_to_full_vision()
+        elif event.button.id == "btn-nav-player":
+            self.action_switch_to_player()
         elif event.button.id == "btn-nav-tracks":
             self.switch_workspace_page("tracks")
         elif event.button.id == "btn-nav-vis":
@@ -1048,17 +1048,17 @@ class HarvesterApp(App[None]):
 
     def action_switch_to_omnirip(self) -> None:
         """Switch to [1] OmniRip workstation."""
-        from harvester.ui.full_vision import FullVisionScreen
-        if isinstance(self.screen, FullVisionScreen):
+        from harvester.ui.player_studio import PlayerScreen
+        if isinstance(self.screen, PlayerScreen):
             self.pop_screen()
         else:
             self.switch_workspace_page("tracks")
 
-    def action_switch_to_full_vision(self) -> None:
-        """Switch to [2] Full Vision Studio."""
-        from harvester.ui.full_vision import FullVisionScreen
-        if not isinstance(self.screen, FullVisionScreen):
-            self.push_screen(FullVisionScreen())
+    def action_switch_to_player(self) -> None:
+        """Switch to [2] PLAYER Studio."""
+        from harvester.ui.player_studio import PlayerScreen
+        if not isinstance(self.screen, PlayerScreen):
+            self.push_screen(PlayerScreen())
 
     def action_select_stream_mp3(self) -> None:
         """Switch audition stream to [1] MP3 (Original)."""

@@ -15,7 +15,6 @@ from harvester.models import Mode, State, TrackJob
 from harvester.ui.player import AudioPlayerWidget, InteractiveScrubber, StreamMonitorWidget
 from harvester.ui.report import ReportPanel
 from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
-from harvester.ui.visualizer import AudioVisualizer
 from harvester.ui.workbench import WorkbenchWidget
 
 
@@ -739,12 +738,15 @@ async def test_workbench_dedicated_visuals_page_and_app_navigation(tmp_path: Pat
 
         # Verify applying a preset populates cards dynamically
         dash.apply_preset("quad")
+        await pilot.pause()
         assert len(dash.cards) == 4
         assert len(app.query(VisualizerCard)) == 4
 
         # Verify clearing returns to empty state
         dash.clear_canvas()
+        await pilot.pause()
         assert len(dash.cards) == 0
+        assert len(app.query(VisualizerCard)) == 0
 
         # 4. Top-level app nav bar tests
         btn_nav_tracks = app.query_one("#btn-nav-tracks", Button)
@@ -1416,7 +1418,7 @@ async def test_warm_remaining_presets_includes_eq_tag_and_genre_policy(tmp_path:
 
 async def test_report_panel_preview_and_export_handlers_with_empty_track(tmp_path: Path):
     app = WorkbenchTestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         wb = app.query_one("#test-workbench", WorkbenchWidget)
         notifications: list[str] = []
 

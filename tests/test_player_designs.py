@@ -4,18 +4,18 @@ from textual.widgets import Button, Label
 
 from harvester.services.stitch import STITCH_BUILTIN_THEMES
 from harvester.services.vision_layout_store import BUILTIN_LAYOUTS, PRESET_LAYOUTS
-from harvester.ui.full_vision import FullVisionStudioWidget
-from harvester.ui.full_vision_designs import (
-    FULL_VISION_DESIGNS,
+from harvester.ui.player_designs import (
+    PLAYER_PAGE_DESIGNS,
     SUPPORTED_DASHBOARD_LAYOUTS,
 )
+from harvester.ui.player_studio import PlayerStudioWidget
 
 
 def test_every_builtin_layout_has_a_complete_distinct_art_direction():
     layout_ids = {layout.layout_id for layout in BUILTIN_LAYOUTS}
-    assert set(FULL_VISION_DESIGNS) == layout_ids
+    assert set(PLAYER_PAGE_DESIGNS) == layout_ids
 
-    designs = list(FULL_VISION_DESIGNS.values())
+    designs = list(PLAYER_PAGE_DESIGNS.values())
     assert len({design.page_title for design in designs}) == len(layout_ids)
     assert len({design.motif for design in designs}) == len(layout_ids)
 
@@ -41,27 +41,27 @@ def test_every_starter_theme_resolves_without_generic_fallback():
         assert layout.stitch_theme_id in STITCH_BUILTIN_THEMES, layout.layout_id
 
 
-class _FullVisionDesignApp(App):
+class _PlayerDesignApp(App):
     def compose(self) -> ComposeResult:
-        yield FullVisionStudioWidget()
+        yield PlayerStudioWidget()
 
 
 @pytest.mark.asyncio
 async def test_applying_y2k_rebuilds_page_chrome_and_controls():
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         layout = studio.layout_store.get_layout("preset_y2k_aesthetic")
         assert layout is not None
-        design = FULL_VISION_DESIGNS[layout.layout_id]
+        design = PLAYER_PAGE_DESIGNS[layout.layout_id]
 
         studio.apply_layout(layout)
         await pilot.pause()
 
-        assert str(app.query_one("#fvs-page-title", Label).render()) == design.page_title
-        assert str(app.query_one("#fvs-theme-subtitle", Label).render()) == design.subtitle
-        assert str(app.query_one("#btn-fvs-omnirip", Button).label) == design.top_controls[0]
-        assert str(app.query_one("#btn-fvs-presets", Button).label) == design.top_controls[1]
+        assert str(app.query_one("#plr-page-title", Label).render()) == design.page_title
+        assert str(app.query_one("#plr-theme-subtitle", Label).render()) == design.subtitle
+        assert str(app.query_one("#btn-plr-omnirip", Button).label) == design.top_controls[0]
+        assert str(app.query_one("#btn-plr-presets", Button).label) == design.top_controls[1]
 
 
 @pytest.mark.asyncio
@@ -69,16 +69,16 @@ async def test_applying_preset_populates_its_curated_renderer_families():
     from harvester.ui.visual_dashboard import VisualDashboardWidget
     from harvester.ui.visuals.registry import VisualizerRegistry
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         layout = studio.layout_store.get_layout("preset_matrix_terminal")
         assert layout is not None
 
         studio.apply_layout(layout)
         await pilot.pause()
 
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
         engine_ids = [card["engine_id"] for card in dashboard.cards]
         assert engine_ids == [card.engine_id for card in layout.cards]
         engines = [VisualizerRegistry.get(engine_id) for engine_id in engine_ids]
@@ -86,24 +86,24 @@ async def test_applying_preset_populates_its_curated_renderer_families():
         family_ids = [engine.visual_family_id for engine in engines if engine is not None]
         assert len(family_ids) == 10
         assert len(set(family_ids)) == len(family_ids)
-        assert dashboard.layout_style == FULL_VISION_DESIGNS[layout.layout_id].dashboard_layout
+        assert dashboard.layout_style == PLAYER_PAGE_DESIGNS[layout.layout_id].dashboard_layout
 
 
 @pytest.mark.asyncio
 async def test_preset_uses_its_art_directed_companion_identity():
-    from harvester.ui.full_vision import AnimeCompanionWidget
+    from harvester.ui.player_studio import AnimeCompanionWidget
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         layout = studio.layout_store.get_layout("preset_nordic_aurora")
         assert layout is not None
-        design = FULL_VISION_DESIGNS[layout.layout_id]
+        design = PLAYER_PAGE_DESIGNS[layout.layout_id]
 
         studio.apply_layout(layout)
         await pilot.pause()
 
-        companion = app.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+        companion = app.query_one("#plr-anime-companion", AnimeCompanionWidget)
         heading = companion.query_one("#anime-char-header", Label)
         assert str(heading.render()) == design.companion_heading
         assert companion.styles.background.hex.lower() == STITCH_BUILTIN_THEMES[
@@ -117,9 +117,9 @@ async def test_builtin_panels_inherit_the_theme_palette_and_remain_curated():
     from harvester.ui.visuals.base import ColorPalette
     from harvester.ui.visuals.registry import VisualizerRegistry
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         layout = studio.layout_store.get_layout("preset_chiptune_gameboy")
         assert layout is not None
         theme = STITCH_BUILTIN_THEMES[layout.stitch_theme_id]
@@ -127,7 +127,7 @@ async def test_builtin_panels_inherit_the_theme_palette_and_remain_curated():
         studio.apply_layout(layout)
         await pilot.pause()
 
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
         assert getattr(dashboard, "is_editable", True) is False
         cards = list(dashboard.query(VisualizerCard))
         assert len(cards) == 10
@@ -145,30 +145,30 @@ async def test_builtin_panels_inherit_the_theme_palette_and_remain_curated():
 async def test_matrix_page_uses_its_five_by_two_card_geometry():
     from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         layout = studio.layout_store.get_layout("preset_matrix_terminal")
         assert layout is not None
         studio.apply_layout(layout)
         await pilot.pause()
 
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
         rows = list(dashboard.query(".vis-grid-row"))
         assert len(rows) == 2
         assert [len(list(row.query(VisualizerCard))) for row in rows] == [5, 5]
 
 
 @pytest.mark.asyncio
-async def test_full_vision_drives_all_animation_from_one_frame_clock():
-    from harvester.ui.full_vision import AnimeCompanionWidget
+async def test_player_drives_all_animation_from_one_frame_clock():
+    from harvester.ui.player_studio import AnimeCompanionWidget
     from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)):
-        studio = app.query_one(FullVisionStudioWidget)
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
-        companion = app.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+        studio = app.query_one(PlayerStudioWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
+        companion = app.query_one("#plr-anime-companion", AnimeCompanionWidget)
         cards = list(dashboard.query(VisualizerCard))
 
         assert getattr(studio, "_frame_timer", None) is not None
@@ -191,18 +191,18 @@ async def test_full_vision_drives_all_animation_from_one_frame_clock():
 @pytest.mark.asyncio
 async def test_saving_a_builtin_preset_creates_an_editable_custom_copy(tmp_path):
     from harvester.services.vision_layout_store import VisionLayoutStore
-    from harvester.ui.full_vision import FullVisionStudioWidget
+    from harvester.ui.player_studio import PlayerStudioWidget
     from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
 
     store = VisionLayoutStore(tmp_path)
 
     class SaveApp(App):
         def compose(self) -> ComposeResult:
-            yield FullVisionStudioWidget(layout_store=store)
+            yield PlayerStudioWidget(layout_store=store)
 
     app = SaveApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         y2k = studio.layout_store.get_layout("preset_y2k_aesthetic")
         assert y2k is not None and len(y2k.cards) == 10
         studio.apply_layout(y2k)
@@ -217,7 +217,7 @@ async def test_saving_a_builtin_preset_creates_an_editable_custom_copy(tmp_path)
         assert persisted is not None and all(card.palette == "theme" for card in persisted.cards)
         assert (store.layouts_dir / f"{saved_layout.layout_id}.json").is_file()
 
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
         assert dashboard.is_editable
         assert str(dashboard.query_one("#vis-dash-toolbar").styles.display) != "none"
         assert all(not card.is_read_only for card in dashboard.query(VisualizerCard))
@@ -229,13 +229,13 @@ async def test_custom_layouts_keep_legacy_geometry_and_allow_duplicate_families(
     from dataclasses import replace
 
     from harvester.services.vision_layout_store import VisionCardConfig
-    from harvester.ui.full_vision import FullVisionStudioWidget
+    from harvester.ui.player_studio import PlayerStudioWidget
     from harvester.ui.visual_dashboard import VisualDashboardWidget, VisualizerCard
     from harvester.ui.visuals.registry import VisualizerRegistry
 
-    app = _FullVisionDesignApp()
+    app = _PlayerDesignApp()
     async with app.run_test(size=(132, 42)) as pilot:
-        studio = app.query_one(FullVisionStudioWidget)
+        studio = app.query_one(PlayerStudioWidget)
         base = studio.layout_store.get_layout("preset_y2k_aesthetic")
         assert base is not None
         custom = replace(
@@ -254,7 +254,7 @@ async def test_custom_layouts_keep_legacy_geometry_and_allow_duplicate_families(
         studio.apply_layout(custom)
         await pilot.pause()
 
-        dashboard = app.query_one("#fvs-dashboard", VisualDashboardWidget)
+        dashboard = app.query_one("#plr-dashboard", VisualDashboardWidget)
         assert dashboard.is_editable
         assert len(dashboard.cards) == 3
         assert studio.current_design is not None

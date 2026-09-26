@@ -21,7 +21,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select
 
 from harvester.services.stitch import StitchTheme
-from harvester.ui.full_vision_designs import SUPPORTED_DASHBOARD_LAYOUTS
+from harvester.ui.player_designs import SUPPORTED_DASHBOARD_LAYOUTS
 from harvester.ui.visuals.audio_features import build_feature_track
 from harvester.ui.visuals.base import (
     PALETTES,
@@ -794,7 +794,7 @@ class VisualDashboardWidget(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(id="vis-dash-toolbar"):
             yield Label("⌗ AUDIO VISUALIZATION STUDIO", id="vis-dash-title")
-            yield Button("⛶ FULL VISION", id="btn-vis-full-vision", variant="warning", classes="vis-dash-btn")
+            yield Button("⛶ PLAYER", id="btn-vis-player", variant="warning", classes="vis-dash-btn")
             yield Button("＋ ADD VISUAL", id="btn-vis-add", variant="primary", classes="vis-dash-btn")
             with Horizontal(classes="vis-gap-cluster"):
                 yield Label("GAP:", classes="vis-gap-label")
@@ -865,18 +865,18 @@ class VisualDashboardWidget(Widget):
         elif btn_id == "btn-vis-clear":
             event.stop()
             self.clear_canvas()
-        elif btn_id == "btn-vis-full-vision":
+        elif btn_id == "btn-vis-player":
             event.stop()
-            self._open_full_vision()
+            self._open_player()
 
-    def _open_full_vision(self) -> None:
-        """Launch Full Vision Studio in a new terminal window and push in-app screen."""
-        from harvester.ui.full_vision import FullVisionScreen, launch_full_vision_external
-        launch_full_vision_external()
+    def _open_player(self) -> None:
+        """Launch PLAYER Studio in a new terminal window and push in-app screen."""
+        from harvester.ui.player_studio import PlayerScreen, launch_player_external
+        launch_player_external()
         try:
-            self.app.push_screen(FullVisionScreen())
+            self.app.push_screen(PlayerScreen())
         except Exception as exc:
-            logger.debug("Could not push in-app FullVisionScreen: %s", exc)
+            logger.debug("Could not push in-app PlayerScreen: %s", exc)
 
     def _open_catalog_modal(self) -> None:
         def on_modal_result(engine_id: str | None) -> None:
@@ -1234,7 +1234,7 @@ class VisualDashboardWidget(Widget):
     ) -> None:
         """Route live audio features to all active visualizer cards.
 
-        Accepts either an explicit AudioFeatureContext (e.g. from FullVision player)
+        Accepts either an explicit AudioFeatureContext (e.g. from PLAYER)
         or raw (levels, wave, is_playing) arrays.
         """
         if isinstance(levels, AudioFeatureContext):

@@ -76,7 +76,7 @@ harvester/
 │   │   ├── repair.py                # guided Repair page: Quick Fix, wizard, ranges
 │   │   ├── track_info.py            # Track Info modal (credits/tags/speakers/models)
 │   │   ├── visual_dashboard.py      # Async layout container + keyboard arrange mode
-│   │   ├── full_vision.py           # Dashboard presets + telemetry orchestrator
+│   │   ├── player_studio.py         # Dashboard presets + telemetry orchestrator
 │   │   ├── visuals/
 │   │   │   ├── registry.py          # VisualizerRegistry
 │   │   │   ├── catalog_100.py       # Core visualizer engine catalog
