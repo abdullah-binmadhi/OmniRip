@@ -4,11 +4,7 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Button
 
-from harvester.ui.full_vision import (
-    FullVisionStudioWidget,
-    SaveLayoutModal,
-    AddSongModal,
-)
+from harvester.ui.full_vision import FullVisionStudioWidget
 
 
 class DummyVisionApp(App):
@@ -19,23 +15,23 @@ class DummyVisionApp(App):
 @pytest.mark.asyncio
 async def test_full_vision_studio_compose():
     app = DummyVisionApp()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         studio = app.query_one(FullVisionStudioWidget)
         assert studio is not None
 
-        # Check top bar buttons (btn-fvs-theme removed in favor of presets redesign)
+        # Check top bar buttons (labels come from the selected page design).
         presets_btn = app.query_one("#btn-fvs-presets")
-        assert "PRESETS" in str(presets_btn.label)
+        assert str(presets_btn.label) == studio.current_design.top_controls[1]
 
         omnirip_btn = app.query_one("#btn-fvs-omnirip")
-        assert "OMNIRIP" in str(omnirip_btn.label)
+        assert str(omnirip_btn.label) == studio.current_design.top_controls[0]
 
         gap_btn = app.query_one("#btn-fvs-gap")
-        assert "GAP:" in str(gap_btn.label)
+        assert str(gap_btn.label) == studio.current_design.top_controls[4].format(gap=1)
 
         # Check music player dock
         play_btn = app.query_one("#btn-fvs-play")
-        assert "PLAY" in str(play_btn.label)
+        assert str(play_btn.label) == "[>> EXEC]"
 
         # Test gap cycle
         studio._cycle_gap()
@@ -56,8 +52,8 @@ async def test_full_vision_studio_compose():
         assert "Trinity-X" in companion.character.name
         assert "trenchcoat" in companion.character.outfit_desc.lower()
 
-        # Verify DOS Function Key button redesign
-        assert "[F1:OMNIRIP]" in str(omnirip_btn.label)
+        # Verify design-specific controls and the DOS transport redesign.
+        assert str(omnirip_btn.label) == studio.current_design.top_controls[0]
         assert "[F8:PLAY]" in str(play_btn.label)
 
         # Apply Cyberpunk layout with cyber_brackets
@@ -65,14 +61,14 @@ async def test_full_vision_studio_compose():
         assert cyber_layout is not None
         studio.apply_layout(cyber_layout)
         assert "V-Kira" in companion.character.name
-        assert "[// OMNIRIP //]" in str(omnirip_btn.label)
+        assert str(omnirip_btn.label) == studio.current_design.top_controls[0]
         assert "[>> EXEC]" in str(play_btn.label)
 
 
 @pytest.mark.asyncio
 async def test_preset_catalog_modal_and_apply():
-    from harvester.ui.full_vision import PresetCatalogModal
     from harvester.services.vision_layout_store import VisionLayoutStore
+    from harvester.ui.full_vision import PresetCatalogModal
 
     store = VisionLayoutStore()
     modal = PresetCatalogModal(store)
@@ -88,7 +84,7 @@ async def test_preset_catalog_modal_and_apply():
             yield PresetCatalogModal(store)
 
     modal_app = ModalApp()
-    async with modal_app.run_test() as pilot:
+    async with modal_app.run_test():
         m = modal_app.query_one(PresetCatalogModal)
         assert m is not None
         # Verify apply buttons have valid IDs
@@ -104,7 +100,7 @@ async def test_anime_companion_interactions_and_modals():
         AnimeCompanionWidget,
         AnimePaletteSelectModal,
     )
-    from harvester.ui.visuals.anime_characters import get_anime_character, list_all_anime_characters
+    from harvester.ui.visuals.anime_characters import get_anime_character
     from harvester.ui.visuals.base import AudioFeatureContext
 
     # 1. Test AnimeCompanionWidget cycles and ticks
@@ -113,7 +109,7 @@ async def test_anime_companion_interactions_and_modals():
             yield AnimeCompanionWidget(character=get_anime_character("preset_y2k_aesthetic"))
 
     app = CompanionApp()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         comp = app.query_one(AnimeCompanionWidget)
         assert "Aimi" in comp.character.name
 
@@ -150,7 +146,7 @@ async def test_anime_companion_interactions_and_modals():
             yield AnimeCharacterSelectModal()
 
     c_app = CharModalApp()
-    async with c_app.run_test() as pilot:
+    async with c_app.run_test():
         modal = c_app.query_one(AnimeCharacterSelectModal)
         assert modal is not None
         btn = c_app.query_one("#btn-select-char-char_02", Button)
@@ -162,9 +158,8 @@ async def test_anime_companion_interactions_and_modals():
             yield AnimePaletteSelectModal()
 
     p_app = PalModalApp()
-    async with p_app.run_test() as pilot:
+    async with p_app.run_test():
         p_modal = p_app.query_one(AnimePaletteSelectModal)
         assert p_modal is not None
         apply_pal = p_app.query_one("#btn-apply-pal-matrix_phosphor", Button)
         assert apply_pal is not None
-

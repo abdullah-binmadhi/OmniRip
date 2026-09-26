@@ -7,50 +7,43 @@ new window via AppleScript) or an in-app fullscreen studio.
 """
 
 from __future__ import annotations
-from harvester.ui.full_vision_designs import get_full_vision_design
 
 import logging
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
-from rich.markup import escape
+import numpy as np
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Footer,
-    Header,
     Input,
     Label,
     ProgressBar,
-    Select,
     Static,
 )
 
-from harvester.services.stitch import STITCH_BUILTIN_THEMES, StitchClient, StitchTheme
+from harvester.services.stitch import StitchClient, StitchTheme
 from harvester.services.vision_layout_store import (
     VisionCardConfig,
     VisionLayout,
     VisionLayoutStore,
 )
 from harvester.services.vision_player import (
-    LoopMode,
     PlaybackState,
     PlaylistTrack,
     VisionAudioPlayer,
 )
+from harvester.ui.full_vision_designs import FullVisionDesign, get_full_vision_design
 from harvester.ui.visual_dashboard import (
-    PALETTES,
-    VisualCatalogModal,
     VisualDashboardWidget,
-    VisualizerCard,
-    VisualizerEngineCanvas,
 )
 from harvester.ui.visuals.anime_characters import (
     ANIME_FX_MODES,
@@ -60,8 +53,7 @@ from harvester.ui.visuals.anime_characters import (
     list_all_anime_characters,
     render_animated_anime_frame,
 )
-from harvester.ui.visuals.base import AudioFeatureContext
-from harvester.ui.visuals.registry import VisualizerRegistry
+from harvester.ui.visuals.base import AudioFeatureContext, ColorPalette
 
 logger = logging.getLogger(__name__)
 
@@ -682,6 +674,7 @@ class AnimeCompanionWidget(Vertical):
         custom_hex: Optional[str] = None,
         fx_mode: str = "scanline_shimmer",
         id: Optional[str] = None,
+        clock_managed_externally: bool = False,
     ):
         super().__init__(id=id)
         self.character = character or get_anime_character("preset_y2k_aesthetic")
@@ -690,6 +683,7 @@ class AnimeCompanionWidget(Vertical):
         self.fx_mode = fx_mode
         self.tick = 0
         self.audio_ctx: Optional[AudioFeatureContext] = None
+        self.clock_managed_externally = clock_managed_externally
         self._anim_timer = None
 
     def compose(self) -> ComposeResult:
@@ -708,7 +702,13 @@ class AnimeCompanionWidget(Vertical):
             yield Label(f"PAL: {self._display_pal_name()} • FX: {self.fx_mode.upper()}", id="anime-char-meta")
 
     def on_mount(self) -> None:
-        self._anim_timer = self._frame_timer = self._frame_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
+        if not self.clock_managed_externally:
+            self._anim_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
+
+    def on_unmount(self) -> None:
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
 
     def _display_pal_name(self) -> str:
         if self.palette_id == "custom" and self.custom_hex:
@@ -823,10 +823,15 @@ class FullVisionStudioWidget(Container):
         align: left middle;
         padding: 0 1;
     }
-    #fvs-brand {
+    #fvs-page-title {
         color: #00ffcc;
         text-style: bold;
         width: 24;
+        content-align: left middle;
+    }
+    #fvs-theme-subtitle {
+        color: #8b949e;
+        width: 1fr;
         content-align: left middle;
     }
     .fvs-top-btn {
@@ -922,7 +927,7 @@ class FullVisionStudioWidget(Container):
         self.layout_store = layout_store or VisionLayoutStore()
         self.player = VisionAudioPlayer()
         self.current_layout: Optional[VisionLayout] = None
-        self.current_design = None
+        self.current_design: Optional[FullVisionDesign] = None
         self.current_theme: StitchTheme = self.stitch_client.get_theme("neon_cyber")
         self.active_gap: int = 1
 
@@ -940,8 +945,11 @@ class FullVisionStudioWidget(Container):
 
         # 2. Main Visual Canvas & Anime Companion Side Panel
         with Horizontal(id="fvs-canvas-container"):
-            yield VisualDashboardWidget(id="fvs-dashboard")
-            yield AnimeCompanionWidget(id="fvs-anime-companion")
+            yield VisualDashboardWidget(id="fvs-dashboard", clock_managed_externally=True)
+            yield AnimeCompanionWidget(
+                id="fvs-anime-companion",
+                clock_managed_externally=True,
+            )
 
         # 3. Bottom Music Player Dock
         with Horizontal(id="fvs-bottom-dock"):
@@ -979,25 +987,10 @@ class FullVisionStudioWidget(Container):
         if layouts:
             self.apply_layout(layouts[0])
 
-        try:
-            companion = self.query_one("#fvs-anime-companion")
-            companion.clock_managed_externally = True
-        except Exception:
-            pass
-
-        try:
-            companion = self.query_one("#fvs-anime-companion")
-            companion.clock_managed_externally = True
-        except Exception:
-            pass
-
-        # 60 FPS Timer
-        self._frame_timer = self._frame_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
+        self._frame_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
 
     def apply_layout(self, layout: VisionLayout) -> None:
         """Apply a full visual layout and transform the entire TUI design."""
-        from harvester.ui.visuals.base import ColorPalette
-        
         self.current_layout = layout
         self.active_gap = layout.gap_distance
         self.current_theme = self.stitch_client.get_theme(layout.stitch_theme_id)
@@ -1026,13 +1019,9 @@ class FullVisionStudioWidget(Container):
             brand = self.query_one("#fvs-page-title", Label)
             brand.styles.color = theme.primary_color
             brand.update(self.current_design.page_title)
-            
+
             sub = self.query_one("#fvs-theme-subtitle", Label)
             sub.update(self.current_design.subtitle)
-            
-            self.query_one("#btn-fvs-omnirip", Button).label = self.current_design.top_controls[0]
-            self.query_one("#btn-fvs-presets", Button).label = self.current_design.top_controls[1]
-            self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
         except Exception:
             pass
 
@@ -1049,20 +1038,19 @@ class FullVisionStudioWidget(Container):
 
         dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
-        dash.clock_managed_externally = True
-        dash.is_editable = not layout.is_builtin
+        dash.set_editable(not layout.is_builtin)
         dash.layout_style = self.current_design.dashboard_layout
-        
+
         custom_palette = ColorPalette(
-            id="theme_bound", 
-            name="Theme", 
-            primary=theme.gradient_stops[0] if theme.gradient_stops else theme.primary_color, 
-            secondary=theme.gradient_stops[1] if len(theme.gradient_stops) > 1 else theme.secondary_color, 
-            accent=theme.accent_color, 
-            background=theme.background_color, 
+            id="theme_bound",
+            name="Theme",
+            primary=theme.gradient_stops[0] if theme.gradient_stops else theme.primary_color,
+            secondary=theme.gradient_stops[1] if len(theme.gradient_stops) > 1 else theme.secondary_color,
+            accent=theme.accent_color,
+            background=theme.background_color,
             dim=theme.surface_color
         )
-        
+
         dash_cards = []
         for idx, card_conf in enumerate(layout.cards):
             dash_cards.append({
@@ -1087,29 +1075,8 @@ class FullVisionStudioWidget(Container):
 
         # 7. Transform Full TUI Button Labels and Layout Structure
         self._apply_button_and_layout_structure(layout, theme)
-        
-        # 8. ENFORCE DESIGN OVERRIDES
-        try:
-            self.query_one("#btn-fvs-omnirip", Button).label = self.current_design.top_controls[0]
-            self.query_one("#btn-fvs-presets", Button).label = self.current_design.top_controls[1]
-            self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
-            
-            # Fix duplicate timer bug
-            if getattr(dash, "_anim_timer", None):
-                dash._anim_timer.stop()
-                dash._anim_timer = None
-                
-            companion = self.query_one("#fvs-anime-companion")
-            if getattr(companion, "_anim_timer", None):
-                companion._anim_timer.stop()
-                companion._anim_timer = None
-                
-            if not layout.is_builtin:
-                self.current_design.dashboard_layout = "five_by_two"
-
-        except Exception:
-            pass
-
+        self._apply_design_control_labels()
+        self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
 
     def _apply_button_and_layout_structure(self, layout: VisionLayout, theme: StitchTheme) -> None:
         """Completely overhaul button styling, labeling, placements, and structural heights."""
@@ -1252,7 +1219,7 @@ class FullVisionStudioWidget(Container):
         for btn_id, label_text in labels.items():
             try:
                 b = self.query_one(btn_id, Button)
-                b.label = escape(label_text)
+                b.label = Content(label_text)
             except Exception:
                 pass
 
@@ -1260,212 +1227,50 @@ class FullVisionStudioWidget(Container):
         try:
             dock = self.query_one("#fvs-bottom-dock")
             top_bar = self.query_one("#fvs-top-bar")
-            if structure in ("dos_mpxplay", "rackmount_hardware"):
-                top_bar.styles.height = 3
-                dock.styles.height = 6
-            elif structure in ("hyprland_floating", "rmpc_split"):
-                top_bar.styles.height = 3
-                dock.styles.height = 7
-            else:
-                top_bar.styles.height = 3
-                dock.styles.height = 7
+            top_bar.styles.height = 3
+            dock.styles.height = 6 if structure in ("dos_mpxplay", "rackmount_hardware") else 7
         except Exception:
             pass
 
-        # 6. Transform Anime Companion Character & Lore
-        try:
-            char_id = layout.anime_character_id or layout.layout_id
-            character = get_anime_character(char_id)
-            companion = self.query_one("#fvs-anime-companion", AnimeCompanionWidget)
-            companion.update_character(character, theme)
-        except Exception:
-            pass
+    def _apply_design_control_labels(self) -> None:
+        """Apply the curated labels for page-level controls after legacy styling."""
+        if self.current_design is None:
+            return
 
-        # 7. Transform Full TUI Button Labels and Layout Structure
-        self._apply_button_and_layout_structure(layout, theme)
-        
-        # 8. ENFORCE DESIGN OVERRIDES
-        try:
-            self.query_one("#btn-fvs-omnirip", Button).label = self.current_design.top_controls[0]
-            self.query_one("#btn-fvs-presets", Button).label = self.current_design.top_controls[1]
-            self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
-            
-            # Fix duplicate timer bug
-            if getattr(dash, "_anim_timer", None):
-                dash._anim_timer.stop()
-                dash._anim_timer = None
-                
-            companion = self.query_one("#fvs-anime-companion")
-            if getattr(companion, "_anim_timer", None):
-                companion._anim_timer.stop()
-                companion._anim_timer = None
-                
-            if not layout.is_builtin:
-                self.current_design.dashboard_layout = "five_by_two"
-
-        except Exception:
-            pass
-
-    def _apply_button_and_layout_structure(self, layout: VisionLayout, theme: StitchTheme) -> None:
-        """Completely overhaul button styling, labeling, placements, and structural heights."""
-        mode = getattr(layout, "button_style_mode", "pill")
-        structure = getattr(layout, "ui_structure_style", "hyprland_floating")
-
-        # Map button labels based on mode
-        style_maps = {
-            "dos_keys": {
-                "#btn-fvs-omnirip": "[F1:OMNIRIP]",
-                "#btn-fvs-presets": "[F2:PRESETS]",
-                "#btn-fvs-load-layout": "[F3:LOAD]",
-                "#btn-fvs-save-layout": "[F4:SAVE]",
-                "#btn-fvs-gap": f"[F5:GAP:{self.active_gap}]",
-                "#btn-fvs-popout": "[F6:TAB]",
-                "#btn-fvs-prev": "[F7:PREV]",
-                "#btn-fvs-play": "[F8:PLAY]",
-                "#btn-fvs-stop": "[F9:STOP]",
-                "#btn-fvs-next": "[F10:NEXT]",
-                "#btn-fvs-loop": f"[F11:LOOP:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[F12:SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[+LOAD SONG]",
-                "#btn-fvs-queue": f"[QUEUE:{len(self.player.playlist)}]",
-            },
-            "cyber_brackets": {
-                "#btn-fvs-omnirip": "[// OMNIRIP //]",
-                "#btn-fvs-presets": "[// PRESETS:20 //]",
-                "#btn-fvs-load-layout": "[// IMPORT //]",
-                "#btn-fvs-save-layout": "[// EXPORT //]",
-                "#btn-fvs-gap": f"[// GAP:{self.active_gap} //]",
-                "#btn-fvs-popout": "[// SHELL //]",
-                "#btn-fvs-prev": "[<< SCAN]",
-                "#btn-fvs-play": "[>> EXEC]",
-                "#btn-fvs-stop": "[## HALT]",
-                "#btn-fvs-next": "[>> SEEK]",
-                "#btn-fvs-loop": f"[↺ LOOP:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[∿ SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[++ AUDIO_SRC]",
-                "#btn-fvs-queue": f"[Q_BUFF:{len(self.player.playlist)}]",
-            },
-            "retro_arcade": {
-                "#btn-fvs-omnirip": "[🪙 1P/OMNI]",
-                "#btn-fvs-presets": "[🕹️ PRESETS]",
-                "#btn-fvs-load-layout": "[📂 LOAD]",
-                "#btn-fvs-save-layout": "[💾 SAVE]",
-                "#btn-fvs-gap": f"[● GAP:{self.active_gap}]",
-                "#btn-fvs-popout": "[↗ NEW]",
-                "#btn-fvs-prev": "[◀ REV]",
-                "#btn-fvs-play": "[★ START]",
-                "#btn-fvs-stop": "[■ OVER]",
-                "#btn-fvs-next": "[▶ FWD]",
-                "#btn-fvs-loop": f"[🔄 RPT:{self.player.loop_mode.value[:3]}]",
-                "#btn-fvs-shuffle": f"[🎲 RND:{'ON' if self.player.shuffle_mode else 'OFF'}]",
-                "#btn-fvs-add-song": "[INSERT COIN]",
-                "#btn-fvs-queue": f"[STAGE:{len(self.player.playlist)}]",
-            },
-            "cozy_soft": {
-                "#btn-fvs-omnirip": "☕ omnirip",
-                "#btn-fvs-presets": "✿ presets",
-                "#btn-fvs-load-layout": "♡ load",
-                "#btn-fvs-save-layout": "☁ save",
-                "#btn-fvs-gap": f"⋆ gap ({self.active_gap})",
-                "#btn-fvs-popout": "↗ tab",
-                "#btn-fvs-prev": "⏮ softly",
-                "#btn-fvs-play": "▶ listen",
-                "#btn-fvs-stop": "⏹ rest",
-                "#btn-fvs-next": "⏭ skip",
-                "#btn-fvs-loop": f"↻ loop: {self.player.loop_mode.value}",
-                "#btn-fvs-shuffle": f"~ shuffle: {'on' if self.player.shuffle else 'off'}",
-                "#btn-fvs-add-song": "♪ add track",
-                "#btn-fvs-queue": f"tea queue ({len(self.player.playlist)})",
-            },
-            "tactile_knobs": {
-                "#btn-fvs-omnirip": "[CH-1: OMNI]",
-                "#btn-fvs-presets": "[BNK: PRESETS]",
-                "#btn-fvs-load-layout": "[INP: LOAD]",
-                "#btn-fvs-save-layout": "[ROM: SAVE]",
-                "#btn-fvs-gap": f"[ATT: GAP-{self.active_gap}]",
-                "#btn-fvs-popout": "[AUX: TAB]",
-                "#btn-fvs-prev": "|<< REWIND",
-                "#btn-fvs-play": "> PLAY",
-                "#btn-fvs-stop": "[] STOP",
-                "#btn-fvs-next": ">>| FAST-FWD",
-                "#btn-fvs-loop": f"(RPT: {self.player.loop_mode.value[:3]})",
-                "#btn-fvs-shuffle": f"(RND: {'ON' if self.player.shuffle_mode else 'OFF'})",
-                "#btn-fvs-add-song": "[REC INP]",
-                "#btn-fvs-queue": f"[TRK-Q: {len(self.player.playlist)}]",
-            },
-            "hud_caps": {
-                "#btn-fvs-omnirip": "1//OMNI",
-                "#btn-fvs-presets": "2//PRESETS",
-                "#btn-fvs-load-layout": "3//LOAD",
-                "#btn-fvs-save-layout": "4//SAVE",
-                "#btn-fvs-gap": f"5//GAP:{self.active_gap}",
-                "#btn-fvs-popout": "6//POPOUT",
-                "#btn-fvs-prev": "◄◄ REV",
-                "#btn-fvs-play": "► IGNITION",
-                "#btn-fvs-stop": "■ BRAKE",
-                "#btn-fvs-next": "►► FWD",
-                "#btn-fvs-loop": f"↺ LAP:{self.player.loop_mode.value[:3]}",
-                "#btn-fvs-shuffle": f"⇄ DRIFT:{'ON' if self.player.shuffle_mode else 'OFF'}",
-                "#btn-fvs-add-song": "+ TELEMETRY",
-                "#btn-fvs-queue": f"GRID:[{len(self.player.playlist)}]",
-            },
-            "bracket_caps": {
-                "#btn-fvs-omnirip": "【OMNIRIP】",
-                "#btn-fvs-presets": "【PRESETS】",
-                "#btn-fvs-load-layout": "【LOAD】",
-                "#btn-fvs-save-layout": "【SAVE】",
-                "#btn-fvs-gap": f"【GAP:{self.active_gap}】",
-                "#btn-fvs-popout": "【TAB】",
-                "#btn-fvs-prev": "【⏮ PREV】",
-                "#btn-fvs-play": "【▶ PLAY】",
-                "#btn-fvs-stop": "【⏹ STOP】",
-                "#btn-fvs-next": "【⏭ NEXT】",
-                "#btn-fvs-loop": f"【🔁 {self.player.loop_mode.value[:3]}】",
-                "#btn-fvs-shuffle": f"【🔀 {'ON' if self.player.shuffle_mode else 'OFF'}】",
-                "#btn-fvs-add-song": "【+ SONG】",
-                "#btn-fvs-queue": f"【Q:{len(self.player.playlist)}】",
-            },
-            "pill": {
-                "#btn-fvs-omnirip": "( 1: OMNIRIP )",
-                "#btn-fvs-presets": "( ✨ PRESETS )",
-                "#btn-fvs-load-layout": "( 📐 LOAD )",
-                "#btn-fvs-save-layout": "( 💾 SAVE )",
-                "#btn-fvs-gap": f"( ⚬ GAP: {self.active_gap} )",
-                "#btn-fvs-popout": "( ↗ TAB )",
-                "#btn-fvs-prev": "◀ PREV",
-                "#btn-fvs-play": "▶ PLAY",
-                "#btn-fvs-stop": "■ STOP",
-                "#btn-fvs-next": "▶▶ NEXT",
-                "#btn-fvs-loop": f"🔁 {self.player.loop_mode.value}",
-                "#btn-fvs-shuffle": f"🔀 {'ON' if self.player.shuffle else 'OFF'}",
-                "#btn-fvs-add-song": "+ LOAD SONG",
-                "#btn-fvs-queue": f"QUEUE ({len(self.player.playlist)})",
-            },
+        button_ids = (
+            "#btn-fvs-omnirip",
+            "#btn-fvs-presets",
+            "#btn-fvs-load-layout",
+            "#btn-fvs-save-layout",
+            "#btn-fvs-gap",
+            "#btn-fvs-popout",
+        )
+        values = {
+            "gap": self.active_gap,
+            "queue": len(self.player.playlist),
         }
-
-        labels = style_maps.get(mode, style_maps["pill"])
-        for btn_id, label_text in labels.items():
+        for button_id, template in zip(button_ids, self.current_design.top_controls, strict=True):
+            label = Content(template.format(**values))
             try:
-                b = self.query_one(btn_id, Button)
-                b.label = escape(label_text)
+                button = self.query_one(button_id, Button)
             except Exception:
-                pass
+                continue
+            if str(button.label) != label:
+                button.label = label
 
-        # Structural layout sizing adjustments per style
-        try:
-            dock = self.query_one("#fvs-bottom-dock")
-            top_bar = self.query_one("#fvs-top-bar")
-            if structure in ("dos_mpxplay", "rackmount_hardware"):
-                top_bar.styles.height = 3
-                dock.styles.height = 6
-            elif structure in ("hyprland_floating", "rmpc_split"):
-                top_bar.styles.height = 3
-                dock.styles.height = 7
-            else:
-                top_bar.styles.height = 3
-                dock.styles.height = 7
-        except Exception:
-            pass
+    def _play_pause_label(self, is_playing: bool) -> str:
+        mode = getattr(self.current_layout, "button_style_mode", "pill")
+        labels = {
+            "dos_keys": ("[F8:PAUSE]", "[F8:PLAY]"),
+            "cyber_brackets": ("[|| PAUSE]", "[>> EXEC]"),
+            "retro_arcade": ("[Ⅱ PAUSE]", "[★ START]"),
+            "cozy_soft": ("Ⅱ pause", "▶ listen"),
+            "tactile_knobs": ("|| PAUSE", "> PLAY"),
+            "hud_caps": ("Ⅱ HOLD", "► IGNITION"),
+            "bracket_caps": ("【⏸ PAUSE】", "【▶ PLAY】"),
+        }
+        playing_label, paused_label = labels.get(mode, ("⏸ PAUSE", "▶ PLAY"))
+        return playing_label if is_playing else paused_label
 
     def _on_track_changed(self, track: PlaylistTrack) -> None:
         """Update track information in UI."""
@@ -1478,7 +1283,11 @@ class FullVisionStudioWidget(Container):
             title_lbl.update(f"🎵 {track.title[:28]}")
             meta_lbl.update(f"{track.artist} | {track.sample_rate}Hz | 60 FPS")
             total_lbl.update(track.formatted_duration)
-            queue_btn.label = f"QUEUE ({len(self.player.playlist)})"
+            if self.current_layout is not None:
+                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                self._apply_design_control_labels()
+            else:
+                queue_btn.label = f"QUEUE ({len(self.player.playlist)})"
         except Exception:
             pass
 
@@ -1503,12 +1312,11 @@ class FullVisionStudioWidget(Container):
         # Update Play/Pause button label
         try:
             play_btn = self.query_one("#btn-fvs-play", Button)
-            if self.player.state == PlaybackState.PLAYING:
-                play_btn.label = "⏸ PAUSE"
-                play_btn.variant = "warning"
-            else:
-                play_btn.label = "▶ PLAY"
-                play_btn.variant = "primary"
+            is_playing = self.player.state == PlaybackState.PLAYING
+            label = Content(self._play_pause_label(is_playing))
+            if str(play_btn.label) != label:
+                play_btn.label = label
+            play_btn.variant = "warning" if is_playing else "primary"
         except Exception:
             pass
 
@@ -1534,11 +1342,15 @@ class FullVisionStudioWidget(Container):
         elif btn_id == "btn-fvs-prev":
             self.player.prev_track()
         elif btn_id == "btn-fvs-loop":
-            mode = self.player.toggle_loop()
-            event.button.label = f"🔁 LOOP: {mode.value}"
+            self.player.toggle_loop()
+            if self.current_layout is not None:
+                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                self._apply_design_control_labels()
         elif btn_id == "btn-fvs-shuffle":
-            shuf = self.player.toggle_shuffle()
-            event.button.label = f"🔀 SHUFFLE: {'ON' if shuf else 'OFF'}"
+            self.player.toggle_shuffle()
+            if self.current_layout is not None:
+                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                self._apply_design_control_labels()
         elif btn_id == "btn-fvs-omnirip":
             self._return_to_omnirip()
         elif btn_id == "btn-fvs-presets":
@@ -1572,13 +1384,10 @@ class FullVisionStudioWidget(Container):
     def _cycle_gap(self) -> None:
         """Cycle gap distance: 0 -> 1 -> 2 -> 3 -> 4 -> 0."""
         self.active_gap = (self.active_gap + 1) % 5
-        btn = self.query_one("#btn-fvs-gap", Button)
-        btn.label = f"GAP: ({self.active_gap})"
+        self._apply_design_control_labels()
 
         dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
-        dash.clock_managed_externally = True
-        dash.is_editable = not layout.is_builtin
         dash._refresh_canvas()
 
     def _cycle_layout(self) -> None:

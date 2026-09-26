@@ -197,24 +197,23 @@ async def test_visual_dashboard_plays_routed_feature_track():
         )
         track = [first, second]
 
-        # Installing a track shows its first frame. Drive the tick manually so
-        # the assertion does not race the canvas's own 30 FPS timer.
-        if canvas._anim_timer is not None:
-            canvas._anim_timer.stop()
+        # The dashboard owns the frame clock and advances each canvas once.
+        if dash._anim_timer is not None:
+            dash._anim_timer.stop()
         dash.set_feature_track(track)
         await pilot.pause()
         assert canvas.feature_ctx.spectral_centroid == 4200.0
         assert canvas.feature_ctx.is_playing
 
         # Each tick advances one frame, and the track loops rather than freezing.
-        canvas._on_tick()
+        dash.tick_frame()
         assert canvas.feature_ctx.spectral_centroid == 300.0
-        canvas._on_tick()
+        dash.tick_frame()
         assert canvas.feature_ctx.spectral_centroid == 4200.0
 
         # Clearing the track returns the card to standby synthesis.
         dash.clear_audio_features()
-        canvas._on_tick()
+        dash.tick_frame()
         assert canvas.feature_ctx.is_playing is False
 
 
@@ -372,9 +371,10 @@ async def test_visual_dashboard_60fps_cadence():
         await pilot.pause()
 
         canvas = app.query_one(VisualizerEngineCanvas)
-        assert canvas._anim_timer is not None
-        # Timer interval must be 1.0 / 60.0 (approx 0.016667)
-        assert canvas._anim_timer._interval == pytest.approx(1.0 / 60.0, rel=1e-3)
+        assert dash._anim_timer is not None
+        assert canvas._anim_timer is None
+        # Dashboard timer interval must be 1.0 / 60.0 (approx 0.016667)
+        assert dash._anim_timer._interval == pytest.approx(1.0 / 60.0, rel=1e-3)
 
 
 async def test_feed_audio_with_audio_feature_context_instance():
@@ -429,4 +429,3 @@ async def test_dynamic_layout_engine_mounts_all_cards():
             assert len(mounted_cards) == 10, (
                 f"Layout style '{style}' mounted {len(mounted_cards)} cards instead of all 10!"
             )
-

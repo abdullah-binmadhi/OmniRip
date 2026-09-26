@@ -242,10 +242,6 @@ class BaseVisualizerEngine(ABC):
     def visual_family_id(self) -> str:
         return self.id.split("_variant")[0] if "_variant" in self.id else self.id
 
-    @property
-    def visual_family_id(self) -> str:
-        return self.id.split("_variant")[0] if "_variant" in self.id else self.id
-
     @abstractmethod
     def render_frame(
         self,

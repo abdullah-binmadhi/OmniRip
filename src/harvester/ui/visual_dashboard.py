@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
@@ -29,6 +30,8 @@ from harvester.ui.visuals.base import (
     ColorPalette,
 )
 from harvester.ui.visuals.registry import CATEGORIES, VisualizerRegistry
+
+logger = logging.getLogger(__name__)
 
 AVAILABLE_PALETTE_KEYS: list[str] = ["cyan", "neon", "matrix", "thermal", "sunset", "crt", "stanford"]
 

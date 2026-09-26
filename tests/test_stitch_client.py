@@ -2,15 +2,7 @@
 
 import json
 
-import pytest
-
-from harvester.services.stitch import (
-    STITCH_BUILTIN_THEMES,
-    StitchClient,
-    StitchTheme,
-    StitchVisualDesign,
-    load_configured_stitch_key,
-)
+from harvester.services.stitch import StitchClient, StitchVisualDesign
 
 
 def test_stitch_client_init_and_themes():
@@ -25,8 +17,8 @@ def test_stitch_client_init_and_themes():
     assert "synthwave_dusk" in themes
     assert "tokyo_midnight" in themes
     assert "lofi_chill_vinyl" in themes
-    assert "sunset_gold" in themes
-    assert "holographic_prism" in themes
+    assert "dungeon_synth_crypt" in themes
+    assert "nordic_aurora_fjord" in themes
 
     theme = client.get_theme("cyberpunk_2077")
     assert "Cyberpunk" in theme.name
