@@ -92,7 +92,7 @@ BUILTIN_STARTER_LAYOUTS: list[VisionLayout] = [
 # families within its own screen; families may recur in other presets.
 # ---------------------------------------------------------------------------
 
-PRESET_ENGINE_IDS: dict(str, tuple(str, ...)) = {
+PRESET_ENGINE_IDS: dict[str, tuple[str, ...]] = {
    'preset_acid_techno': (   'pack11_engine_04',
                               'pack10_engine_08',
                               'pack5_engine_09',
