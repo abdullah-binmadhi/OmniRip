@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.message import Message
@@ -61,7 +62,7 @@ class VisualizerEngineCanvas(Widget):
         self._live_ctx: AudioFeatureContext | None = None
 
     def on_mount(self) -> None:
-        self._anim_timer = self.set_interval(1.0 / 30.0, self._on_tick)
+        self._anim_timer = self.set_interval(1.0 / 60.0, self._on_tick)
 
     def on_unmount(self) -> None:
         if self._anim_timer:
@@ -69,7 +70,7 @@ class VisualizerEngineCanvas(Widget):
             self._anim_timer = None
 
     def _on_tick(self) -> None:
-        self._idle_phase = (self._idle_phase + 0.08) % (2.0 * np.pi * 100.0)
+        self._idle_phase = (self._idle_phase + 0.04) % (2.0 * np.pi * 100.0)
         if self._feature_track:
             # Play the pre-computed feature track in step with the audio. The
             # index is advanced before display so the first tick after install
@@ -80,6 +81,11 @@ class VisualizerEngineCanvas(Widget):
             # No real audio routed: keep the card alive on standby synthesis.
             self.feature_ctx = AudioFeatureContext.synthesize_idle(self._idle_phase)
         self.refresh()
+
+    def on_click(self) -> None:
+        if self.parent and hasattr(self.parent, "select"):
+            self.parent.select()
+            self.parent.focus()
 
     def set_audio_features(self, ctx: AudioFeatureContext) -> None:
         """Push a single live frame, which the animation loop then holds.
@@ -180,31 +186,41 @@ class VisualizerCard(Widget):
         color: #ffffff;
     }
     .vis-card-arrange-bar {
-        height: 1;
+        height: 3;
         width: 1fr;
-        background: #1c1538;
+        background: #18132c;
+        border-top: solid #2d264f;
+        border-bottom: solid #2d264f;
         padding: 0 1;
-        align: center middle;
+        align: left middle;
         display: none;
     }
     VisualizerCard.-selected .vis-card-arrange-bar {
         display: block;
     }
     .vis-card-nav-btn {
-        height: 1;
-        min-width: 4;
-        border: none;
-        background: #2a204d;
+        height: 3;
+        min-height: 3;
+        min-width: 9;
+        border: solid #2d264f;
+        background: #251c47;
         color: #00e5ff;
         text-style: bold;
         margin-right: 1;
-        padding: 0;
+        padding: 0 1;
     }
     .vis-card-nav-btn:hover {
         background: #00e5ff;
         color: #050b14;
     }
+    .vis-card-arrange-hint {
+        color: #ffe600;
+        text-style: bold;
+        margin-left: 1;
+    }
     """
+
+    can_focus = True
 
     class RemoveRequested(Message):
         def __init__(self, card_id: str) -> None:
@@ -256,17 +272,43 @@ class VisualizerCard(Widget):
                 classes="vis-card-btn-palette",
             )
             yield Button("✕", id=f"btn-close-{self.card_id}", classes="vis-card-btn-close")
-        with Horizontal(classes="vis-card-arrange-bar"):
-            yield Button("◀", id=f"btn-move-left-{self.card_id}", classes="vis-card-nav-btn")
-            yield Button("▲", id=f"btn-move-up-{self.card_id}", classes="vis-card-nav-btn")
-            yield Button("▼", id=f"btn-move-down-{self.card_id}", classes="vis-card-nav-btn")
-            yield Button("▶", id=f"btn-move-right-{self.card_id}", classes="vis-card-nav-btn")
+        with Horizontal(classes="vis-card-arrange-bar", id=f"vis-arrange-bar-{self.card_id}"):
+            yield Button("◀ LEFT", id=f"btn-move-left-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▲ UP", id=f"btn-move-up-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▼ DOWN", id=f"btn-move-down-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▶ RIGHT", id=f"btn-move-right-{self.card_id}", classes="vis-card-nav-btn")
             yield Button("⇲ SPAN", id=f"btn-span-{self.card_id}", classes="vis-card-nav-btn")
             yield Button("⤢ TALL", id=f"btn-tall-{self.card_id}", classes="vis-card-nav-btn")
+            yield Label("⌨ ARROWS: MOVE | S: SPAN | T: TALL", classes="vis-card-arrange-hint")
         yield self.canvas
 
-    def on_click(self) -> None:
+    def select(self) -> None:
         self.post_message(self.SelectRequested(self.card_id))
+
+    def on_click(self) -> None:
+        self.select()
+        self.focus()
+
+    def on_key(self, event: events.Key) -> None:
+        k = event.key
+        if k in ("left", "h"):
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "left"))
+        elif k in ("right", "l"):
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "right"))
+        elif k in ("up", "k"):
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "up"))
+        elif k in ("down", "j"):
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "down"))
+        elif k in ("s", "space"):
+            event.stop()
+            self.post_message(self.ResizeRequested(self.card_id, "span"))
+        elif k in ("t",):
+            event.stop()
+            self.post_message(self.ResizeRequested(self.card_id, "tall"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
@@ -849,6 +891,42 @@ class VisualDashboardWidget(Widget):
         except Exception:
             pass
         self._update_card_selection()
+        if self.is_arrange_mode:
+            self._focus_selected_card()
+
+    def _focus_selected_card(self) -> None:
+        if self.selected_card_id:
+            try:
+                card = self.query_one(f"#vis-card-{self.selected_card_id}", VisualizerCard)
+                card.focus()
+            except Exception:
+                pass
+
+    def on_key(self, event: events.Key) -> None:
+        if not self.is_arrange_mode or not self.selected_card_id:
+            return
+        k = event.key
+        if k in ("left", "h"):
+            event.stop()
+            self.move_card(self.selected_card_id, "left")
+        elif k in ("right", "l"):
+            event.stop()
+            self.move_card(self.selected_card_id, "right")
+        elif k in ("up", "k"):
+            event.stop()
+            self.move_card(self.selected_card_id, "up")
+        elif k in ("down", "j"):
+            event.stop()
+            self.move_card(self.selected_card_id, "down")
+        elif k in ("s", "space"):
+            event.stop()
+            self.toggle_card_span(self.selected_card_id)
+        elif k in ("t",):
+            event.stop()
+            self.toggle_card_tall(self.selected_card_id)
+        elif k == "escape":
+            event.stop()
+            self.toggle_arrange_mode()
 
     def _update_card_selection(self) -> None:
         for card in self.query(VisualizerCard):
@@ -876,6 +954,7 @@ class VisualDashboardWidget(Widget):
             cards.insert(idx + 2, item)
         self.cards = cards
         self._refresh_canvas()
+        self._focus_selected_card()
 
     def toggle_card_span(self, card_id: str) -> None:
         cards = [dict(c) for c in self.cards]
@@ -885,6 +964,7 @@ class VisualDashboardWidget(Widget):
                 break
         self.cards = cards
         self._refresh_canvas()
+        self._focus_selected_card()
 
     def toggle_card_tall(self, card_id: str) -> None:
         cards = [dict(c) for c in self.cards]
@@ -894,6 +974,7 @@ class VisualDashboardWidget(Widget):
                 break
         self.cards = cards
         self._refresh_canvas()
+        self._focus_selected_card()
 
     def feed_audio(
         self,

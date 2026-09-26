@@ -311,34 +311,67 @@ async def test_visual_dashboard_arrange_mode_customization():
         assert "ON" in str(arrange_btn.label)
         assert dash.selected_card_id == card1_id
 
-        # Selected card has -selected class
+        # Selected card has -selected class and full button labels
         card1 = app.query_one(f"#vis-card-{card1_id}", VisualizerCard)
         assert card1.has_class("-selected")
 
-        # Move card 1 to the right (swapping with card 2)
+        btn_left = app.query_one(f"#btn-move-left-{card1_id}", Button)
         btn_right = app.query_one(f"#btn-move-right-{card1_id}", Button)
+        btn_span = app.query_one(f"#btn-span-{card1_id}", Button)
+        btn_tall = app.query_one(f"#btn-tall-{card1_id}", Button)
+
+        assert "LEFT" in str(btn_left.label)
+        assert "RIGHT" in str(btn_right.label)
+        assert "SPAN" in str(btn_span.label)
+        assert "TALL" in str(btn_tall.label)
+
+        # Move card 1 to the right (swapping with card 2) via button click
         btn_right.press()
         await pilot.pause()
         assert dash.cards[0]["card_id"] == card2_id
         assert dash.cards[1]["card_id"] == card1_id
 
-        # Toggle span on card 1
-        btn_span = app.query_one(f"#btn-span-{card1_id}", Button)
-        btn_span.press()
+        # Move card 1 back to the left using Arrow Key Left
+        await pilot.press("left")
+        await pilot.pause()
+        assert dash.cards[0]["card_id"] == card1_id
+        assert dash.cards[1]["card_id"] == card2_id
+
+        # Canvas click selection: clicking card 2 canvas selects card 2
+        card2 = app.query_one(f"#vis-card-{card2_id}", VisualizerCard)
+        card2.canvas.on_click()
+        await pilot.pause()
+        assert dash.selected_card_id == card2_id
+        assert card2.has_class("-selected")
+
+        # Toggle span on card 2 via 's' key
+        await pilot.press("s")
         await pilot.pause()
         assert dash.cards[1].get("span") == "full"
-        assert app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-span-full")
+        assert app.query_one(f"#vis-card-{card2_id}", VisualizerCard).has_class("-span-full")
 
-        # Toggle tall on card 1
-        btn_tall = app.query_one(f"#btn-tall-{card1_id}", Button)
-        btn_tall.press()
+        # Toggle tall on card 2 via 't' key
+        await pilot.press("t")
         await pilot.pause()
         assert dash.cards[1].get("tall") is True
-        assert app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-tall")
+        assert app.query_one(f"#vis-card-{card2_id}", VisualizerCard).has_class("-tall")
 
-        # Deactivate arrange mode
-        arrange_btn.press()
+        # Deactivate arrange mode via escape key
+        await pilot.press("escape")
         await pilot.pause()
         assert dash.is_arrange_mode is False
         assert dash.selected_card_id is None
-        assert not app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-selected")
+        assert not app.query_one(f"#vis-card-{card2_id}", VisualizerCard).has_class("-selected")
+
+
+async def test_visual_dashboard_60fps_cadence():
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.add_card("mirrored_dance")
+        await pilot.pause()
+
+        canvas = app.query_one(VisualizerEngineCanvas)
+        assert canvas._anim_timer is not None
+        # Timer interval must be 1.0 / 60.0 (approx 0.016667)
+        assert canvas._anim_timer._interval == pytest.approx(1.0 / 60.0, rel=1e-3)

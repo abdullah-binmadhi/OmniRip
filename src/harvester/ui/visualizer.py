@@ -148,12 +148,9 @@ class AudioVisualizer(Widget):
         self._current_frame_idx = 0
         self._anim_timer: Timer | None = None
         self._idle_phase = 0.0
-        self._tick_interval_s: float = (
-            0.066  # ~15 FPS: balanced fluid animation without terminal choking
-        )
+        self._tick_interval_s: float = 1.0 / 60.0  # 60 FPS silky smooth fluid animation
 
     def on_mount(self) -> None:
-        # 15 FPS update loop: relieves terminal PTY backpressure by 40%
         self._anim_timer = self.set_interval(self._tick_interval_s, self._on_tick)
 
     def _resume_anim_timer(self) -> None:

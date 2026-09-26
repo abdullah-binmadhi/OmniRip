@@ -20,10 +20,10 @@ from harvester.ui.visuals.base import AudioFeatureContext
 
 SAMPLE_RATE = 22050
 FRAME_SIZE = 1024
-HOP_SIZE = 882  # ~40ms at 22050Hz, matching the legacy AudioVisualizer cadence
+HOP_SIZE = 368  # ~16.6ms at 22050Hz for 60 FPS smooth playback
 N_LEVELS = 128
 N_WAVEFORM = 1024
-MAX_FRAMES = 1200
+MAX_FRAMES = 3600  # Up to 60s at 60 FPS
 PEAK_DECAY = 0.94
 
 _MAX_CACHE_ENTRIES = 4
