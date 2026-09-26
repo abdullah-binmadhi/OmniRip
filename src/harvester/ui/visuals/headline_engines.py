@@ -233,15 +233,21 @@ class MatrixDigitalRainEngine(BaseVisualizerEngine):
             self._init_columns(w, h)
 
         # Audio reactivity modulation factors
+        raw_levels = ctx.levels_128
+        if isinstance(raw_levels, AudioFeatureContext):
+            raw_levels = raw_levels.levels_128
+        if not isinstance(raw_levels, np.ndarray) or len(raw_levels) == 0:
+            raw_levels = np.zeros(128, dtype=np.float32)
+
         # 1. Overall energy boost
-        rms_energy = np.clip(np.mean(ctx.levels_128), 0.05, 1.0) if (ctx.is_active) else 0.20
+        rms_energy = np.clip(np.mean(raw_levels), 0.05, 1.0) if (ctx.is_active) else 0.20
         speed_mult = 1.0 + float(rms_energy * 2.2)
 
         # 2. Resample levels across all columns for per-column audio reactivity
         col_energies = np.interp(
             np.linspace(0, 1, w),
-            np.linspace(0, 1, len(ctx.levels_128)),
-            ctx.levels_128,
+            np.linspace(0, 1, len(raw_levels)),
+            raw_levels,
         ).astype(np.float32)
 
         # Styles
@@ -466,10 +472,16 @@ class AudioFlameFireEngine(BaseVisualizerEngine):
             self._last_h = h
 
         # 1. Generate bottom ember coal layer driven by audio energy
+        raw_levels = ctx.levels_128
+        if isinstance(raw_levels, AudioFeatureContext):
+            raw_levels = raw_levels.levels_128
+        if not isinstance(raw_levels, np.ndarray) or len(raw_levels) == 0:
+            raw_levels = np.zeros(128, dtype=np.float32)
+
         col_levels = np.interp(
             np.linspace(0, 1, w),
-            np.linspace(0, 1, len(ctx.levels_128)),
-            ctx.levels_128,
+            np.linspace(0, 1, len(raw_levels)),
+            raw_levels,
         ).astype(np.float32)
 
         is_active = ctx.is_active

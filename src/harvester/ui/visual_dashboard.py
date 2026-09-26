@@ -991,22 +991,24 @@ class VisualDashboardWidget(Widget):
 
     def feed_audio(
         self,
-        levels: np.ndarray | None = None,
+        levels: np.ndarray | AudioFeatureContext | None = None,
         wave: np.ndarray | None = None,
         is_playing: bool = False,
     ) -> None:
         """Route live audio features to all active visualizer cards.
 
-        ``is_playing`` is honoured only when real level or waveform data was
-        supplied. Flagging playback without data is what previously froze every
-        card on an all-zero context, so a bare flag is treated as standby.
+        Accepts either an explicit AudioFeatureContext (e.g. from FullVision player)
+        or raw (levels, wave, is_playing) arrays.
         """
-        has_data = levels is not None or wave is not None
-        ctx = AudioFeatureContext(
-            levels_128=levels if levels is not None else np.zeros(128, dtype=np.float32),
-            waveform_l=wave if wave is not None else np.zeros(1024, dtype=np.float32),
-            is_playing=bool(is_playing) and has_data,
-        )
+        if isinstance(levels, AudioFeatureContext):
+            ctx = levels
+        else:
+            has_data = levels is not None or wave is not None
+            ctx = AudioFeatureContext(
+                levels_128=levels if levels is not None else np.zeros(128, dtype=np.float32),
+                waveform_l=wave if wave is not None else np.zeros(1024, dtype=np.float32),
+                is_playing=bool(is_playing) and has_data,
+            )
         self._feature_ctx = ctx
         for card in self.query(VisualizerCard):
             card.feed_audio(ctx)

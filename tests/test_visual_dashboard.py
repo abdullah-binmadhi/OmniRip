@@ -375,3 +375,26 @@ async def test_visual_dashboard_60fps_cadence():
         assert canvas._anim_timer is not None
         # Timer interval must be 1.0 / 60.0 (approx 0.016667)
         assert canvas._anim_timer._interval == pytest.approx(1.0 / 60.0, rel=1e-3)
+
+
+async def test_feed_audio_with_audio_feature_context_instance():
+    """Verify dash.feed_audio accepts an explicit AudioFeatureContext without nesting."""
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.add_card("audio_flame_fire")
+        dash.add_card("matrix_digital_rain")
+        await pilot.pause()
+
+        # Feed an explicit context like Full Vision does
+        ctx = AudioFeatureContext.synthesize_idle()
+        dash.feed_audio(ctx)
+        await pilot.pause()
+
+        cards = list(dash.query(VisualizerCard))
+        assert len(cards) == 2
+        for card in cards:
+            assert isinstance(card.canvas.feature_ctx.levels_128, np.ndarray)
+            # Must render without TypeError
+            rendered = card.canvas.render()
+            assert rendered is not None

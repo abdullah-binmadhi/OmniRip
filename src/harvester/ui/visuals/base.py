@@ -38,6 +38,18 @@ class AudioFeatureContext:
     transient_flag: bool = False
     is_playing: bool = False
 
+    def __post_init__(self) -> None:
+        if isinstance(self.levels_128, AudioFeatureContext):
+            self.levels_128 = self.levels_128.levels_128
+        if not isinstance(self.levels_128, np.ndarray):
+            self.levels_128 = np.asarray(self.levels_128, dtype=np.float32)
+        if not isinstance(self.peaks_128, np.ndarray):
+            self.peaks_128 = np.asarray(self.peaks_128, dtype=np.float32)
+        if not isinstance(self.waveform_l, np.ndarray):
+            self.waveform_l = np.asarray(self.waveform_l, dtype=np.float32)
+        if not isinstance(self.waveform_r, np.ndarray):
+            self.waveform_r = np.asarray(self.waveform_r, dtype=np.float32)
+
     @property
     def is_active(self) -> bool:
         """Return True when real routed audio, not standby synthesis, is driving this frame.
