@@ -1614,7 +1614,7 @@ class WorkbenchWidget(Widget):
                 genre=self.genre_intensity.title(),
                 genre_intensity=self.genre_intensity,
                 triage_answers={},
-                eq_bands={str(f): self.eq_settings.bands.get(f, 0.0) for f in EQ_FREQUENCIES},
+                eq_bands={str(f): self._master_eq_settings().bands.get(f, 0.0) for f in EQ_FREQUENCIES},
                 metrics={
                     "cutoff_before_hz": self.cutoff_hz,
                     "cutoff_after_hz": 22050.0 if self.neural_enabled else self.cutoff_hz,
@@ -1626,22 +1626,30 @@ class WorkbenchWidget(Widget):
         except Exception:
             pass
 
+    def on_report_panel_refresh_requested(self, event: ReportPanel.RefreshRequested) -> None:
+        """Handle manual or automatic refresh of report telemetry and target spectrum overlay."""
+        self._update_report_ui()
+        self.notify("Spectrum overlay updated with active EQ curve.", title="EQ Refreshed")
+
     def on_report_panel_export_requested(self, event: ReportPanel.ExportRequested) -> None:
+        """Safely handle export requests via the unified derivative export pipeline."""
         if not self.path_mp3 and not self.current_job:
             self.notify("No active track loaded to export.", severity="warning", title="Export Deliverable")
             return
         fmt = event.fmt
-        choice_id = {
-            "wav": "wb-export-choose-wav",
-            "mp3": "wb-export-choose-enh",
-            "flac": "wb-export-choose-flac",
-            "stems": "wb-export-choose-voc",
-        }.get(fmt, "wb-export-choose-wav")
-        self._on_export_choice_clicked(choice_id)
+        mode_map = {
+            "wav": "ENH_WAV",
+            "flac": "ENH_FLAC",
+            "mp3": "ENH",
+            "stems": "VOC",
+        }
+        self.set_export_mode(mode_map.get(fmt, "ENH"))
+        self._export_derivative()
 
     def audition_stream(self, stream: str) -> None:
         """Audition a stream safely (original, master/enh, vocals, inst)."""
         self.set_active_stream(stream)
+
 
     def on_report_panel_preview_requested(self, event: ReportPanel.PreviewRequested) -> None:
         if not self.path_mp3 and not self.current_job:
@@ -1914,14 +1922,19 @@ class WorkbenchWidget(Widget):
 
         try:
             for dash in self.query(VisualDashboardWidget):
-                dash.feed_audio(is_playing=True)
+                # Decode the routed track into real visualizer feature frames
+                # instead of flagging playback with an all-zero context.
+                self.run_worker(
+                    asyncio.to_thread(dash.load_audio_features, audio_path),
+                    name="vis-features",
+                )
         except Exception:
             pass
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "wb-preset-select" and event.value is not None:
             for worker in self.workers:
-                if worker.name in ("render-stream-enh", "warm-mode-cache", "vis-load"):
+                if worker.name in ("render-stream-enh", "warm-mode-cache", "vis-load", "vis-features"):
                     worker.cancel()
             self.selected_preset_id = str(event.value)
             self._update_inspector()

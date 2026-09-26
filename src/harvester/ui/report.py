@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
@@ -32,17 +33,24 @@ def render_ascii_curve(
     mode: str = "spectrum",
     height: int = 13,
 ) -> str:
-    """Render a high-resolution ASCII 31-band frequency response plot."""
-    # Frequencies to sample (12 display columns across the spectrum)
+    """Render a high-resolution ASCII 1/3-octave frequency response plot spanning the graph container."""
+    # 17 key acoustic sample frequencies across standard audio spectrum
     sample_freqs = [
-        20.0, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 12000.0, 16000.0, 20000.0
+        20.0, 31.5, 50.0, 80.0, 125.0, 200.0, 315.0, 500.0,
+        800.0, 1000.0, 2000.0, 3150.0, 5000.0, 8000.0, 12500.0, 16000.0, 20000.0,
+    ]
+    labels = [
+        "20Hz", "31Hz", "50Hz", "80Hz", "125", "200", "315", "500",
+        "800", "1kHz", "2kHz", "3.1k", "5kHz", "8kHz", "12k", "16k", "20k",
     ]
     db_min, db_max = -12.0, 12.0
 
     lines: list[str] = []
-    header = "dB  │ 20Hz  63Hz 125Hz 250Hz 500Hz  1kHz  2kHz  4kHz  8kHz 12kHz 16kHz 20kHz"
+    header_cols = "".join(f"{lbl:^5}" for lbl in labels)
+    header = f"dB  │{header_cols}"
     lines.append(header)
-    lines.append("────┼─────────────────────────────────────────────────────────────")
+    divider = "────┼" + "─" * len(header_cols)
+    lines.append(divider)
 
     for row in range(height):
         db_level = db_max - (row / (height - 1)) * (db_max - db_min)
@@ -51,7 +59,6 @@ def render_ascii_curve(
         for f in sample_freqs:
             if mode == "delta":
                 val = enh_spectrum.get(f, 0.0) - target_curve.get(f, 0.0)
-                # Delta character
                 char = "■" if abs(val - db_level) < 1.6 else "·"
             else:
                 o_val = orig_spectrum.get(f, 0.0)
@@ -75,12 +82,14 @@ def render_ascii_curve(
             row_str += f"  {char}  "
         lines.append(row_str)
 
-    lines.append("────┴─────────────────────────────────────────────────────────────")
+    footer = "────┴" + "─" * len(header_cols)
+    lines.append(footer)
     legend = "Legend: ▲ Enhanced   ▼ Original   · Reference Target   ◈ Match"
     if mode == "delta":
         legend = "Legend: ■ Deviation Delta (Enhanced − Target)"
     lines.append(legend)
     return "\n".join(lines)
+
 
 
 class ReportPanel(Widget):
@@ -121,7 +130,7 @@ class ReportPanel(Widget):
     }
 
     .rp-col-matrix {
-        width: 32;
+        width: 28;
         height: 1fr;
         border-right: solid #2d264f;
         padding: 0 1;
@@ -135,7 +144,7 @@ class ReportPanel(Widget):
     }
 
     .rp-col-history {
-        width: 32;
+        width: 28;
         height: 1fr;
         padding: 0 1;
     }
@@ -171,11 +180,27 @@ class ReportPanel(Widget):
     .rp-graph-controls {
         height: 3;
         margin: 0;
+        align: left middle;
     }
 
     .rp-graph-controls Select {
         width: 22;
         margin-right: 1;
+    }
+
+    #rp-btn-graph-refresh {
+        min-width: 13;
+        height: 3;
+        border: solid #00e5ff;
+        background: #161329;
+        color: #00e5ff;
+        text-style: bold;
+        margin-left: 1;
+    }
+
+    #rp-btn-graph-refresh:hover {
+        background: #00e5ff;
+        color: #050b14;
     }
 
     .rp-history-item {
@@ -203,17 +228,10 @@ class ReportPanel(Widget):
         height: 3;
         align: left middle;
     }
-
-    .rp-dock-export {
-        width: auto;
-        height: 3;
-        align: right middle;
-    }
-
-    .rp-dock-export Button {
-        margin-left: 1;
-    }
     """
+
+    class RefreshRequested(Message):
+        """User requested refreshing the frequency spectrum overlay and telemetry."""
 
     class ExportRequested(Message):
         def __init__(self, fmt: str) -> None:
@@ -238,6 +256,7 @@ class ReportPanel(Widget):
         self.graph_mode: str = "spectrum"  # "spectrum" or "delta"
         self.orig_spectrum: dict[float, float] = {f: 0.0 for f in TARGET_FREQUENCIES}
         self.enh_spectrum: dict[float, float] = {f: 0.0 for f in TARGET_FREQUENCIES}
+
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="rp-header-strip"):
@@ -277,6 +296,7 @@ class ReportPanel(Widget):
                         value="spectrum",
                         id="rp-select-mode",
                     )
+                    yield Button("⟳ REFRESH", id="rp-btn-graph-refresh", variant="primary")
                 yield Label("", id="rp-ascii-graph")
 
             # Col 3: Report History & Presets
@@ -287,7 +307,7 @@ class ReportPanel(Widget):
                     yield Button("✎ Rename", id="rp-btn-rep-rename")
                     yield Button("⚡ Re-Apply", id="rp-btn-rep-reapply", variant="primary")
 
-        # Bottom Dock: Auditioning & Export Buttons
+        # Bottom Dock: Auditioning Buttons
         with Horizontal(classes="rp-dock-hub"):
             with Horizontal(classes="rp-dock-audition"):
                 yield Label("AUDITION:", classes="rp-metric-line")
@@ -296,15 +316,37 @@ class ReportPanel(Widget):
                 yield Button("𝄢 VOCALS", id="rp-rep-btn-voc")
                 yield Button("♩ INST", id="rp-rep-btn-inst")
 
-            with Horizontal(classes="rp-dock-export"):
-                yield Button("⤓ WAV 24-bit", id="rp-btn-dl-wav", variant="success")
-                yield Button("⤓ MP3 320k", id="rp-btn-dl-mp3")
-                yield Button("⤓ FLAC", id="rp-btn-dl-flac")
-                yield Button("⤓ STEMS", id="rp-btn-dl-stems")
-
     def on_mount(self) -> None:
         self._refresh_report_view()
         self._refresh_history_list()
+
+    def _compute_enh_spectrum(self, eq_bands: dict[str, float] | None) -> dict[float, float]:
+        """Compute the enhanced spectrum curve by applying EQ gains to the base/original spectrum."""
+        out: dict[float, float] = {}
+        if not eq_bands:
+            return dict(self.orig_spectrum)
+
+        parsed_bands: list[tuple[float, float]] = []
+        for k, v in eq_bands.items():
+            try:
+                parsed_bands.append((float(k), float(v)))
+            except (ValueError, TypeError):
+                continue
+
+        if not parsed_bands:
+            return dict(self.orig_spectrum)
+
+        parsed_bands.sort(key=lambda x: x[0])
+        eq_freqs = [b[0] for b in parsed_bands]
+        eq_gains = [b[1] for b in parsed_bands]
+        log_eq_freqs = np.log10(np.clip(eq_freqs, 10.0, 30000.0))
+
+        for f in TARGET_FREQUENCIES:
+            gain = float(np.interp(np.log10(f), log_eq_freqs, eq_gains))
+            base_val = self.orig_spectrum.get(f, 0.0)
+            out[f] = round(base_val + gain, 2)
+
+        return out
 
     def set_report(
         self,
@@ -318,6 +360,8 @@ class ReportPanel(Widget):
             self.orig_spectrum = orig_spectrum
         if enh_spectrum:
             self.enh_spectrum = enh_spectrum
+        elif report and report.eq_bands:
+            self.enh_spectrum = self._compute_enh_spectrum(report.eq_bands)
         self._refresh_report_view()
         self._refresh_history_list()
 
@@ -395,16 +439,14 @@ class ReportPanel(Widget):
         elif bid == "rp-rep-btn-inst":
             self.post_message(self.PreviewRequested("inst"))
 
-        # Download triggers
-        elif bid == "rp-btn-dl-wav":
-            self.post_message(self.ExportRequested("wav"))
-        elif bid == "rp-btn-dl-mp3":
-            self.post_message(self.ExportRequested("mp3"))
-        elif bid == "rp-btn-dl-flac":
-            self.post_message(self.ExportRequested("flac"))
-        elif bid == "rp-btn-dl-stems":
-            self.post_message(self.ExportRequested("stems"))
+        # Refresh graph
+        elif bid == "rp-btn-graph-refresh":
+            if self.active_report and self.active_report.eq_bands:
+                self.enh_spectrum = self._compute_enh_spectrum(self.active_report.eq_bands)
+            self._refresh_report_view()
+            self.post_message(self.RefreshRequested())
 
         # Re-apply recipe
         elif bid == "rp-btn-rep-reapply" and self.active_report:
             self.post_message(self.ApplyRecipeRequested(self.active_report))
+

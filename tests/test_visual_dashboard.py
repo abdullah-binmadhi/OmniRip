@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+import numpy as np
+import pytest
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Input, Select
+from textual.widgets import Button, Input, Label, Select
 
 from harvester.ui.visual_dashboard import (
     VisualCatalogModal,
@@ -73,6 +73,175 @@ async def test_visualizer_card_palette_cycle_and_remove():
         btn_close.press()
         await pilot.pause()
         assert len(dash.cards) == 0
+
+
+async def test_visual_catalog_modal_lists_all_100_engines():
+    """The catalog must expose the entire 100-engine catalog, not a truncated sample."""
+
+    class ModalTestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield Button("Open", id="btn-open")
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.push_screen(VisualCatalogModal())
+
+    app = ModalTestApp()
+    async with app.run_test() as pilot:
+        app.query_one("#btn-open", Button).press()
+        await pilot.pause()
+
+        modal = app.screen
+        assert isinstance(modal, VisualCatalogModal)
+
+        # 1. Unfiltered, the modal lists every registered engine.
+        rows = modal.query(".vis-item-row")
+        assert len(rows) == 100, f"Catalog modal listed {len(rows)} engines, expected 100"
+
+        # 2. Every row offers an add button carrying that engine's id.
+        add_buttons = modal.query(".vis-item-btn-add")
+        assert len(add_buttons) == 100
+        listed_ids = {btn.name for btn in add_buttons}
+        assert listed_ids == {engine.id for engine in VisualizerRegistry.list_all()}
+
+        # 3. Every category is represented in the default listing.
+        modal.query_one("#vis-catalog-category", Select).value = "all"
+        await pilot.pause()
+        assert len(modal.query(".vis-item-row")) == 100
+
+        # 4. Picking a category narrows the list to that pack's quota.
+        modal.query_one("#vis-catalog-category", Select).value = "studio_meters"
+        await pilot.pause()
+        assert len(modal.query(".vis-item-row")) == len(
+            VisualizerRegistry.list_by_category("studio_meters")
+        )
+
+    # 5. Adding an engine dismisses the modal and returns that engine's id.
+    # The app has no screen-level on_button_pressed here, otherwise the press
+    # would bubble up and re-push a fresh modal over the top of the one closing.
+    class AddTestApp(App[str | None]):
+        def compose(self) -> ComposeResult:
+            yield Label("base")
+
+    add_app = AddTestApp()
+    async with add_app.run_test() as pilot:
+        result: list[str | None] = []
+        add_app.push_screen(VisualCatalogModal(), callback=result.append)
+        await pilot.pause()
+
+        add_modal = add_app.screen
+        assert isinstance(add_modal, VisualCatalogModal)
+        target = "fractal_chladni_plate"
+        add_btn = next(btn for btn in add_modal.query(".vis-item-btn-add") if btn.name == target)
+        add_btn.press()
+        await pilot.pause()
+        await pilot.pause()
+
+        assert result == [target], f"Expected the modal to return {target!r}, got {result!r}"
+        assert not isinstance(add_app.screen, VisualCatalogModal)
+
+
+async def test_narrow_card_still_renders_engine_minimum_frame():
+    """A squeezed card must render the engine's minimum frame, not a clipped one."""
+    class NarrowApp(App[None]):
+        CSS = """
+        #narrow { width: 12; }
+        """
+
+        def compose(self) -> ComposeResult:
+            yield VisualDashboardWidget(id="test-dashboard")
+
+    app = NarrowApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.add_card("matrix_digital_rain", palette="cyan")
+        await pilot.pause()
+
+        canvas = app.query_one(VisualizerEngineCanvas)
+        engine = canvas.engine
+        # Feed a real measured frame so the engine is not on standby fallback.
+        canvas.set_audio_features(
+            AudioFeatureContext(
+                levels_128=np.linspace(0.1, 0.9, 128).astype(np.float32),
+                waveform_l=np.sin(np.linspace(0, 10, 1024)).astype(np.float32),
+                is_playing=True,
+            )
+        )
+        await pilot.pause()
+
+        frame = canvas.render()
+        lines = frame.plain.split("\n")
+        assert len(lines) >= engine.min_height
+        assert min(len(line) for line in lines) >= engine.min_width
+
+
+async def test_visual_dashboard_plays_routed_feature_track():
+    """A routed feature track must drive the card, and clearing it restores standby."""
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.add_card("matrix_digital_rain", palette="cyan")
+        await pilot.pause()
+
+        canvas = app.query_one(VisualizerEngineCanvas)
+        first = AudioFeatureContext(
+            levels_128=np.full(128, 0.9, dtype=np.float32),
+            waveform_l=np.sin(np.linspace(0, 12, 1024)).astype(np.float32),
+            spectral_centroid=4200.0,
+            is_playing=True,
+        )
+        second = AudioFeatureContext(
+            levels_128=np.full(128, 0.05, dtype=np.float32),
+            waveform_l=(0.02 * np.sin(np.linspace(0, 12, 1024))).astype(np.float32),
+            spectral_centroid=300.0,
+            is_playing=True,
+        )
+        track = [first, second]
+
+        # Installing a track shows its first frame. Drive the tick manually so
+        # the assertion does not race the canvas's own 30 FPS timer.
+        if canvas._anim_timer is not None:
+            canvas._anim_timer.stop()
+        dash.set_feature_track(track)
+        await pilot.pause()
+        assert canvas.feature_ctx.spectral_centroid == 4200.0
+        assert canvas.feature_ctx.is_playing
+
+        # Each tick advances one frame, and the track loops rather than freezing.
+        canvas._on_tick()
+        assert canvas.feature_ctx.spectral_centroid == 300.0
+        canvas._on_tick()
+        assert canvas.feature_ctx.spectral_centroid == 4200.0
+
+        # Clearing the track returns the card to standby synthesis.
+        dash.clear_audio_features()
+        canvas._on_tick()
+        assert canvas.feature_ctx.is_playing is False
+
+
+async def test_feed_audio_without_data_cannot_fake_playback():
+    """The original bug: a bare is_playing flag froze cards on a zero context."""
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.add_card("matrix_digital_rain", palette="cyan")
+        await pilot.pause()
+
+        canvas = app.query_one(VisualizerEngineCanvas)
+        canvas.set_audio_features(AudioFeatureContext.synthesize_idle())
+
+        dash.feed_audio(is_playing=True)
+        await pilot.pause()
+        assert canvas.feature_ctx.is_playing is False
+
+        # Supplying real data does mark playback.
+        dash.feed_audio(
+            levels=np.full(128, 0.5, dtype=np.float32),
+            wave=np.sin(np.linspace(0, 8, 1024)).astype(np.float32),
+            is_playing=True,
+        )
+        await pilot.pause()
+        assert canvas.feature_ctx.is_playing is True
+        assert float(np.max(canvas.feature_ctx.levels_128)) == pytest.approx(0.5)
 
 
 async def test_visual_catalog_modal_search_and_filter():

@@ -10,10 +10,12 @@ from rich.style import Style
 from rich.text import Text
 
 from harvester.ui.visuals.base import (
-    PALETTES,
+    _BLOCKS,
+    _BRAILLE_MAP,
     AudioFeatureContext,
     BaseVisualizerEngine,
     ColorPalette,
+    clamp_frame_size,
 )
 from harvester.ui.visuals.headline_engines import (
     AudioFlameFireEngine,
@@ -21,13 +23,6 @@ from harvester.ui.visuals.headline_engines import (
     MatrixDigitalRainEngine,
     StanfordSunMusic3DEngine,
 )
-
-# Unicode block elements for 8 fractional vertical steps
-_BLOCKS = (" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█")
-_BRAILLE_MAP = [
-    [0x01, 0x02, 0x04, 0x40],
-    [0x08, 0x10, 0x20, 0x80],
-]
 
 CATEGORIES: dict[str, tuple[str, str, str]] = {
     "spectral": ("⌗", "Spectral & FFT Analyzers", "Multi-band octave analyzers and peak gravity meters"),
@@ -58,12 +53,15 @@ class MirroredDanceEngine(BaseVisualizerEngine):
         idle_phase: float,
         palette: ColorPalette,
     ) -> Text:
+        # Honour the engine's advertised minimum size so narrow cards never clip.
+        width, height = clamp_frame_size(width, height, self.min_width, self.min_height)
         text = Text()
         total_w = max(8, width)
+        # Each column occupies 2 cells (glyph + gap) to fill total_w exactly.
         num_cols = max(4, total_w // 2)
         mid = max(1, height // 2)
 
-        if ctx.is_playing or np.max(ctx.levels_128) > 0.02:
+        if ctx.is_active:
             col_levels = np.interp(
                 np.linspace(0, 1, num_cols),
                 np.linspace(0, 1, len(ctx.levels_128)),
@@ -114,8 +112,7 @@ class MirroredDanceEngine(BaseVisualizerEngine):
                         char = "·" if dist % 2 == 0 else " "
                         style = style_dim
                 lines[row].append((char, style))
-                if col_idx < num_cols - 1:
-                    lines[row].append((" ", style_dim))
+                lines[row].append((" ", style_dim))
 
         for r_idx, line in enumerate(lines):
             for char, style in line:
@@ -133,6 +130,7 @@ class Spectrum10BandEngine(BaseVisualizerEngine):
     category = "spectral"
     icon = "⌗"
     description = "Calibrated 10-band mastering spectrum across standard ISO octaves with peak holds."
+    min_width = 29
 
     def render_frame(
         self,
@@ -142,6 +140,8 @@ class Spectrum10BandEngine(BaseVisualizerEngine):
         idle_phase: float,
         palette: ColorPalette,
     ) -> Text:
+        # Honour the engine's advertised minimum size so narrow cards never clip.
+        width, height = clamp_frame_size(width, height, self.min_width, self.min_height)
         text = Text()
         n_bands = 10
         labels = ["31Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]
@@ -217,12 +217,14 @@ class PhosphorCrtWaveEngine(BaseVisualizerEngine):
         idle_phase: float,
         palette: ColorPalette,
     ) -> Text:
+        # Honour the engine's advertised minimum size so narrow cards never clip.
+        width, height = clamp_frame_size(width, height, self.min_width, self.min_height)
         text = Text()
         grid = [[" " for _ in range(width)] for _ in range(height)]
         mid_y = height // 2
 
         interp_x = np.linspace(0, len(ctx.waveform_l) - 1, width)
-        if ctx.is_playing or np.max(np.abs(ctx.waveform_l)) > 0.02:
+        if ctx.is_active:
             samples = np.interp(interp_x, np.arange(len(ctx.waveform_l)), ctx.waveform_l)
         else:
             samples = np.array([
@@ -270,6 +272,8 @@ class BrailleSmoothWaveEngine(BaseVisualizerEngine):
         idle_phase: float,
         palette: ColorPalette,
     ) -> Text:
+        # Honour the engine's advertised minimum size so narrow cards never clip.
+        width, height = clamp_frame_size(width, height, self.min_width, self.min_height)
         text = Text()
         grid_w = max(10, width - 1)
         grid_h = max(2, height)
@@ -279,7 +283,7 @@ class BrailleSmoothWaveEngine(BaseVisualizerEngine):
         dots = np.zeros((dot_h, dot_w), dtype=bool)
         x_coords = np.arange(dot_w)
 
-        if ctx.is_playing or np.max(np.abs(ctx.waveform_l)) > 0.02:
+        if ctx.is_active:
             wave_scaled = np.interp(
                 np.linspace(0, len(ctx.waveform_l) - 1, dot_w),
                 np.arange(len(ctx.waveform_l)),
@@ -326,6 +330,7 @@ class StereoVuDeckEngine(BaseVisualizerEngine):
     category = "studio_meters"
     icon = "𝄢"
     description = "Wide dual-channel stereo VU meters with multi-row dynamic mastering telemetry."
+    min_width = 26
 
     def render_frame(
         self,
@@ -335,11 +340,13 @@ class StereoVuDeckEngine(BaseVisualizerEngine):
         idle_phase: float,
         palette: ColorPalette,
     ) -> Text:
+        # Honour the engine's advertised minimum size so narrow cards never clip.
+        width, height = clamp_frame_size(width, height, self.min_width, self.min_height)
         text = Text()
-        bar_len = max(10, width - 20)
+        bar_len = max(4, width - 16)
 
         half = len(ctx.levels_128) // 2
-        if ctx.is_playing or np.max(ctx.levels_128) > 0.02:
+        if ctx.is_active:
             lvl_l = float(np.mean(ctx.levels_128[:half])) if half > 0 else 0.0
             lvl_r = float(np.mean(ctx.levels_128[half:])) if half > 0 else 0.0
         else:
@@ -353,19 +360,19 @@ class StereoVuDeckEngine(BaseVisualizerEngine):
         db_r = 20 * math.log10(max(1e-4, lvl_r)) if lvl_r > 0.05 else -60.0
 
         header = "[-40dB ─── -20dB ─── -10dB ─── -6dB ─── -3dB ─── 0dB ── +3dB ─── +6dB]"
-        text.append(f"  {header[: min(len(header), bar_len + 12)]}\n", style="dim cyan")
+        text.append(f"  {header[: width - 2]}\n", style="dim cyan")
 
         # Left Channel
         text.append("  L ❚", style="bold white")
         text.append("█" * n_l, style=palette.primary_style() if n_l < bar_len - 4 else palette.accent_style())
         text.append("░" * (bar_len - n_l), style="dim #223344")
-        text.append(f"  {db_l:5.1f} dB\n", style=palette.primary_style())
+        text.append(f"  {db_l:6.1f} dB\n", style=palette.primary_style())
 
         # Right Channel
         text.append("  R ❚", style="bold white")
         text.append("█" * n_r, style=palette.primary_style() if n_r < bar_len - 4 else palette.accent_style())
         text.append("░" * (bar_len - n_r), style="dim #223344")
-        text.append(f"  {db_r:5.1f} dB\n", style=palette.primary_style())
+        text.append(f"  {db_r:6.1f} dB\n", style=palette.primary_style())
 
         curr_row = 3
         if height >= 5:
@@ -382,7 +389,8 @@ class StereoVuDeckEngine(BaseVisualizerEngine):
             curr_row += 1
         while curr_row < height:
             dots = "· " * (width // 2)
-            text.append(f"  {dots[:width - 4]}\n" if curr_row < height - 1 else f"  {dots[:width - 4]}", style="dim #102028")
+            filler = f"  {dots[:width - 2]}"
+            text.append(f"{filler}\n" if curr_row < height - 1 else filler, style="dim #102028")
             curr_row += 1
         return text
 

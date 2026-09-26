@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import random
-from typing import ClassVar
 
 import numpy as np
 from rich.style import Style
@@ -23,12 +22,6 @@ _MATRIX_GLYPHS = (
     "ABCDEF"
     "⚡⌗⌬◈✦"
 )
-
-# Unicode Braille 2x4 dot mapping
-_BRAILLE_MAP = [
-    [0x01, 0x02, 0x04, 0x40],
-    [0x08, 0x10, 0x20, 0x80],
-]
 
 
 class StanfordSunMusic3DEngine(BaseVisualizerEngine):
@@ -65,7 +58,7 @@ class StanfordSunMusic3DEngine(BaseVisualizerEngine):
         h = max(self.min_height, height)
 
         # 1. Update historical FFT slice ring buffer
-        if ctx.is_playing or np.max(ctx.levels_128) > 0.02:
+        if ctx.is_active:
             current_slice = ctx.levels_128.copy()
         else:
             # Standby breathing harmonic wave across 128 bins
@@ -82,7 +75,6 @@ class StanfordSunMusic3DEngine(BaseVisualizerEngine):
             self._history_slices.append(current_slice.copy() * 0.7)
 
         num_slices = len(self._history_slices)
-        num_cols = w
 
         # 2. 3D Screen buffer: characters and styles
         screen: list[list[tuple[str, Style]]] = [
@@ -242,7 +234,7 @@ class MatrixDigitalRainEngine(BaseVisualizerEngine):
 
         # Audio reactivity modulation factors
         # 1. Overall energy boost
-        rms_energy = np.clip(np.mean(ctx.levels_128), 0.05, 1.0) if (ctx.is_playing or np.max(ctx.levels_128) > 0.02) else 0.20
+        rms_energy = np.clip(np.mean(ctx.levels_128), 0.05, 1.0) if (ctx.is_active) else 0.20
         speed_mult = 1.0 + float(rms_energy * 2.2)
 
         # 2. Resample levels across all columns for per-column audio reactivity
@@ -357,7 +349,7 @@ class LissajousHarmonicsEngine(BaseVisualizerEngine):
 
         # Determine harmonic orbital ratio from spectral centroid or idle phase
         if ctx.is_playing:
-            ratio_idx = int((ctx.spectral_centroid / 800.0)) % 4
+            ratio_idx = int(ctx.spectral_centroid / 800.0) % 4
             a_val, b_val = [(1.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)][ratio_idx]
             delta = float(ctx.phase_corr * math.pi * 0.5)
             intensity_boost = 1.0 + float(np.mean(ctx.levels_128) * 1.5)
@@ -480,7 +472,7 @@ class AudioFlameFireEngine(BaseVisualizerEngine):
             ctx.levels_128,
         ).astype(np.float32)
 
-        is_active = ctx.is_playing or np.max(ctx.levels_128) > 0.02
+        is_active = ctx.is_active
         gen_row = h - 1
 
         for c in range(w):

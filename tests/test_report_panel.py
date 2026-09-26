@@ -79,12 +79,12 @@ async def test_report_panel_set_report_and_button_messages(tmp_path: Path):
         lufs = app.query_one("#rp-rep-lufs", Label).render().plain
         assert "-13.8 LUFS" in lufs
 
-        # Test download button clicks post message
-        messages: list[ReportPanel.ExportRequested] = []
-
-        def on_export(msg: ReportPanel.ExportRequested):
-            messages.append(msg)
-
-        panel.ExportRequested = ReportPanel.ExportRequested  # type: ignore
-        app.query_one("#rp-btn-dl-wav", Button).press()
+        # Test refresh button clicks post RefreshRequested message
+        refresh_btn = app.query_one("#rp-btn-graph-refresh", Button)
+        assert refresh_btn is not None
+        refresh_btn.press()
         await pilot.pause()
+
+        # Verify enh_spectrum was calculated and contains ISO target frequencies
+        assert len(panel.enh_spectrum) > 0
+        assert 1000.0 in panel.enh_spectrum

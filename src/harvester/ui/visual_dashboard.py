@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import ClassVar
+from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from rich.text import Text
@@ -16,11 +17,11 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Input, Label, Select
 
+from harvester.ui.visuals.audio_features import build_feature_track
 from harvester.ui.visuals.base import (
     PALETTES,
     AudioFeatureContext,
     BaseVisualizerEngine,
-    ColorPalette,
 )
 from harvester.ui.visuals.registry import CATEGORIES, VisualizerRegistry
 
@@ -53,6 +54,10 @@ class VisualizerEngineCanvas(Widget):
         self.feature_ctx = AudioFeatureContext.synthesize_idle()
         self._idle_phase = 0.0
         self._anim_timer: Timer | None = None
+        self._feature_track: list[AudioFeatureContext] = []
+        self._feature_idx = 0
+        # Last context pushed by a live per-frame feed, held between pushes.
+        self._live_ctx: AudioFeatureContext | None = None
 
     def on_mount(self) -> None:
         self._anim_timer = self.set_interval(1.0 / 30.0, self._on_tick)
@@ -64,13 +69,42 @@ class VisualizerEngineCanvas(Widget):
 
     def _on_tick(self) -> None:
         self._idle_phase = (self._idle_phase + 0.08) % (2.0 * np.pi * 100.0)
-        if not self.feature_ctx.is_playing:
+        if self._feature_track:
+            # Play the pre-computed feature track in step with the audio. The
+            # index is advanced before display so the first tick after install
+            # moves to the second frame rather than re-showing the first.
+            self._feature_idx = (self._feature_idx + 1) % len(self._feature_track)
+            self.feature_ctx = self._feature_track[self._feature_idx]
+        elif self._live_ctx is None:
+            # No real audio routed: keep the card alive on standby synthesis.
             self.feature_ctx = AudioFeatureContext.synthesize_idle(self._idle_phase)
         self.refresh()
 
     def set_audio_features(self, ctx: AudioFeatureContext) -> None:
+        """Push a single live frame, which the animation loop then holds.
+
+        The animation timer would otherwise overwrite this with standby
+        synthesis between pushes, so a live feed is latched until it is cleared
+        or replaced by a feature track.
+        """
+        self._live_ctx = ctx
         self.feature_ctx = ctx
         self.refresh()
+
+    def set_feature_track(self, track: Sequence[AudioFeatureContext]) -> None:
+        """Install a pre-computed feature track and start playing it from the top."""
+        self._feature_track = list(track)
+        self._feature_idx = 0
+        self._live_ctx = None
+        if self._feature_track:
+            self.feature_ctx = self._feature_track[0]
+        self.refresh()
+
+    def clear_feature_track(self) -> None:
+        """Return to standby synthesis, e.g. when playback stops."""
+        self._feature_track = []
+        self._feature_idx = 0
+        self._live_ctx = None
 
     def render(self) -> Text:
         w = max(self.engine.min_width, self.size.width)
@@ -191,6 +225,9 @@ class VisualizerCard(Widget):
 
     def feed_audio(self, ctx: AudioFeatureContext) -> None:
         self.canvas.set_audio_features(ctx)
+
+    def set_feature_track(self, track: Sequence[AudioFeatureContext]) -> None:
+        self.canvas.set_feature_track(track)
 
 
 class VisualCatalogModal(ModalScreen[str | None]):
@@ -377,10 +414,14 @@ class VisualDashboardWidget(Widget):
         margin-right: 2;
     }
     .vis-dash-btn {
-        height: 1;
-        min-width: 12;
+        height: 3;
+        min-height: 3;
+        min-width: 14;
         margin-right: 1;
-        padding: 0 1;
+        border: solid #2d264f;
+        background: #140f28;
+        color: #00e5ff;
+        text-style: bold;
     }
     #vis-dash-container {
         height: 1fr;
@@ -396,25 +437,31 @@ class VisualDashboardWidget(Widget):
         padding: 2;
     }
     #vis-empty-box {
-        width: 70;
-        height: auto;
-        border: round $primary;
-        background: $panel;
-        padding: 2;
+        width: 74;
+        height: 20;
+        border: heavy #00e5ff;
+        background: #0d0a1a;
+        padding: 1 2;
         align: center middle;
     }
     #vis-empty-title {
-        color: $accent;
+        color: #00e5ff;
         text-style: bold;
         margin-bottom: 1;
     }
     #vis-empty-desc {
-        color: $text-muted;
+        color: #8b9bb4;
         text-align: center;
         margin-bottom: 2;
     }
     #vis-empty-hero-btn {
-        min-width: 32;
+        min-width: 36;
+        height: 3;
+        min-height: 3;
+        background: #00e5ff;
+        color: #050b14;
+        text-style: bold;
+        border: none;
         margin-bottom: 2;
     }
     .vis-quickstart-row {
@@ -424,7 +471,13 @@ class VisualDashboardWidget(Widget):
     }
     .vis-quickstart-btn {
         margin: 0 1;
-        min-width: 14;
+        min-width: 16;
+        height: 3;
+        min-height: 3;
+        background: #18132c;
+        color: #00e5ff;
+        text-style: bold;
+        border: solid #2d264f;
     }
     #vis-dash-grid {
         height: 1fr;
@@ -629,12 +682,43 @@ class VisualDashboardWidget(Widget):
         wave: np.ndarray | None = None,
         is_playing: bool = False,
     ) -> None:
-        """Route live audio features to all active visualizer cards."""
+        """Route live audio features to all active visualizer cards.
+
+        ``is_playing`` is honoured only when real level or waveform data was
+        supplied. Flagging playback without data is what previously froze every
+        card on an all-zero context, so a bare flag is treated as standby.
+        """
+        has_data = levels is not None or wave is not None
         ctx = AudioFeatureContext(
             levels_128=levels if levels is not None else np.zeros(128, dtype=np.float32),
             waveform_l=wave if wave is not None else np.zeros(1024, dtype=np.float32),
-            is_playing=is_playing,
+            is_playing=bool(is_playing) and has_data,
         )
         self._feature_ctx = ctx
         for card in self.query(VisualizerCard):
             card.feed_audio(ctx)
+
+    def set_feature_track(self, track: Sequence[AudioFeatureContext]) -> None:
+        """Hand already-computed feature frames to every card.
+
+        Accepts a pre-built track so a decoded file and a synthetic test track
+        follow the same playback path.
+        """
+        frames = list(track)
+        for card in self.query(VisualizerCard):
+            card.set_feature_track(frames)
+        if frames:
+            self._feature_ctx = frames[0]
+
+    def load_audio_features(self, audio_file: Path) -> None:
+        """Decode a routed track and hand its real feature frames to every card.
+
+        This is the only path that gives the engines genuine decoded audio; the
+        cards fall back to standby synthesis when the track cannot be decoded.
+        """
+        self.set_feature_track(build_feature_track(audio_file))
+
+    def clear_audio_features(self) -> None:
+        """Drop any routed feature track and return every card to standby."""
+        for card in self.query(VisualizerCard):
+            card.canvas.clear_feature_track()

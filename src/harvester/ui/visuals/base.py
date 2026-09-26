@@ -10,6 +10,15 @@ import numpy as np
 from rich.style import Style
 from rich.text import Text
 
+# Shared glyph tables. These are the single source of truth for every engine
+# module; do not redefine them locally.
+# Unicode block elements for 8 fractional vertical steps.
+_BLOCKS = (" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
+_BRAILLE_MAP = [
+    [0x01, 0x02, 0x04, 0x40],
+    [0x08, 0x10, 0x20, 0x80],
+]
+
 
 @dataclass
 class AudioFeatureContext:
@@ -28,6 +37,45 @@ class AudioFeatureContext:
     spectral_centroid: float = 1200.0
     transient_flag: bool = False
     is_playing: bool = False
+
+    @property
+    def is_active(self) -> bool:
+        """Return True when real routed audio, not standby synthesis, is driving this frame.
+
+        :meth:`synthesize_idle` marks standby with ``is_playing=False``, so that
+        flag alone distinguishes measured audio from the ambient fallback. A
+        decoded passage that is merely quiet is still real audio and must be
+        rendered as measured, so amplitude is deliberately not part of this test.
+        """
+        return self.is_playing
+
+    @property
+    def sub_bass_energy(self) -> float:
+        """Average spectral energy in the sub-bass range (approx 20-60 Hz)."""
+        if len(self.levels_128) >= 6:
+            return float(np.mean(self.levels_128[:6]))
+        return 0.0
+
+    @property
+    def bass_energy(self) -> float:
+        """Average spectral energy in the bass range (approx 60-250 Hz)."""
+        if len(self.levels_128) >= 16:
+            return float(np.mean(self.levels_128[:16]))
+        return 0.0
+
+    @property
+    def mid_energy(self) -> float:
+        """Average spectral energy in the midrange (approx 250-2500 Hz)."""
+        if len(self.levels_128) >= 64:
+            return float(np.mean(self.levels_128[16:64]))
+        return 0.0
+
+    @property
+    def treble_energy(self) -> float:
+        """Average spectral energy in the high treble range (> 2500 Hz)."""
+        if len(self.levels_128) > 64:
+            return float(np.mean(self.levels_128[64:]))
+        return 0.0
 
     @classmethod
     def synthesize_idle(cls, phase: float = 0.0) -> AudioFeatureContext:
@@ -150,6 +198,21 @@ PALETTES: dict[str, ColorPalette] = {
         dim="#4a3610",
     ),
 }
+
+
+def clamp_frame_size(
+    width: int,
+    height: int,
+    min_width: int = 10,
+    min_height: int = 4,
+) -> tuple[int, int]:
+    """Clamp a requested frame size up to an engine's minimum size.
+
+    Narrow cards hand the engine whatever space they have; without this the
+    renderers that index their own buffers would clip or emit ragged rows.
+    Every engine must render exactly ``min_width`` x ``min_height`` at minimum.
+    """
+    return max(min_width, width), max(min_height, height)
 
 
 class BaseVisualizerEngine(ABC):
