@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from textual.content import Content
+
 from harvester.services.stitch import StitchTheme
 from harvester.services.vision_layout_store import VisionLayout
 from harvester.ui.player_designs import PlayerPageDesign
@@ -35,7 +37,7 @@ RAIL_STYLES: dict[str, dict[str, Any]] = {
     "rail_right": {"dock": "right", "width": 24, "layout": "vertical"},
     "footer": {"dock": "bottom", "height": 3, "layout": "horizontal"},
     "split_hud": {"dock": "top", "height": 4, "layout": "grid", "grid": (2, 4)},
-    "corner_hud": {"dock": "top", "height": 3, "layout": "horizontal", "align": "right middle"},
+    "corner_hud": {"dock": "top", "height": 3, "layout": "horizontal", "align": ("right", "middle")},
 }
 
 COMPANION_STYLES: dict[str, dict[str, Any]] = {
@@ -54,6 +56,7 @@ DOCK_STYLES: dict[str, dict[str, Any]] = {
 # role -> default presentation; order defines the {n} placeholder value.
 BUTTON_ROLES: tuple[str, ...] = ("prev", "play", "stop", "next", "loop", "shuffle", "add", "queue")
 ROLE_INDEX = {role: index + 1 for index, role in enumerate(BUTTON_ROLES)}
+KEYS_INDEX = {"prev": 7, "play": 8, "stop": 9, "next": 10, "loop": 11, "shuffle": 12, "add": 13, "queue": 14}
 ROLE_BUTTON_IDS = {
     "prev": "#btn-plr-prev",
     "play": "#btn-plr-play",
@@ -63,6 +66,91 @@ ROLE_BUTTON_IDS = {
     "shuffle": "#btn-plr-shuffle",
     "add": "#btn-plr-add-song",
     "queue": "#btn-plr-queue",
+}
+
+# Per-family transport vocabulary; `{loop}`, `{shuffle}`, `{queue}`, `{play}`
+# are filled from ButtonState. Families without an entry use the default words.
+FAMILY_ROLE_LABELS: dict[str, dict[str, str]] = {
+    "keys": {
+        "prev": "F7 PREV",
+        "play": "F8 PLAY",
+        "stop": "F9 STOP",
+        "next": "F10 NEXT",
+        "loop": "F11 LOOP {loop}",
+        "shuffle": "F12 SHUF {shuffle}",
+        "add": "F13 LOAD",
+        "queue": "Q {queue}",
+    },
+    "brackets": {
+        "prev": "<< SCAN",
+        "play": ">> EXEC",
+        "stop": "## HALT",
+        "next": ">> SEEK",
+        "loop": "↺ LOOP {loop}",
+        "shuffle": "∿ SHUF {shuffle}",
+        "add": "++ AUDIO_SRC",
+        "queue": "Q_BUFF {queue}",
+    },
+    "pills": {
+        "prev": "◀ PREV",
+        "play": "▶ PLAY",
+        "stop": "■ STOP",
+        "next": "▶▶ NEXT",
+        "loop": "🔁 {loop}",
+        "shuffle": "🔀 {shuffle}",
+        "add": "+ SONG",
+        "queue": "QUEUE {queue}",
+    },
+    "plaques": {
+        "prev": "REWIND",
+        "play": "ENGAGE",
+        "stop": "HALT",
+        "next": "ADVANCE",
+        "loop": "REPEAT {loop}",
+        "shuffle": "SHUFFLE {shuffle}",
+        "add": "ACQUIRE",
+        "queue": "STACK {queue}",
+    },
+    "knobs": {
+        "prev": "← CUE",
+        "play": "◉ RUN",
+        "stop": "○ HOLD",
+        "next": "CUE →",
+        "loop": "LOOP {loop}",
+        "shuffle": "RAND {shuffle}",
+        "add": "PATCH",
+        "queue": "BUS {queue}",
+    },
+    "kiosk": {
+        "prev": "◀ BACK",
+        "play": "▶ PLAY",
+        "stop": "■ STOP",
+        "next": "FWD ▶",
+        "loop": "↻ {loop}",
+        "shuffle": "⇄ {shuffle}",
+        "add": "＋ ADD",
+        "queue": "CART {queue}",
+    },
+    "toggles": {
+        "prev": "◁ REV",
+        "play": "⏻ ON",
+        "stop": "⏼ OFF",
+        "next": "▷ FWD",
+        "loop": "RPT {loop}",
+        "shuffle": "RND {shuffle}",
+        "add": "IN",
+        "queue": "BIN {queue}",
+    },
+    "lcd": {
+        "prev": "<PREV",
+        "play": ">PLAY",
+        "stop": "|STOP",
+        "next": ">NEXT",
+        "loop": "RPT:{loop}",
+        "shuffle": "RND:{shuffle}",
+        "add": "+ADD",
+        "queue": "Q:{queue}",
+    },
 }
 
 THEME_ROLES = {
@@ -207,8 +295,16 @@ def resolve_page(
     )
 
 
-def role_label(role: str, state: ButtonState) -> str:
+def role_label(role: str, state: ButtonState, family: str = "") -> str:
     """Render the stateful label for one transport role."""
+    family_labels = FAMILY_ROLE_LABELS.get(family)
+    if family_labels and role in family_labels:
+        return family_labels[role].format(
+            loop=state.loop_mode,
+            shuffle="ON" if state.shuffle else "OFF",
+            queue=state.queue_size,
+            play="PAUSE" if state.playing else "PLAY",
+        )
     if role == "play":
         return "⏸ PAUSE" if state.playing else "▶ PLAY"
     if role == "stop":
@@ -228,10 +324,11 @@ def role_label(role: str, state: ButtonState) -> str:
     return role.upper()
 
 
-def render_button_label(frame: str, role: str, state: ButtonState) -> str:
+def render_button_label(frame: str, role: str, state: ButtonState, family: str = "") -> str:
     """Apply a design frame template to a role's stateful label."""
-    label = role_label(role, state)
-    return frame.replace("{label}", label).replace("{n}", str(ROLE_INDEX.get(role, 0)))
+    label = role_label(role, state, family)
+    index = KEYS_INDEX.get(role, 0) if family == "keys" else ROLE_INDEX.get(role, 0)
+    return frame.replace("{label}", label).replace("{n}", str(index))
 
 
 def theme_role_color(theme: StitchTheme, role: str, fallback: str) -> str:
@@ -331,7 +428,7 @@ def apply_button_frames(studio: PlayerStudioWidget, page: ResolvedPage, state: B
             button = studio.query_one(button_id)
         except Exception:
             continue
-        button.label = render_button_label(page.button_frame, role, state)
+        button.label = Content(render_button_label(page.button_frame, role, state, page.button_family))
 
 
 class MotionDriver:

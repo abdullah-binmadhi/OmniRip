@@ -8,7 +8,7 @@ reviewable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Mapping, Sequence
 
 SUPPORTED_DASHBOARD_LAYOUTS = frozenset(
@@ -363,6 +363,233 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "STUDIO COMPANION // FOUR-BUS",
         ("⌂ HOME", "🎛 BANKS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ STUDIO"),
     ),
+}
+
+
+# Runtime page grammar per built-in: rail placement and axis, panel slots,
+# button vocabulary and frame, border glyph/role overrides, and motion
+# signatures. Applied onto the curated designs above so the page shell is
+# authored data rather than branches in the widget.
+_RUNTIME_PAGE_GRAMMAR: dict[str, dict[str, object]] = {
+    "preset_y2k_aesthetic": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "masthead"},
+        "frame_glyphs": "double",
+        "button_family": "pills",
+        "button_frame": "({label})",
+        "motion": (("blink", "idle", 0.6, "slow"),),
+    },
+    "preset_cyberpunk_2077": {
+        "rail": "rail_left",
+        "rail_axis": "vertical",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "heavy",
+        "button_family": "brackets",
+        "button_frame": "[{label}]",
+        "border_roles": {"rail": "accent"},
+        "motion": (("scanline", "playing", 1.0, "slow"),),
+    },
+    "preset_matrix_terminal": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "footer"},
+        "frame_glyphs": "ascii",
+        "button_family": "lcd",
+        "button_frame": "[{label}]",
+        "motion": (("marquee", "playing", 0.8, "slow"),),
+    },
+    "preset_lofi_chill": {
+        "rail": "footer",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "companion"},
+        "frame_glyphs": "round",
+        "button_family": "plaques",
+        "button_frame": "{label}",
+        "motion": (("marquee", "idle", 0.4, "slow"),),
+    },
+    "preset_tokyo_night": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "inset", "dock": "footer", "motif": "masthead"},
+        "frame_glyphs": "round",
+        "button_family": "pills",
+        "button_frame": "· {label}",
+        "motion": (("marquee", "playing", 0.6, "slow"),),
+    },
+    "preset_retrowave_sunset": {
+        "rail": "split_hud",
+        "rail_axis": "grid",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "footer"},
+        "frame_glyphs": "heavy",
+        "button_family": "plaques",
+        "button_frame": "▸ {label}",
+        "motion": (("scanline", "playing", 1.2, "slow"),),
+    },
+    "preset_industrial_decay": {
+        "rail": "footer",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_left", "dock": "header", "motif": "footer"},
+        "frame_glyphs": "heavy",
+        "button_family": "toggles",
+        "button_frame": "⌁ {label}",
+        "motion": (("pulse", "transient", 0.8, "hold"),),
+    },
+    "preset_deep_ocean": {
+        "rail": "rail_left",
+        "rail_axis": "vertical",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "round",
+        "button_family": "plaques",
+        "button_frame": "({label})",
+        "motion": (("drift", "playing", 0.5, "slow"),),
+    },
+    "preset_solar_flare": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_left", "dock": "footer", "motif": "masthead"},
+        "frame_glyphs": "double",
+        "button_family": "knobs",
+        "button_frame": "◉ {label}",
+        "motion": (("pulse", "playing", 1.0, "slow"),),
+    },
+    "preset_acid_techno": {
+        "rail": "footer",
+        "rail_axis": "grid",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "footer"},
+        "frame_glyphs": "heavy",
+        "button_family": "knobs",
+        "button_frame": "[ {label} ]",
+        "border_roles": {"rail": "accent"},
+        "motion": (("step-blink", "playing", 1.4, "hold"),),
+    },
+    "preset_vaporwave_mall": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "footer", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "round",
+        "button_family": "kiosk",
+        "button_frame": "〔{label}〕",
+        "border_roles": {"companion": "accent"},
+        "motion": (("drift", "idle", 0.3, "slow"),),
+    },
+    "preset_dungeon_synth": {
+        "rail": "rail_left",
+        "rail_axis": "vertical",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "double",
+        "button_family": "plaques",
+        "button_frame": "† {label}",
+        "motion": (("blink", "idle", 0.5, "slow"),),
+    },
+    "preset_chiptune_gameboy": {
+        "rail": "footer",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "masthead"},
+        "frame_glyphs": "solid",
+        "button_family": "keys",
+        "button_frame": "[{label}]",
+        "motion": (("blink", "playing", 1.0, "hold"),),
+    },
+    "preset_nordic_aurora": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "masthead"},
+        "frame_glyphs": "round",
+        "button_family": "pills",
+        "button_frame": "~ {label}",
+        "border_roles": {"rail": "secondary"},
+        "motion": (("drift", "playing", 0.3, "slow"),),
+    },
+    "preset_bioshock_steampunk": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_left", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "double",
+        "button_family": "knobs",
+        "button_frame": "◈ {label}",
+        "border_roles": {"companion": "accent"},
+        "motion": (("needle", "playing", 0.6, "slow"),),
+    },
+    "preset_quantum_void": {
+        "rail": "rail_right",
+        "rail_axis": "vertical",
+        "panel_slots": {"companion": "rail_left", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "ascii",
+        "button_family": "plaques",
+        "button_frame": "| {label} ⟩",
+        "border_roles": {"rail": "accent"},
+        "motion": (("blink", "idle", 0.7, "hold"),),
+    },
+    "preset_hyprland_rice": {
+        "rail": "corner_hud",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "masthead"},
+        "frame_glyphs": "solid",
+        "button_family": "pills",
+        "button_frame": "[{label}]",
+        "motion": (("marquee", "playing", 0.5, "slow"),),
+    },
+    "preset_dos_mpxplay": {
+        "rail": "footer",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "footer"},
+        "frame_glyphs": "ascii",
+        "button_family": "keys",
+        "button_frame": "[{label}]",
+        "motion": (("blink", "idle", 1.0, "hold"),),
+    },
+    "preset_analog_mastering": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_left", "dock": "header", "motif": "companion"},
+        "frame_glyphs": "solid",
+        "button_family": "knobs",
+        "button_frame": "{label}",
+        "border_roles": {"companion": "accent"},
+        "motion": (("needle", "playing", 0.4, "slow"),),
+    },
+    "preset_stellar_galaxy": {
+        "rail": "rail_left",
+        "rail_axis": "vertical",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "masthead"},
+        "frame_glyphs": "round",
+        "button_family": "plaques",
+        "button_frame": "✦ {label}",
+        "motion": (("drift", "idle", 0.3, "slow"),),
+    },
+    "builtin_solo_stanford": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "footer"},
+        "frame_glyphs": "heavy",
+        "button_family": "knobs",
+        "button_frame": "{label}",
+        "motion": (("scanline", "playing", 0.8, "slow"),),
+    },
+    "builtin_dual_cyber": {
+        "rail": "masthead",
+        "rail_axis": "horizontal",
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "companion"},
+        "frame_glyphs": "heavy",
+        "button_family": "brackets",
+        "button_frame": "[{label} //]",
+        "motion": (("scanline", "playing", 1.0, "slow"),),
+    },
+    "builtin_quad_matrix": {
+        "rail": "split_hud",
+        "rail_axis": "grid",
+        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "footer"},
+        "frame_glyphs": "double",
+        "button_family": "plaques",
+        "button_frame": "[| {label} |]",
+        "motion": (("step-blink", "playing", 0.8, "hold"),),
+    },
+}
+
+PLAYER_PAGE_DESIGNS = {
+    key: replace(design, **_RUNTIME_PAGE_GRAMMAR.get(key, {}))
+    for key, design in PLAYER_PAGE_DESIGNS.items()
 }
 
 

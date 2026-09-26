@@ -29,9 +29,9 @@ async def test_player_studio_compose():
         gap_btn = app.query_one("#btn-plr-gap")
         assert str(gap_btn.label) == studio.current_design.top_controls[4].format(gap=1)
 
-        # Check music player dock
+        # Check music player dock (default design is the first starter layout)
         play_btn = app.query_one("#btn-plr-play")
-        assert str(play_btn.label) == "[>> EXEC]"
+        assert str(play_btn.label) == "◉ RUN"
 
         # Test gap cycle
         studio._cycle_gap()
@@ -52,9 +52,9 @@ async def test_player_studio_compose():
         assert "Trinity-X" in companion.character.name
         assert "trenchcoat" in companion.character.outfit_desc.lower()
 
-        # Verify design-specific controls and the DOS transport redesign.
+        # Verify design-specific controls and the LCD transport vocabulary.
         assert str(omnirip_btn.label) == studio.current_design.top_controls[0]
-        assert "[F8:PLAY]" in str(play_btn.label)
+        assert "[>PLAY]" in str(play_btn.label)
 
         # Apply Cyberpunk layout with cyber_brackets
         cyber_layout = studio.layout_store.get_layout("preset_cyberpunk_2077")

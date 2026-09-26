@@ -1172,7 +1172,8 @@ class PlayerStudioWidget(Container):
             pass
 
         # 7. Transform Full TUI Button Labels and Layout Structure
-        self._apply_button_and_layout_structure(layout, theme)
+        if not self._uses_designed_buttons():
+            self._apply_button_and_layout_structure(layout, theme)
         self._apply_design_control_labels()
         self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
 
@@ -1387,6 +1388,17 @@ class PlayerStudioWidget(Container):
         playing_label, paused_label = labels.get(mode, ("⏸ PAUSE", "▶ PLAY"))
         return playing_label if is_playing else paused_label
 
+    def _uses_designed_buttons(self) -> bool:
+        """True when the built-in design owns transport labels and framing."""
+        layout = self.current_layout
+        design = self.current_design
+        return bool(
+            layout is not None
+            and layout.is_builtin
+            and design is not None
+            and design.button_frame
+        )
+
     def _transport_button_state(self) -> ButtonState:
         return ButtonState(
             playing=self.player.state == PlaybackState.PLAYING,
@@ -1419,8 +1431,10 @@ class PlayerStudioWidget(Container):
             meta_lbl.update(f"{track.artist} | {track.sample_rate}Hz | 60 FPS")
             total_lbl.update(track.formatted_duration)
             if self.current_layout is not None:
-                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                if not self._uses_designed_buttons():
+                    self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
                 self._apply_design_control_labels()
+                self._refresh_transport_labels(force=True)
             else:
                 queue_btn.label = f"QUEUE ({len(self.player.playlist)})"
             try:
@@ -1502,13 +1516,17 @@ class PlayerStudioWidget(Container):
         elif btn_id == "btn-plr-loop":
             self.player.toggle_loop()
             if self.current_layout is not None:
-                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                if not self._uses_designed_buttons():
+                    self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
                 self._apply_design_control_labels()
+                self._refresh_transport_labels(force=True)
         elif btn_id == "btn-plr-shuffle":
             self.player.toggle_shuffle()
             if self.current_layout is not None:
-                self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
+                if not self._uses_designed_buttons():
+                    self._apply_button_and_layout_structure(self.current_layout, self.current_theme)
                 self._apply_design_control_labels()
+                self._refresh_transport_labels(force=True)
         elif btn_id == "btn-plr-omnirip":
             self._return_to_omnirip()
         elif btn_id == "btn-plr-presets":

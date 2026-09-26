@@ -164,7 +164,7 @@ Fields on `PlayerPageDesign` as implemented in `src/harvester/ui/player_designs.
 | `companion_heading` | `str` | unique per design | `#plr-anime-companion` header |
 | `top_controls` | `tuple[str, ...]` (6 values) | label templates supporting `{gap}` and `{queue}` | order: home, presets, load, save, gap, popout |
 
-Dimensions the runtime engine must support (field names may be refined in Phase 4, but each dimension must exist and must not collapse into one generic theme switch):
+Dimensions the runtime engine supports (resolved by `player_layout.py`, authored per built-in in `player_designs.py`); each dimension must exist and must not collapse into one generic theme switch:
 
 | Dimension | Type | Allowed values / format | Purpose |
 | --- | --- | --- | --- |
