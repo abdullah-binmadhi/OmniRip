@@ -105,6 +105,27 @@ def _build_braille_table() -> dict[int, str]:
     return {mask: chr(0x2800 + mask) for mask in range(256)}
 
 
+# Unicode 16 "Symbols for Legacy Computing Supplement" omits 25 octant patterns
+# because they duplicate existing block elements (halves, quarters, rows). The
+# embedded set keeps octant rendering identical on Pythons whose bundled
+# unicodedata predates Unicode 16 (e.g. 3.11/3.12), where the code points exist
+# in fonts but not in the runtime name database.
+_OCTANT_MISSING_MASKS = frozenset(
+    {1, 2, 3, 5, 10, 15, 20, 40, 63, 64, 80, 85, 90, 95, 128, 160, 165, 170, 175, 192, 240, 245, 250, 252, 255}
+)
+
+
+def _build_octant_table() -> dict[int, str]:
+    table: dict[int, str] = {}
+    codepoint = 0x1CD00
+    for mask in range(1, 256):
+        if mask in _OCTANT_MISSING_MASKS:
+            continue
+        table[mask] = chr(codepoint)
+        codepoint += 1
+    return table
+
+
 def _with_specials(table: dict[int, str], full: int, width: int) -> dict[int, str]:
     """Add empty/left/right/full patterns, which Unicode stores as block chars."""
     enriched = dict(table)
@@ -119,7 +140,7 @@ def _with_specials(table: dict[int, str], full: int, width: int) -> dict[int, st
 
 
 SEXTANT_TABLE = _with_specials(_build_named_table("BLOCK SEXTANT-", 0x1FB00, 0x1FB3C, 2), 0b111111, 2)
-OCTANT_TABLE = _with_specials(_build_named_table("BLOCK OCTANT-", 0x1CD00, 0x1CE00, 2), 0b11111111, 2)
+OCTANT_TABLE = _with_specials(_build_octant_table(), 0b11111111, 2)
 QUADRANT_TABLE = _with_specials(_build_quadrant_table(), 0b1111, 2)
 BRAILLE_TABLE = _build_braille_table()
 HALFBLOCK_TABLE = {0b00: " ", 0b01: "▀", 0b10: "▄", 0b11: "█"}
@@ -281,9 +302,12 @@ def render_bitmap(
 
     rows_per_cell, cols_per_cell = CELL_GEOMETRY[mode]
     work = _pad_grid(work, rows_per_cell, cols_per_cell)
-    cell_rows = work.shape[0] // rows_per_cell
-    cell_cols = work.shape[1] // cols_per_cell
-    cells = work.reshape(cell_rows, rows_per_cell, cell_cols, cols_per_cell).transpose(0, 2, 1, 3)
+    cells = work.reshape(
+        work.shape[0] // rows_per_cell,
+        rows_per_cell,
+        work.shape[1] // cols_per_cell,
+        cols_per_cell,
+    ).transpose(0, 2, 1, 3)
     on = cells > threshold
 
     if mode == "ascii":
@@ -293,26 +317,20 @@ def render_bitmap(
             0,
             len(ASCII_RAMP) - 1,
         )
-        return [
-            [Cell(ASCII_RAMP[int(indices[r][c])], fg, None) for c in range(cell_cols)]
-            for r in range(cell_rows)
-        ]
+        cache = [Cell(char, fg, None) for char in ASCII_RAMP]
+        return [[cache[index] for index in row] for row in indices.tolist()]
 
     if mode == "braille":
         braille_bits = np.array(_BRAILLE_BITS, dtype=np.int64)
         masks = (on * braille_bits).sum(axis=(2, 3))
-        return [
-            [Cell(BRAILLE_TABLE[int(masks[r][c])], fg, None) for c in range(cell_cols)]
-            for r in range(cell_rows)
-        ]
+        cache = [Cell(BRAILLE_TABLE[mask], fg, None) for mask in range(256)]
+        return [[cache[mask] for mask in row] for row in masks.tolist()]
 
     bit_values = (1 << np.arange(rows_per_cell * cols_per_cell)).reshape(rows_per_cell, cols_per_cell)
     masks = (on * bit_values).sum(axis=(2, 3))
     lookup = _pattern_lookup(mode)
-    return [
-        [Cell(lookup[int(masks[r][c])], fg, bg) for c in range(cell_cols)]
-        for r in range(cell_rows)
-    ]
+    cache = [Cell(char, fg, bg) for char in lookup]
+    return [[cache[mask] for mask in row] for row in masks.tolist()]
 
 
 def _cell_style(cell: Cell, default_fg: str | None) -> Style | None:

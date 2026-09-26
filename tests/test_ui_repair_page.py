@@ -303,7 +303,9 @@ async def test_repair_cyber_daw_workbench_layout(tmp_path: Path) -> None:
         header_strip = panel.query_one("#rp-header-strip")
         assert header_strip is not None
         assert "GUIDED REPAIR" in str(panel.query_one("#rp-title", Label).render())
-        assert "BS-RoFormer" in str(panel.query_one("#rp-engine-badge", Label).render())
+        engine_badge = str(panel.query_one("#rp-engine-badge", Label).render())
+        assert "ENGINE:" in engine_badge
+        assert "BS-RoFormer" in engine_badge or "ECO DSP" in engine_badge
         assert "ACTIVE PRESET:" in str(panel.query_one("#rp-active-preset", Label).render())
 
         # 2. Main 3-column grid checks

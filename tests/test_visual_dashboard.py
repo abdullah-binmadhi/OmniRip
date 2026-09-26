@@ -75,8 +75,8 @@ async def test_visualizer_card_palette_cycle_and_remove():
         assert len(dash.cards) == 0
 
 
-async def test_visual_catalog_modal_lists_all_100_engines():
-    """The catalog must expose the entire 100-engine catalog, not a truncated sample."""
+async def test_visual_catalog_modal_lists_all_registered_engines():
+    """The catalog must expose the entire registered engine catalog, not a truncated sample."""
 
     class ModalTestApp(App[None]):
         def compose(self) -> ComposeResult:
@@ -93,20 +93,23 @@ async def test_visual_catalog_modal_lists_all_100_engines():
         modal = app.screen
         assert isinstance(modal, VisualCatalogModal)
 
+        expected = len(list(VisualizerRegistry.list_all()))
+        assert expected >= 100
+
         # 1. Unfiltered, the modal lists every registered engine.
         rows = modal.query(".vis-item-row")
-        assert len(rows) == 100, f"Catalog modal listed {len(rows)} engines, expected 100"
+        assert len(rows) == expected, f"Catalog modal listed {len(rows)} engines, expected {expected}"
 
         # 2. Every row offers an add button carrying that engine's id.
         add_buttons = modal.query(".vis-item-btn-add")
-        assert len(add_buttons) == 100
+        assert len(add_buttons) == expected
         listed_ids = {btn.name for btn in add_buttons}
         assert listed_ids == {engine.id for engine in VisualizerRegistry.list_all()}
 
         # 3. Every category is represented in the default listing.
         modal.query_one("#vis-catalog-category", Select).value = "all"
         await pilot.pause()
-        assert len(modal.query(".vis-item-row")) == 100
+        assert len(modal.query(".vis-item-row")) == expected
 
         # 4. Picking a category narrows the list to that pack's quota.
         modal.query_one("#vis-catalog-category", Select).value = "studio_meters"
