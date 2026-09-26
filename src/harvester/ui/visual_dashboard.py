@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from rich.text import Text
@@ -123,8 +124,19 @@ class VisualizerCard(Widget):
         min-height: 8;
         border: round $secondary;
         background: #0d0e15;
-        margin: 0 1 1 0;
+        margin: 0;
         padding: 0;
+    }
+    VisualizerCard.-selected {
+        border: double #00e5ff;
+        background: #120e24;
+    }
+    VisualizerCard.-span-full {
+        width: 100%;
+    }
+    VisualizerCard.-tall {
+        height: 2fr;
+        min-height: 14;
     }
     .vis-card-header {
         height: 1;
@@ -167,12 +179,54 @@ class VisualizerCard(Widget):
         background: $error;
         color: #ffffff;
     }
+    .vis-card-arrange-bar {
+        height: 1;
+        width: 1fr;
+        background: #1c1538;
+        padding: 0 1;
+        align: center middle;
+        display: none;
+    }
+    VisualizerCard.-selected .vis-card-arrange-bar {
+        display: block;
+    }
+    .vis-card-nav-btn {
+        height: 1;
+        min-width: 4;
+        border: none;
+        background: #2a204d;
+        color: #00e5ff;
+        text-style: bold;
+        margin-right: 1;
+        padding: 0;
+    }
+    .vis-card-nav-btn:hover {
+        background: #00e5ff;
+        color: #050b14;
+    }
     """
 
     class RemoveRequested(Message):
         def __init__(self, card_id: str) -> None:
             super().__init__()
             self.card_id = card_id
+
+    class SelectRequested(Message):
+        def __init__(self, card_id: str) -> None:
+            super().__init__()
+            self.card_id = card_id
+
+    class MoveRequested(Message):
+        def __init__(self, card_id: str, direction: str) -> None:
+            super().__init__()
+            self.card_id = card_id
+            self.direction = direction
+
+    class ResizeRequested(Message):
+        def __init__(self, card_id: str, resize_type: str) -> None:
+            super().__init__()
+            self.card_id = card_id
+            self.resize_type = resize_type
 
     def __init__(
         self,
@@ -202,15 +256,44 @@ class VisualizerCard(Widget):
                 classes="vis-card-btn-palette",
             )
             yield Button("✕", id=f"btn-close-{self.card_id}", classes="vis-card-btn-close")
+        with Horizontal(classes="vis-card-arrange-bar"):
+            yield Button("◀", id=f"btn-move-left-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▲", id=f"btn-move-up-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▼", id=f"btn-move-down-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("▶", id=f"btn-move-right-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("⇲ SPAN", id=f"btn-span-{self.card_id}", classes="vis-card-nav-btn")
+            yield Button("⤢ TALL", id=f"btn-tall-{self.card_id}", classes="vis-card-nav-btn")
         yield self.canvas
 
+    def on_click(self) -> None:
+        self.post_message(self.SelectRequested(self.card_id))
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == f"btn-close-{self.card_id}":
+        bid = event.button.id or ""
+        if bid == f"btn-close-{self.card_id}":
             event.stop()
             self.post_message(self.RemoveRequested(self.card_id))
-        elif event.button.id == f"btn-pal-{self.card_id}":
+        elif bid == f"btn-pal-{self.card_id}":
             event.stop()
             self.cycle_palette()
+        elif bid == f"btn-move-left-{self.card_id}":
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "left"))
+        elif bid == f"btn-move-right-{self.card_id}":
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "right"))
+        elif bid == f"btn-move-up-{self.card_id}":
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "up"))
+        elif bid == f"btn-move-down-{self.card_id}":
+            event.stop()
+            self.post_message(self.MoveRequested(self.card_id, "down"))
+        elif bid == f"btn-span-{self.card_id}":
+            event.stop()
+            self.post_message(self.ResizeRequested(self.card_id, "span"))
+        elif bid == f"btn-tall-{self.card_id}":
+            event.stop()
+            self.post_message(self.ResizeRequested(self.card_id, "tall"))
 
     def cycle_palette(self) -> None:
         try:
@@ -416,12 +499,51 @@ class VisualDashboardWidget(Widget):
     .vis-dash-btn {
         height: 3;
         min-height: 3;
-        min-width: 14;
+        min-width: 13;
         margin-right: 1;
         border: solid #2d264f;
         background: #140f28;
         color: #00e5ff;
         text-style: bold;
+    }
+    .vis-dash-btn.-active {
+        background: #00e5ff;
+        color: #050b14;
+        border: solid #00e5ff;
+    }
+    .vis-gap-cluster {
+        width: auto;
+        height: 3;
+        align: left middle;
+        margin-right: 1;
+        background: #16122c;
+        border: solid #2d264f;
+        padding: 0 1;
+    }
+    .vis-gap-label {
+        color: #8b9bb4;
+        text-style: bold;
+        margin-right: 1;
+    }
+    .vis-gap-val {
+        color: #00e5ff;
+        text-style: bold;
+        min-width: 2;
+        text-align: center;
+    }
+    .vis-gap-btn {
+        min-width: 3;
+        height: 1;
+        border: none;
+        background: #251c47;
+        color: #ffffff;
+        text-style: bold;
+        padding: 0;
+        margin: 0 1;
+    }
+    .vis-gap-btn:hover {
+        background: #00e5ff;
+        color: #050b14;
     }
     #vis-dash-container {
         height: 1fr;
@@ -492,6 +614,9 @@ class VisualDashboardWidget(Widget):
     """
 
     cards: reactive[list[dict[str, str]]] = reactive(list)
+    gap_size: reactive[int] = reactive(0)
+    is_arrange_mode: reactive[bool] = reactive(False)
+    selected_card_id: reactive[str | None] = reactive(None)
 
     def __init__(self, id: str | None = None, classes: str | None = None) -> None:
         super().__init__(id=id, classes=classes)
@@ -501,6 +626,12 @@ class VisualDashboardWidget(Widget):
         with Horizontal(id="vis-dash-toolbar"):
             yield Label("⌗ AUDIO VISUALIZATION STUDIO", id="vis-dash-title")
             yield Button("＋ ADD VISUAL", id="btn-vis-add", variant="primary", classes="vis-dash-btn")
+            with Horizontal(classes="vis-gap-cluster"):
+                yield Label("GAP:", classes="vis-gap-label")
+                yield Button("−", id="btn-vis-gap-dec", classes="vis-gap-btn")
+                yield Label("0", id="lbl-vis-gap", classes="vis-gap-val")
+                yield Button("＋", id="btn-vis-gap-inc", classes="vis-gap-btn")
+            yield Button("✥ ARRANGE", id="btn-vis-arrange", classes="vis-dash-btn")
             yield Button("◖ SOLO", id="btn-vis-preset-solo", variant="default", classes="vis-dash-btn")
             yield Button("◫ DUAL", id="btn-vis-preset-dual", variant="default", classes="vis-dash-btn")
             yield Button("⌸ QUAD", id="btn-vis-preset-quad", variant="default", classes="vis-dash-btn")
@@ -533,6 +664,15 @@ class VisualDashboardWidget(Widget):
         if btn_id in ("btn-vis-add", "btn-empty-browse"):
             event.stop()
             self._open_catalog_modal()
+        elif btn_id == "btn-vis-gap-dec":
+            event.stop()
+            self.set_gap(self.gap_size - 1)
+        elif btn_id == "btn-vis-gap-inc":
+            event.stop()
+            self.set_gap(self.gap_size + 1)
+        elif btn_id == "btn-vis-arrange":
+            event.stop()
+            self.toggle_arrange_mode()
         elif btn_id in ("btn-vis-preset-solo", "btn-empty-solo"):
             event.stop()
             self.apply_preset("solo")
@@ -601,6 +741,25 @@ class VisualDashboardWidget(Widget):
             ]
         self._refresh_canvas()
 
+    def _create_card(self, item: dict[str, Any]) -> VisualizerCard:
+        card = VisualizerCard(
+            engine_id=item["engine_id"],
+            palette_key=item.get("palette", "cyan"),
+            card_id=item["card_id"],
+            id=f"vis-card-{item['card_id']}",
+        )
+        if item.get("span") == "full":
+            card.add_class("-span-full")
+        if item.get("tall"):
+            card.add_class("-tall")
+        if self.is_arrange_mode and self.selected_card_id == item["card_id"]:
+            card.add_class("-selected")
+        if self.gap_size > 0:
+            card.styles.margin = (0, self.gap_size, self.gap_size, 0)
+        else:
+            card.styles.margin = (0, 0, 0, 0)
+        return card
+
     def _refresh_canvas(self) -> None:
         try:
             empty_box = self.query_one("#vis-dash-empty-state")
@@ -619,62 +778,122 @@ class VisualDashboardWidget(Widget):
             n = len(self.cards)
             if n <= 2:
                 row = Horizontal(classes="vis-grid-row")
+                if self.gap_size > 0:
+                    row.styles.margin_bottom = self.gap_size
                 grid.mount(row)
                 for item in self.cards:
-                    row.mount(
-                        VisualizerCard(
-                            engine_id=item["engine_id"],
-                            palette_key=item.get("palette", "cyan"),
-                            card_id=item["card_id"],
-                            id=f"vis-card-{item['card_id']}",
-                        )
-                    )
+                    row.mount(self._create_card(item))
             elif n <= 4:
                 row1 = Horizontal(classes="vis-grid-row")
                 row2 = Horizontal(classes="vis-grid-row")
+                if self.gap_size > 0:
+                    row1.styles.margin_bottom = self.gap_size
+                    row2.styles.margin_bottom = self.gap_size
                 grid.mount(row1)
                 grid.mount(row2)
                 for item in self.cards[:2]:
-                    row1.mount(
-                        VisualizerCard(
-                            engine_id=item["engine_id"],
-                            palette_key=item.get("palette", "cyan"),
-                            card_id=item["card_id"],
-                            id=f"vis-card-{item['card_id']}",
-                        )
-                    )
+                    row1.mount(self._create_card(item))
                 for item in self.cards[2:4]:
-                    row2.mount(
-                        VisualizerCard(
-                            engine_id=item["engine_id"],
-                            palette_key=item.get("palette", "cyan"),
-                            card_id=item["card_id"],
-                            id=f"vis-card-{item['card_id']}",
-                        )
-                    )
+                    row2.mount(self._create_card(item))
             else:
                 row1 = Horizontal(classes="vis-grid-row")
                 row2 = Horizontal(classes="vis-grid-row")
+                if self.gap_size > 0:
+                    row1.styles.margin_bottom = self.gap_size
+                    row2.styles.margin_bottom = self.gap_size
                 grid.mount(row1)
                 grid.mount(row2)
                 for item in self.cards[:3]:
-                    row1.mount(
-                        VisualizerCard(
-                            engine_id=item["engine_id"],
-                            palette_key=item.get("palette", "cyan"),
-                            card_id=item["card_id"],
-                            id=f"vis-card-{item['card_id']}",
-                        )
-                    )
+                    row1.mount(self._create_card(item))
                 for item in self.cards[3:6]:
-                    row2.mount(
-                        VisualizerCard(
-                            engine_id=item["engine_id"],
-                            palette_key=item.get("palette", "cyan"),
-                            card_id=item["card_id"],
-                            id=f"vis-card-{item['card_id']}",
-                        )
-                    )
+                    row2.mount(self._create_card(item))
+
+    def on_visualizer_card_select_requested(self, event: VisualizerCard.SelectRequested) -> None:
+        event.stop()
+        if self.is_arrange_mode:
+            self.selected_card_id = event.card_id
+            self._update_card_selection()
+
+    def on_visualizer_card_move_requested(self, event: VisualizerCard.MoveRequested) -> None:
+        event.stop()
+        self.move_card(event.card_id, event.direction)
+
+    def on_visualizer_card_resize_requested(self, event: VisualizerCard.ResizeRequested) -> None:
+        event.stop()
+        if event.resize_type == "span":
+            self.toggle_card_span(event.card_id)
+        elif event.resize_type == "tall":
+            self.toggle_card_tall(event.card_id)
+
+    def set_gap(self, val: int) -> None:
+        self.gap_size = max(0, min(4, val))
+        try:
+            self.query_one("#lbl-vis-gap", Label).update(str(self.gap_size))
+        except Exception:
+            pass
+        self._refresh_canvas()
+
+    def toggle_arrange_mode(self) -> None:
+        self.is_arrange_mode = not self.is_arrange_mode
+        try:
+            btn = self.query_one("#btn-vis-arrange", Button)
+            if self.is_arrange_mode:
+                btn.label = "✥ ARRANGE (ON)"
+                btn.add_class("-active")
+                if not self.selected_card_id and self.cards:
+                    self.selected_card_id = self.cards[0]["card_id"]
+            else:
+                btn.label = "✥ ARRANGE"
+                btn.remove_class("-active")
+                self.selected_card_id = None
+        except Exception:
+            pass
+        self._update_card_selection()
+
+    def _update_card_selection(self) -> None:
+        for card in self.query(VisualizerCard):
+            is_sel = self.is_arrange_mode and (card.card_id == self.selected_card_id)
+            if is_sel:
+                card.add_class("-selected")
+            else:
+                card.remove_class("-selected")
+
+    def move_card(self, card_id: str, direction: str) -> None:
+        ids = [c["card_id"] for c in self.cards]
+        if card_id not in ids:
+            return
+        idx = ids.index(card_id)
+        cards = [dict(c) for c in self.cards]
+        if direction == "left" and idx > 0:
+            cards[idx], cards[idx - 1] = cards[idx - 1], cards[idx]
+        elif direction == "right" and idx < len(cards) - 1:
+            cards[idx], cards[idx + 1] = cards[idx + 1], cards[idx]
+        elif direction == "up" and idx >= 2:
+            item = cards.pop(idx)
+            cards.insert(idx - 2, item)
+        elif direction == "down" and idx + 2 < len(cards):
+            item = cards.pop(idx)
+            cards.insert(idx + 2, item)
+        self.cards = cards
+        self._refresh_canvas()
+
+    def toggle_card_span(self, card_id: str) -> None:
+        cards = [dict(c) for c in self.cards]
+        for c in cards:
+            if c["card_id"] == card_id:
+                c["span"] = "full" if c.get("span") != "full" else "half"
+                break
+        self.cards = cards
+        self._refresh_canvas()
+
+    def toggle_card_tall(self, card_id: str) -> None:
+        cards = [dict(c) for c in self.cards]
+        for c in cards:
+            if c["card_id"] == card_id:
+                c["tall"] = not c.get("tall", False)
+                break
+        self.cards = cards
+        self._refresh_canvas()
 
     def feed_audio(
         self,

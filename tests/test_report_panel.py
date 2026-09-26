@@ -88,3 +88,26 @@ async def test_report_panel_set_report_and_button_messages(tmp_path: Path):
         # Verify enh_spectrum was calculated and contains ISO target frequencies
         assert len(panel.enh_spectrum) > 0
         assert 1000.0 in panel.enh_spectrum
+
+
+def test_render_ascii_curve_dynamic_width():
+    from harvester.ui.report import render_ascii_curve
+
+    orig = {1000.0: 0.0, 20.0: -2.0, 20000.0: 1.0}
+    enh = {1000.0: 1.5, 20.0: 0.0, 20000.0: 2.0}
+    target = {1000.0: 0.0, 20.0: 0.0, 20000.0: 0.0}
+
+    # Render with width=120
+    graph = render_ascii_curve(orig, enh, target, width=120)
+    lines = graph.splitlines()
+
+    # Verify header line reaches approximately 120 columns
+    header = lines[0]
+    assert len(header) >= 115
+    assert "20Hz" in header
+    assert "1kHz" in header
+    assert "20k" in header
+
+    # Verify divider length matches header
+    divider = lines[1]
+    assert len(divider) >= len(header)

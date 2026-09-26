@@ -271,3 +271,74 @@ async def test_visual_catalog_modal_search_and_filter():
         sel.value = "spectral"
         await pilot.pause()
         assert modal.selected_category == "spectral"
+
+
+async def test_visual_dashboard_gap_tool():
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        assert dash.gap_size == 0
+
+        # Press Gap +
+        app.query_one("#btn-vis-gap-inc", Button).press()
+        await pilot.pause()
+        assert dash.gap_size == 1
+        assert app.query_one("#lbl-vis-gap", Label).render().plain == "1"
+
+        # Press Gap -
+        app.query_one("#btn-vis-gap-dec", Button).press()
+        await pilot.pause()
+        assert dash.gap_size == 0
+        assert app.query_one("#lbl-vis-gap", Label).render().plain == "0"
+
+
+async def test_visual_dashboard_arrange_mode_customization():
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+        dash.apply_preset("dual")
+        await pilot.pause()
+
+        assert len(dash.cards) == 2
+        card1_id = dash.cards[0]["card_id"]
+        card2_id = dash.cards[1]["card_id"]
+
+        # Activate arrange mode
+        arrange_btn = app.query_one("#btn-vis-arrange", Button)
+        arrange_btn.press()
+        await pilot.pause()
+        assert dash.is_arrange_mode is True
+        assert "ON" in str(arrange_btn.label)
+        assert dash.selected_card_id == card1_id
+
+        # Selected card has -selected class
+        card1 = app.query_one(f"#vis-card-{card1_id}", VisualizerCard)
+        assert card1.has_class("-selected")
+
+        # Move card 1 to the right (swapping with card 2)
+        btn_right = app.query_one(f"#btn-move-right-{card1_id}", Button)
+        btn_right.press()
+        await pilot.pause()
+        assert dash.cards[0]["card_id"] == card2_id
+        assert dash.cards[1]["card_id"] == card1_id
+
+        # Toggle span on card 1
+        btn_span = app.query_one(f"#btn-span-{card1_id}", Button)
+        btn_span.press()
+        await pilot.pause()
+        assert dash.cards[1].get("span") == "full"
+        assert app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-span-full")
+
+        # Toggle tall on card 1
+        btn_tall = app.query_one(f"#btn-tall-{card1_id}", Button)
+        btn_tall.press()
+        await pilot.pause()
+        assert dash.cards[1].get("tall") is True
+        assert app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-tall")
+
+        # Deactivate arrange mode
+        arrange_btn.press()
+        await pilot.pause()
+        assert dash.is_arrange_mode is False
+        assert dash.selected_card_id is None
+        assert not app.query_one(f"#vis-card-{card1_id}", VisualizerCard).has_class("-selected")

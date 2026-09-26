@@ -32,6 +32,7 @@ def render_ascii_curve(
     *,
     mode: str = "spectrum",
     height: int = 13,
+    width: int | None = None,
 ) -> str:
     """Render a high-resolution ASCII 1/3-octave frequency response plot spanning the graph container."""
     # 17 key acoustic sample frequencies across standard audio spectrum
@@ -45,9 +46,17 @@ def render_ascii_curve(
     ]
     db_min, db_max = -12.0, 12.0
 
+    target_w = max(90, width) if width is not None else 105
+    prefix = "dB  │"
+    data_w = max(len(sample_freqs) * 5, target_w - len(prefix))
+    n_bands = len(sample_freqs)
+    base_w = data_w // n_bands
+    rem = data_w % n_bands
+    col_widths = [base_w + (1 if i < rem else 0) for i in range(n_bands)]
+
     lines: list[str] = []
-    header_cols = "".join(f"{lbl:^5}" for lbl in labels)
-    header = f"dB  │{header_cols}"
+    header_cols = "".join(f"{lbl:^{col_widths[i]}}" for i, lbl in enumerate(labels))
+    header = f"{prefix}{header_cols}"
     lines.append(header)
     divider = "────┼" + "─" * len(header_cols)
     lines.append(divider)
@@ -56,7 +65,8 @@ def render_ascii_curve(
         db_level = db_max - (row / (height - 1)) * (db_max - db_min)
         row_str = f"{int(db_level):+3d} │"
 
-        for f in sample_freqs:
+        for i, f in enumerate(sample_freqs):
+            col_w = col_widths[i]
             if mode == "delta":
                 val = enh_spectrum.get(f, 0.0) - target_curve.get(f, 0.0)
                 char = "■" if abs(val - db_level) < 1.6 else "·"
@@ -79,7 +89,7 @@ def render_ascii_curve(
                     char = "·"  # Target reference
                 else:
                     char = " "
-            row_str += f"  {char}  "
+            row_str += f"{char:^{col_w}}"
         lines.append(row_str)
 
     footer = "────┴" + "─" * len(header_cols)
@@ -130,7 +140,7 @@ class ReportPanel(Widget):
     }
 
     .rp-col-matrix {
-        width: 28;
+        width: 26;
         height: 1fr;
         border-right: solid #2d264f;
         padding: 0 1;
@@ -144,7 +154,7 @@ class ReportPanel(Widget):
     }
 
     .rp-col-history {
-        width: 28;
+        width: 34;
         height: 1fr;
         padding: 0 1;
     }
@@ -184,23 +194,39 @@ class ReportPanel(Widget):
     }
 
     .rp-graph-controls Select {
-        width: 22;
+        width: 18;
         margin-right: 1;
     }
 
     #rp-btn-graph-refresh {
-        min-width: 13;
+        min-width: 12;
         height: 3;
         border: solid #00e5ff;
         background: #161329;
         color: #00e5ff;
         text-style: bold;
         margin-left: 1;
+        padding: 0 1;
     }
 
     #rp-btn-graph-refresh:hover {
         background: #00e5ff;
         color: #050b14;
+    }
+
+    #rp-btn-rep-rename {
+        width: 1fr;
+        min-width: 10;
+        height: 3;
+        margin-right: 1;
+        padding: 0 1;
+    }
+
+    #rp-btn-rep-reapply {
+        width: 1fr;
+        min-width: 13;
+        height: 3;
+        padding: 0 1;
     }
 
     .rp-history-item {
@@ -397,13 +423,25 @@ class ReportPanel(Widget):
                 self.query_one("#rp-rep-remediations", Label).update("• Transparent Master Pass")
 
         target_dict = get_target_curve(self.target_type)
+        graph_w: int = 105
+        try:
+            col_graph = self.query_one(".rp-col-graph")
+            if col_graph.size.width > 40:
+                graph_w = max(90, col_graph.size.width - 2)
+        except Exception:
+            pass
+
         graph_text = render_ascii_curve(
             self.orig_spectrum,
             self.enh_spectrum,
             target_dict,
             mode=self.graph_mode,
+            width=graph_w,
         )
         self.query_one("#rp-ascii-graph", Label).update(graph_text)
+
+    def on_resize(self) -> None:
+        self._refresh_report_view()
 
     def _refresh_history_list(self) -> None:
         container = self.query_one("#rp-history-list", Vertical)
