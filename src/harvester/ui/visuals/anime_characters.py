@@ -1,11 +1,19 @@
-"""Theme-dressed ASCII anime characters for Full Vision Studio presets.
+"""Theme-dressed high-definition Braille anime characters and 60 FPS animation/color pipeline.
 
-Each character is meticulously formatted with distinct theme-specific fashion,
-accessories, and hairstyles matching the 20 Google Stitch visual presets.
+Each character uses authentic, high-definition Japanese Braille text mode art
+extracted from authentic sources, complete with:
+- 31 distinct characters (20 preset defaults + 11 bonus unlocked companions)
+- 10 multi-stop gradient color palettes + custom hex support
+- 5 real-time 60 FPS animation effects (scanline shimmer, audio pulse, color flow, hologram flicker, idle breathe)
 """
 
-from dataclasses import dataclass
-from typing import Dict, Optional
+from dataclasses import dataclass, field
+import math
+from typing import Dict, List, Optional, Tuple
+from rich.text import Text
+
+from harvester.ui.visuals.base import AudioFeatureContext
+from harvester.ui.visuals.braille_art import BRAILLE_ARTWORKS
 
 
 @dataclass(frozen=True)
@@ -15,460 +23,371 @@ class AnimeCharacter:
     title: str
     outfit_desc: str
     ascii_art: str
+    char_id: str = ""
+    series_lore: str = ""
 
 
-Y2K_AIMI = r"""
-       .-''''-.
-     .'  _  _  '.     [ Y2K CYBER-POP ]
-    /   (o)(o)   \    Aimi / アイミ
-   :      /\      :   • Butterfly clips & tint shades
-   :    .----.    :   • Baggy cargo pants & CD player
-    \  '------'  /    • Translucent cyber visor
-     '.  `--'  .'
-      /`-....-'\
-    / /|      |\ \
-   (_/ |  Y2K | \_)
-       |  2000|
-       |______|
-       /  /\  \
-      /  /  \  \
-     (__/    \__)
-"""
+# ---------------------------------------------------------------------------
+# 10 Multi-Stop Color Palettes for Anime Text Rendering
+# ---------------------------------------------------------------------------
 
-CYBERPUNK_VKIRA = r"""
-       .---.
-     _/ /_\ \_        [ NIGHT CITY NETRUNNER ]
-    ( \ @   @ / )     V-Kira / キラ
-     \ \  ^  / /      • Optical cyber-eye & neural jack
-      \ \---/ /       • Armored chrome leather jacket
-     .-' `-' '-.      • Dual katana harness
-   / /|  [CY] |\ \
-  (_/ |  BER  | \_)
-      |  2077 |
-      /  .-.  \
-     /  /   \  \
-    (__/     \__)
-"""
+ANIME_PALETTES: Dict[str, Dict[str, object]] = {
+    "cyberpunk_neon": {
+        "name": "Cyberpunk Neon",
+        "icon": "⌬",
+        "stops": [("#00f0ff", 0.0), ("#ff007f", 0.5), ("#ffee00", 1.0)],
+        "accent": "#00f0ff",
+    },
+    "matrix_phosphor": {
+        "name": "Matrix Green Phosphor",
+        "icon": "⌗",
+        "stops": [("#00ff66", 0.0), ("#22cc44", 0.6), ("#005522", 1.0)],
+        "accent": "#00ff66",
+    },
+    "sunset_horizon": {
+        "name": "Retrowave Sunset",
+        "icon": "☼",
+        "stops": [("#9900ff", 0.0), ("#ff4500", 0.5), ("#ffaa00", 1.0)],
+        "accent": "#ff4500",
+    },
+    "pastel_dream": {
+        "name": "Pastel Sakura Dream",
+        "icon": "✦",
+        "stops": [("#ff9ebb", 0.0), ("#c5a3ff", 0.5), ("#ffd1a4", 1.0)],
+        "accent": "#ff9ebb",
+    },
+    "tokyo_night": {
+        "name": "Tokyo Midnight Indigo",
+        "icon": "≋",
+        "stops": [("#00e5ff", 0.0), ("#5800ff", 0.5), ("#1a1f71", 1.0)],
+        "accent": "#5800ff",
+    },
+    "amber_vintage": {
+        "name": "Vintage Vacuum Amber",
+        "icon": "⎇",
+        "stops": [("#ffdd44", 0.0), ("#ff9900", 0.5), ("#aa4400", 1.0)],
+        "accent": "#ff9900",
+    },
+    "deep_ocean": {
+        "name": "Deep Oceanic Trench",
+        "icon": "⌕",
+        "stops": [("#e0ffff", 0.0), ("#00d4ff", 0.5), ("#003366", 1.0)],
+        "accent": "#00d4ff",
+    },
+    "solar_flare": {
+        "name": "Solar Flare Corona",
+        "icon": "▲",
+        "stops": [("#ffffff", 0.0), ("#ff6600", 0.5), ("#cc0000", 1.0)],
+        "accent": "#ff6600",
+    },
+    "emerald_mint": {
+        "name": "Cyber Jade & Mint",
+        "icon": "◈",
+        "stops": [("#00ffcc", 0.0), ("#2ebd85", 0.5), ("#0d4a36", 1.0)],
+        "accent": "#00ffcc",
+    },
+    "monochrome_bone": {
+        "name": "Bone Monochrome Silver",
+        "icon": "𝄢",
+        "stops": [("#ffffff", 0.0), ("#999999", 0.5), ("#333333", 1.0)],
+        "accent": "#ffffff",
+    },
+}
 
-MATRIX_TRINITY = r"""
-       .---.
-      /     \         [ NEB MATRIX OPERATOR ]
-     | () () |        Trinity-X / トリニティ
-     |   ^   |        • Dark wireframe sunglasses
-      \ === /         • Glossy floor-length trenchcoat
-     .-'---'-.        • Streaming green operator code
-    /  |:::|  \
-   /   |:::|   \
-  / /| |:::| |\ \
- (_/ | |:::| | \_)
-     | |:::| |
-     | |:::| |
-     / |:::| \
-    (__/   \__)
-"""
+# ---------------------------------------------------------------------------
+# 5 Real-Time 60 FPS Animation FX Modes
+# ---------------------------------------------------------------------------
 
-LOFI_CHIYO = r"""
-       .---.
-      /  _  \         [ COZY LO-FI STUDY ]
-     |  (o)(o)|       Chiyo / ちよ
-     |   __  |        • Oversized fleece pastel hoodie
-     |  (__) |        • Studio headphones & matcha mug
-     /       \        • Cat resting on warm oak desk
-    / /|   |\ \
-   / / | ☕ | \ \
-  (_/  |   |  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-SYNTHWAVE_REIKO = r"""
-       .---.
-      / ~ ~ \         [ '84 RETRO POP IDOL ]
-     |  > <  |        Reiko / レイコ
-     |   -   |        • Sunset gradient aviators
-      \  _  /         • Neon windbreaker & cassette deck
-     .-'---'-.        • Fingerless driving gloves
-    /  |SUN|  \
-   / / |SET| \ \
-  (_/  | 84|  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-VAPORWAVE_AURA = r"""
-       .---.
-      / === \         [ AESTHETIC VAPORWAVE ]
-     |  o  o |        Aura / アウラ
-     |   ~   |        • Translucent pink sun visor
-      \ === /         • Pastel denim jacket & roller skates
-     .-'---'-.        • Marble statue bust aura
-    /  | 90|  \
-   / / |S  | \ \
-  (_/  |   |  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-TOKYO_HANAKO = r"""
-       .---.
-      / \ / \         [ SHINJUKU TOUGE RACER ]
-     |  ` `  |        Hanako / ハナコ
-     |   -   |        • Red racing suit unzipped to waist
-      \ === /         • Checkered bandana & leather gloves
-     .-'---'-.        • Midnight drift telemetry
-    /  |DRF|  \
-   / / |777| \ \
-  (_/  |   |  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-ANALOG_SHIORI = r"""
-       .---.
-      / (_) \         [ AUDIOPHILE PURIST ]
-     |  - -  |        Shiori / 栞
-     |   u   |        • Hand-knit oversized cable sweater
-      \ === /         • Walnut open-back dynamic cans
-     .-'---'-.        • Vinyl 180g master sleeve in hand
-    /  |LP |  \
-   / / | 33| \ \
-  (_/  |   |  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-CHIPTUNE_PICO = r"""
-      [#####]
-      | ^ ^ |         [ 8-BIT ARCADE GAMER ]
-      |  =  |         Pico / ピコ
-      [-----]         • Pixel cap & retro handheld
-     .-'---'-.        • Arcade coin token necklace
-    /  |JOY|  \       • Chibi 8-bit platformer sprites
-   / / |PAD| \ \
-  (_/  |   |  \_)
-       |===|
-       |   |
-      /     \
-     [#]   [#]
-"""
-
-DEMOSCENE_HEXA = r"""
-      .-----.
-     / [HUD] \        [ AMIGA DEMOSCENE CRACKER ]
-    |  o   o  |       Hexa / ヘクサ
-    |    -    |       • Raster split visor & tracker patch
-     \  ---  /        • Demoparty 1993 lanyard
-     .-'---'-.        • Copper list register readout
-    /  |ASM|  \
-   / / |SYS| \ \
-  (_/  |   |  \_)
-       |___|
-       /   \
-      /     \
-     (__) (__)
-"""
-
-GOTHIC_LILITH = r"""
-       /---\
-      / / \ \         [ VICTORIAN DARKWAVE ]
-     |  o o  |        Lilith / リリス
-     |   .   |        • Multi-tiered black lace gown
-      \  ~  /         • Satin ribbon choker & parasol
-     .-'---'-.        • Bat wing silver hairpin
-    /  |✝ ✝|  \
-   / / |   | \ \
-  (_/  |___|  \_)
-      /=====\
-     /       \
-    /_________\
-"""
-
-DEEP_SPACE_STELLA = r"""
-      .-----.
-     / [EVA] \        [ COSMIC EVA NAVIGATOR ]
-    |  (o o)  |       Stella / ステラ
-     \   =   /        • Zero-G pressurized helm & gold visor
-     .-'---'-.        • Solar propulsion thruster pack
-    /  |NASA| \       • Orbital telemetry HUD
-   / / |EVA | \ \
-  (_/  |____|  \_)
-       |    |
-      /  /\  \
-     (__/  \__)
-"""
-
-NEON_SONYA = r"""
-       .---.
-      / / \ \         [ '86 MIAMI DETECTIVE ]
-     | [===] |        Sonya / ソーニャ
-     |   -   |        • Rolled-up turquoise pastel blazer
-      \ === /         • White linen pants & dark shades
-     .-'---'-.        • Flaming palm tree motif
-    /  |VIC|  \
-   / / | E | \ \
-  (_/  |___|  \_)
-       |   |
-      /  /\ \
-     (__/  \__)
-"""
-
-COFFEE_MAYA = r"""
-       .---.
-      / === \         [ INDIE ACOUSTIC BARISTA ]
-     |  u u  |        Maya / マヤ
-     |   -   |        • Slouchy knit beanie & canvas apron
-      \ === /         • Acoustic guitar strap over shoulder
-     .-'---'-.        • Steaming pour-over brew
-    /  |COF|  \
-   / / |FEE| \ \
-  (_/  |___|  \_)
-       |   |
-      /  /\ \
-     (__/  \__)
-"""
-
-GLITCHCORE_RAVE = r"""
-       /\_/\
-      / > < \         [ GLITCHCORE BREAKCORE ]
-     |   #   |        Rave-Zero / 零
-      \ === /         • Spiky neon twin-tails & safety pins
-     .-'---'-.        • Studded spiked choker & torn fishnets
-    /  |GLT|  \       • 240 BPM amen break cadence
-   / / | CH| \ \
-  (_/  |___|  \_)
-       |   |
-      /  /\ \
-     (__/  \__)
-"""
-
-SUNSET_NAMI = r"""
-       .---.
-      / \ / \         [ TROPICAL SUNSET LOUNGE ]
-     |  - -  |        Nami / 波
-     |   u   |        • Floral summer kimono & hibiscus pin
-      \ === /         • Bamboo folding fan & sea breeze
-     .-'---'-.        • Amber cocktail by the tide
-    /  |~~~|  \
-   / / |~~~| \ \
-  (_/  |___|  \_)
-      /=====\
-     /       \
-    /_________\
-"""
-
-DUBSTEP_SUBDROP = r"""
-      .-----.
-     / [SUB] \        [ SUB-BASS BASS CANNON ]
-    |  !   !  |       Sub-Drop / 重低音
-    |  [===]  |       • Heavy respirator & LED glowsticks
-     \  ---  /        • Heavy spiked drop-crotch armor
-     .-'---'-.        • 40 Hz seismic bass sub-rig
-    /  |40H|  \
-   / / | z | \ \
-  (_/  |___|  \_)
-       |   |
-      /  /\ \
-     (__/  \__)
-"""
-
-INDUSTRIAL_KRIEG = r"""
-      .-----.
-     / [TAC] \        [ MECHA COMBAT PILOT ]
-    |  =   =  |       Krieg / 鉄
-    |   ---   |       • Ballistic ceramic combat rig
-     \  ===  /        • Forearm combat telemetry link
-     .-'---'-.        • Heavy industrial exosuit boots
-    /  |MIL|  \
-   / / |SPEC| \ \
-  (_/  |____|  \_)
-       |    |
-      /  /\  \
-     (__/  \__)
-"""
-
-KAWAII_MIKU = r"""
-      /'-^-'\
-     (  ^ ^  )        [ FUTURE BASS MAGICAL IDOL ]
-     |   v   |        Miku-Pop / ミク
-     (  ---  )        • Cat-ear light-up headphones
-     .-'---'-.        • Holographic frilled star skirt
-    /  |★ ★|  \       • Star wand & candy pop drops
-   / / |   | \ \
-  (_/  |___|  \_)
-      /=====\
-     /       \
-    /_________\
-"""
-
-VINTAGE_CELESTE = r"""
-       .---.
-      /  _  \         [ 1920s SPEAKEASY FLAPPER ]
-     |  o o  |        Celeste / セレスト
-     |   .   |        • Shimmering gold fringe flapper dress
-      \  ~  /         • Ostrich feather headband & pearls
-     .-'---'-.        • Vintage chrome ribbon microphone
-    /  |JAZ|  \
-   / / | Z | \ \
-  (_/  |___|  \_)
-      /=====\
-     /       \
-    /_________\
-"""
-
-THEME_ANIME_CHARACTERS: Dict[str, AnimeCharacter] = {
-    "preset_y2k_aesthetic": AnimeCharacter(
-        preset_id="preset_y2k_aesthetic",
-        name="Aimi (アイミ)",
-        title="Y2K Cyber-Pop Specialist",
-        outfit_desc="Butterfly clips, CD headphones, translucent visor, baggy cargo pants",
-        ascii_art=Y2K_AIMI.strip(),
-    ),
-    "preset_cyberpunk_2077": AnimeCharacter(
-        preset_id="preset_cyberpunk_2077",
-        name="V-Kira (キラ)",
-        title="Night City Netrunner",
-        outfit_desc="Optical cyber-eye, neural jack cables, armored leather jacket, dual katana harness",
-        ascii_art=CYBERPUNK_VKIRA.strip(),
-    ),
-    "preset_matrix_terminal": AnimeCharacter(
-        preset_id="preset_matrix_terminal",
-        name="Trinity-X (トリニティ)",
-        title="Nebuchadnezzar Operator",
-        outfit_desc="Dark wireframe shades, glossy floor-length trenchcoat, combat boots",
-        ascii_art=MATRIX_TRINITY.strip(),
-    ),
-    "preset_lofi_chill": AnimeCharacter(
-        preset_id="preset_lofi_chill",
-        name="Chiyo (ちよ)",
-        title="Cozy Lo-Fi Study Companion",
-        outfit_desc="Oversized pastel fleece hoodie, studio headphones, steaming matcha mug",
-        ascii_art=LOFI_CHIYO.strip(),
-    ),
-    "preset_synthwave_horizon": AnimeCharacter(
-        preset_id="preset_synthwave_horizon",
-        name="Reiko (レイコ)",
-        title="'84 Retro Outrun Idol",
-        outfit_desc="Sunset gradient aviators, neon windbreaker, cassette walkman, driving gloves",
-        ascii_art=SYNTHWAVE_REIKO.strip(),
-    ),
-    "preset_vaporwave_dream": AnimeCharacter(
-        preset_id="preset_vaporwave_dream",
-        name="Aura (アウラ)",
-        title="Aesthetic Vaporwave Muse",
-        outfit_desc="Translucent pink sun visor, oversized pastel denim jacket, retro roller skates",
-        ascii_art=VAPORWAVE_AURA.strip(),
-    ),
-    "preset_tokyo_drift": AnimeCharacter(
-        preset_id="preset_tokyo_drift",
-        name="Hanako (ハナコ)",
-        title="Shinjuku Touge Racer",
-        outfit_desc="Red racing jumpsuit unzipped, checkered bandana, leather driving gloves",
-        ascii_art=TOKYO_HANAKO.strip(),
-    ),
-    "preset_analog_warmth": AnimeCharacter(
-        preset_id="preset_analog_warmth",
-        name="Shiori (栞)",
-        title="Audiophile Vinyl Purist",
-        outfit_desc="Chunky knit cable sweater, walnut-backed dynamic cans, 180g master vinyl",
-        ascii_art=ANALOG_SHIORI.strip(),
-    ),
-    "preset_8bit_chiptune": AnimeCharacter(
-        preset_id="preset_8bit_chiptune",
-        name="Pico (ピコ)",
-        title="8-Bit Arcade Speedrunner",
-        outfit_desc="Pixelated snapback cap, handheld gaming rig, arcade token necklace",
-        ascii_art=CHIPTUNE_PICO.strip(),
-    ),
-    "preset_acid_demoscene": AnimeCharacter(
-        preset_id="preset_acid_demoscene",
-        name="Hexa (ヘクサ)",
-        title="Amiga Demoscene Cracker",
-        outfit_desc="Raster split visor, tracker patch track jacket, 1993 demoparty lanyard",
-        ascii_art=DEMOSCENE_HEXA.strip(),
-    ),
-    "preset_gothic_lolita": AnimeCharacter(
-        preset_id="preset_gothic_lolita",
-        name="Lilith (リリス)",
-        title="Victorian Darkwave Maiden",
-        outfit_desc="Multi-tiered black lace gown, satin ribbon choker, lace parasol, bat wing pin",
-        ascii_art=GOTHIC_LILITH.strip(),
-    ),
-    "preset_deep_space": AnimeCharacter(
-        preset_id="preset_deep_space",
-        name="Stella (ステラ)",
-        title="Cosmic EVA Navigator",
-        outfit_desc="Zero-G pressurized helm, solar flare gold visor, magnetic thruster boots",
-        ascii_art=DEEP_SPACE_STELLA.strip(),
-    ),
-    "preset_neon_vice": AnimeCharacter(
-        preset_id="preset_neon_vice",
-        name="Sonya (ソーニャ)",
-        title="'86 Miami Vice Detective",
-        outfit_desc="Rolled-up turquoise pastel blazer, white linen trousers, dark sunglasses",
-        ascii_art=NEON_SONYA.strip(),
-    ),
-    "preset_coffee_acoustic": AnimeCharacter(
-        preset_id="preset_coffee_acoustic",
-        name="Maya (マヤ)",
-        title="Indie Acoustic Barista",
-        outfit_desc="Slouchy knit beanie, barista apron over flannel, acoustic guitar strap",
-        ascii_art=COFFEE_MAYA.strip(),
-    ),
-    "preset_glitchcore_breakcore": AnimeCharacter(
-        preset_id="preset_glitchcore_breakcore",
-        name="Rave-Zero (零)",
-        title="Glitchcore Cyber Rebel",
-        outfit_desc="Spiky neon twin-tails, studded spiked collar, torn fishnets, safety pins",
-        ascii_art=GLITCHCORE_RAVE.strip(),
-    ),
-    "preset_sunset_lounge": AnimeCharacter(
-        preset_id="preset_sunset_lounge",
-        name="Nami (波)",
-        title="Tropical Sunset Resort Muse",
-        outfit_desc="Breeze-blown floral summer yukata, hibiscus hairpin, bamboo folding fan",
-        ascii_art=SUNSET_NAMI.strip(),
-    ),
-    "preset_dubstep_bass": AnimeCharacter(
-        preset_id="preset_dubstep_bass",
-        name="Sub-Drop (重低音)",
-        title="Sub-Bass Heavyweight DJ",
-        outfit_desc="Sound-reactive respirator mask, LED lightstick bracers, drop-crotch armor",
-        ascii_art=DUBSTEP_SUBDROP.strip(),
-    ),
-    "preset_industrial_synth": AnimeCharacter(
-        preset_id="preset_industrial_synth",
-        name="Krieg (鉄)",
-        title="Mecha Combat Pilot",
-        outfit_desc="Ballistic ceramic tactical vest, heavy exoskeleton boots, combat headset",
-        ascii_art=INDUSTRIAL_KRIEG.strip(),
-    ),
-    "preset_kawaii_future": AnimeCharacter(
-        preset_id="preset_kawaii_future",
-        name="Miku-Pop (ミク)",
-        title="Future Bass Magical Idol",
-        outfit_desc="Cat-ear glowing headphones, holographic star skirt, pastel twintails",
-        ascii_art=KAWAII_MIKU.strip(),
-    ),
-    "preset_vintage_jazz": AnimeCharacter(
-        preset_id="preset_vintage_jazz",
-        name="Celeste (セレスト)",
-        title="1920s Speakeasy Flapper",
-        outfit_desc="Shimmering fringe flapper dress, feather headband, vintage chrome microphone",
-        ascii_art=VINTAGE_CELESTE.strip(),
-    ),
+ANIME_FX_MODES: Dict[str, Tuple[str, str]] = {
+    "scanline_shimmer": ("≋", "CRT Scanline Shimmer (Holographic raster beam sweep)"),
+    "audio_pulse": ("⚡", "Audio Bass Pulse (Reactive transient brightness flares)"),
+    "color_flow": ("◈", "Color Flow Aurora (Continuous vertical gradient cycling)"),
+    "hologram_flicker": ("⌬", "Hologram Jitter (Phase flicker & scanline dropout)"),
+    "idle_breathe": ("∿", "Idle Sine Breathe (Gentle 0.5Hz ambient luminescence)"),
 }
 
 
-def get_anime_character(preset_id: str) -> AnimeCharacter:
-    """Retrieve the theme-dressed anime character for a preset, defaulting to Aimi."""
-    return THEME_ANIME_CHARACTERS.get(preset_id, THEME_ANIME_CHARACTERS["preset_y2k_aesthetic"])
+# ---------------------------------------------------------------------------
+# Character Lore & Braille Artwork Definitions (31 Total)
+# ---------------------------------------------------------------------------
+
+_RAW = BRAILLE_ARTWORKS
+
+_CHAR_METADATA = [
+    # 1. Y2K Aesthetic
+    ("char_01", "preset_y2k_aesthetic", "Aimi / アイミ", "Y2K Cyber-Pop Netrunner",
+     "Butterfly clips & tint shades\nBaggy cargo pants & CD player\nTranslucent cyber visor", 0),
+    # 2. Cyberpunk 2077
+    ("char_02", "preset_cyberpunk_2077", "V-Kira / キラ", "Night City Solo Netrunner",
+     "Optical cyber-eye & neural jack\nArmored chrome leather jacket\nDual katana harness", 1),
+    # 3. Matrix Terminal
+    ("char_03", "preset_matrix_terminal", "Trinity-X / トリニティ", "Nebuchadnezzar Matrix Operator",
+     "Dark wireframe sunglasses\nGlossy floor-length trenchcoat\nStreaming green operator code", 2),
+    # 4. Lo-Fi Chill
+    ("char_04", "preset_lofi_chill", "Maya / マヤ", "Lo-Fi Study Companion",
+     "Oversized cozy knit hoodie\nMatcha latte mug & wired headphones\nWarm vinyl dust glow", 3),
+    # 5. Tokyo Night
+    ("char_05", "preset_tokyo_night", "Ren / レン", "Shibuya Neon Drifter",
+     "Reflective Shibuya puffer jacket\nNeon ear-cuff communication array\nUnderground club pass", 4),
+    # 6. Retrowave Sunset
+    ("char_06", "preset_retrowave_sunset", "Chloe / クロエ", "Outrun Synthwave Cruiser",
+     "Mirrored gradient aviator shades\nPastel synthwave bomber jacket\nRollerskates & walkman tape deck", 5),
+    # 7. Industrial Decay
+    ("char_07", "preset_industrial_decay", "Rust-01 / ラスト", "Wasteland Salvage Engineer",
+     "Welder mask with cracked phosphor lens\nHeavy oil-stained work vest\nExoskeleton pneumatic arm", 6),
+    # 8. Deep Ocean
+    ("char_08", "preset_deep_ocean", "Marina / マリーナ", "Abyssal Sonar Specialist",
+     "Bioluminescent wetsuit\nPressurized diving helmet visor\nSonar ping headphones", 7),
+    # 9. Solar Flare
+    ("char_09", "preset_solar_flare", "Solara / ソララ", "Solar Observatory Pilot",
+     "Golden radiation shielding cape\nSolar corona crest headband\nThermal plasma gauntlets", 8),
+    # 10. Acid Techno
+    ("char_10", "preset_acid_techno", "Acid-DJ / アシッド", "Underground Rave Alchemist",
+     "Strobe reflective jumpsuit\n303 acid smiley badge & respirator\nLED equalizer visor", 9),
+    # 11. Vaporwave Mall
+    ("char_11", "preset_vaporwave_mall", "Crystal / クリスタル", "Aesthetic Plaza Spirit",
+     "Classic Greek bust silhouette choker\nAesthetic teal & magenta windbreaker\nCassette tape earrings", 10),
+    # 12. Dungeon Synth
+    ("char_12", "preset_dungeon_synth", "Morwen / モルウェン", "Crypt Runic Arch-Mage",
+     "Gothic iron sorceress cowl\nAntiquated runic spell parchment\nBronze skull talisman", 11),
+    # 13. Chiptune Gameboy
+    ("char_13", "preset_chiptune_gameboy", "Dot-Chan / ドット", "8-Bit Handheld Pixie",
+     "Monochrome 8-bit ribbon\nOriginal Game Boy shell backpack\nChiptune tracker cartridge", 12),
+    # 14. Nordic Aurora
+    ("char_14", "preset_nordic_aurora", "Freya / フレイヤ", "Fjord Aurora Navigator",
+     "Fur-trimmed polar expedition parka\nAurora crystal quartz amulet\nThermal snow goggles", 13),
+    # 15. Bioshock Steampunk
+    ("char_15", "preset_bioshock_steampunk", "Ada / エイダ", "Pneumatic Clockwork Artisan",
+     "Brass pressure gauge monocle\nLeather rivet corset & copper piping\nSteam escapement chronometer", 14),
+    # 16. Quantum Void
+    ("char_16", "preset_quantum_void", "Nova / ノヴァ", "Singularity Event Observer",
+     "Event horizon dark matter cloak\nZero-point quantum levitator\nSubatomic particle halo", 15),
+    # 17. Hyprland Rice
+    ("char_17", "preset_hyprland_rice", "Dotfile / ドットファイル", "Wayland Tiling Architect",
+     "Minimalist monochrome turtleneck\nMechanical keyboard keycap necklace\nArch Linux cat-ear headset", 16),
+    # 18. DOS Mpxplay
+    ("char_18", "preset_dos_mpxplay", "Commander Ken / ケン", "Real-Mode DOS Guru",
+     "Retro beige PC technician coat\n5.25 inch floppy disk badge\nCRT phosphor anti-glare specs", 17),
+    # 19. Analog Mastering
+    ("char_19", "preset_analog_mastering", "Elena / エレナ", "Mastering Lab Precision Engineer",
+     "Audiophile reference velvet robe\nGold-plated XLR jack earrings\nPrecision VU meter cuff links", 18),
+    # 20. Stellar Galaxy
+    ("char_20", "preset_stellar_galaxy", "Astra / アストラ", "Deep Space Pulsar Cartographer",
+     "Interstellar star-chart jumpsuit\nCosmic dust navigation ring\nNebula prism visor", 19),
+    # 21-31: Unlocked Bonus Characters
+    ("char_21", "bonus_madoka", "Madoka / まどか", "Cosmic Starlight Weaver",
+     "Ribbon-tied cosmic dress\nBow of celestial starlight\nGolden soul gem choker", 20),
+    ("char_22", "bonus_homura", "Homura / ほむら", "Temporal Loop Guardian",
+     "Deep obsidian school uniform\nShield of looping chronometry\nTime-traveler wrist apparatus", 21),
+    ("char_23", "bonus_sayaka", "Sayaka / さやか", "Symphonic Blade Maiden",
+     "Azure flowing knight cloak\nDual harmonic sabers\nMusical clef hairpin", 22),
+    ("char_24", "bonus_kyoko", "Kyoko / きょうこ", "Crimson Spear Wanderer",
+     "Scarlet layered battle vest\nSegmented gold-chain spear\nPocky stick & rebel grin", 23),
+    ("char_25", "bonus_kanna", "Kanna / カンナ", "Dragon Spark Darling",
+     "Pastel gothic lolita frills\nElectro-static tail plug\nFeathered dragon horns", 24),
+    ("char_26", "bonus_tohru", "Tohru / トール", "Chaos Dragon Maid",
+     "Victorian maid headband & apron\nEmerald draconic wings\nEternal flame aura", 25),
+    ("char_27", "bonus_frieren", "Frieren / フリーレン", "Timeless Melodic Sage",
+     "Elven ceremonial white tunic\nGold-trimmed spellcaster wand\nCenturies-old tranquil gaze", 26),
+    ("char_28", "bonus_fern", "Fern / フェルン", "High-Speed Arcane Sniper",
+     "Deep purple apprentice cloak\nRapid-fire mana focus staff\nPouting perfectionist aura", 27),
+    ("char_29", "bonus_bocchi", "Bocchi / ぼっち", "Introvert Guitar God",
+     "Oversized pink zip-up jersey\nBlack Les Paul gig bag\nCardboard box hiding posture", 28),
+    ("char_30", "bonus_nijika", "Nijika / にじか", "Shimokitazawa Rhythm Heart",
+     "Side ponytail yellow star clip\nPair of matched 5A drumsticks\nRadiant sunshine smile", 29),
+    ("char_31", "bonus_kita", "Kita / きた", "Kita-Aura Spotlight Frontwoman",
+     "Shujin red school blazer\nPelham Blue Gibson double-cut\nDazzling Kita-aura sparkles", 30),
+]
+
+ALL_ANIME_CHARACTERS: Dict[str, AnimeCharacter] = {}
+THEME_ANIME_CHARACTERS: Dict[str, AnimeCharacter] = {}
+
+for char_id, preset_id, name, title, outfit_desc, art_idx in _CHAR_METADATA:
+    art = _RAW[art_idx] if art_idx < len(_RAW) else _RAW[0]
+    char_obj = AnimeCharacter(
+        char_id=char_id,
+        preset_id=preset_id,
+        name=name,
+        title=title,
+        outfit_desc=outfit_desc,
+        ascii_art=art,
+        series_lore=f"{title} • {name}",
+    )
+    ALL_ANIME_CHARACTERS[char_id] = char_obj
+    if preset_id.startswith("preset_"):
+        THEME_ANIME_CHARACTERS[preset_id] = char_obj
+
+
+def get_anime_character(preset_or_char_id: str) -> AnimeCharacter:
+    """Retrieve an anime character by preset ID or character ID with fallback."""
+    if preset_or_char_id in THEME_ANIME_CHARACTERS:
+        return THEME_ANIME_CHARACTERS[preset_or_char_id]
+    if preset_or_char_id in ALL_ANIME_CHARACTERS:
+        return ALL_ANIME_CHARACTERS[preset_or_char_id]
+    # Fallback to Aimi
+    return THEME_ANIME_CHARACTERS.get("preset_y2k_aesthetic", list(ALL_ANIME_CHARACTERS.values())[0])
+
+
+def list_all_anime_characters() -> List[AnimeCharacter]:
+    """Return all 31 available Braille anime characters."""
+    return list(ALL_ANIME_CHARACTERS.values())
+
+
+# ---------------------------------------------------------------------------
+# Color Gradient Math & Real-Time Animated Rendering Pipeline
+# ---------------------------------------------------------------------------
+
+def _hex_to_rgb(hex_code: str) -> Tuple[int, int, int]:
+    h = hex_code.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _rgb_to_hex(r: float, g: float, b: float) -> str:
+    ir = max(0, min(255, int(r)))
+    ig = max(0, min(255, int(g)))
+    ib = max(0, min(255, int(b)))
+    return f"#{ir:02x}{ig:02x}{ib:02x}"
+
+
+def _interpolate_color_stops(stops: List[Tuple[str, float]], t: float) -> str:
+    """Interpolate along multi-stop RGB gradient where t in [0.0, 1.0]."""
+    t = max(0.0, min(1.0, t))
+    if t <= stops[0][1]:
+        return stops[0][0]
+    if t >= stops[-1][1]:
+        return stops[-1][0]
+
+    for i in range(len(stops) - 1):
+        c1, p1 = stops[i]
+        c2, p2 = stops[i + 1]
+        if p1 <= t <= p2:
+            span = p2 - p1 if p2 > p1 else 1.0
+            ratio = (t - p1) / span
+            r1, g1, b1 = _hex_to_rgb(c1)
+            r2, g2, b2 = _hex_to_rgb(c2)
+            r = r1 + (r2 - r1) * ratio
+            g = g1 + (g2 - g1) * ratio
+            b = b1 + (b2 - b1) * ratio
+            return _rgb_to_hex(r, g, b)
+    return stops[0][0]
+
+
+def _build_custom_stops(hex_code: str) -> List[Tuple[str, float]]:
+    """Build a rich 3-stop gradient from an arbitrary user hex code."""
+    r, g, b = _hex_to_rgb(hex_code)
+    # Bright highlight
+    br = _rgb_to_hex(min(255, r * 1.35 + 30), min(255, g * 1.35 + 30), min(255, b * 1.35 + 30))
+    # Mid tone
+    mid = hex_code
+    # Deep shadow
+    drk = _rgb_to_hex(r * 0.45, g * 0.45, b * 0.45)
+    return [(br, 0.0), (mid, 0.5), (drk, 1.0)]
+
+
+def render_animated_anime_frame(
+    character: AnimeCharacter,
+    palette_id: str = "cyberpunk_neon",
+    custom_hex: Optional[str] = None,
+    fx_mode: str = "scanline_shimmer",
+    tick: int = 0,
+    ctx: Optional[AudioFeatureContext] = None,
+    max_lines: int = 32,
+    max_cols: int = 70,
+) -> Text:
+    """Render a 60 FPS animated, colored Braille text frame with dynamic audio FX.
+
+    Args:
+        character: The AnimeCharacter instance to render.
+        palette_id: Key from ANIME_PALETTES or 'custom'.
+        custom_hex: User-supplied hex string when palette_id == 'custom'.
+        fx_mode: One of ANIME_FX_MODES.
+        tick: Monotonic frame counter incremented at 60 FPS.
+        ctx: Live audio feature context (optional).
+        max_lines: Maximum terminal lines to render (fits sidebar).
+        max_cols: Maximum terminal columns to fit.
+    """
+    raw_lines = [l for l in character.ascii_art.split("\n") if l.strip()]
+    if not raw_lines:
+        return Text("No Braille Art Available", style="dim")
+
+    # Center/crop lines to fit max dimensions
+    total_lines = min(len(raw_lines), max_lines)
+    lines_to_render = raw_lines[:total_lines]
+
+    # Resolve gradient color stops
+    if custom_hex and custom_hex.startswith("#") and len(custom_hex) in (4, 7):
+        stops = _build_custom_stops(custom_hex)
+    else:
+        pal_meta = ANIME_PALETTES.get(palette_id, ANIME_PALETTES["cyberpunk_neon"])
+        stops = pal_meta["stops"]  # type: ignore
+
+    # Calculate global FX modulation
+    audio_transient = ctx.transient_flag if ctx else False
+    is_playing = ctx.is_playing if ctx else False
+    bass_energy = getattr(ctx, "bass", 0.5) if ctx else 0.5
+
+    # 1. Idle breathe luminance wave
+    breathe_mult = 1.0
+    if fx_mode == "idle_breathe" or not is_playing:
+        breathe_mult = 0.80 + 0.20 * math.sin(tick * 0.08)
+
+    # 2. Audio transient pulse flash
+    transient_flash = audio_transient and is_playing
+
+    # 3. Scanline sweep position (moves down 1.2 lines per frame)
+    scanline_pos = int((tick * 0.75) % max(1, total_lines))
+
+    # 4. Color flow aurora phase offset
+    flow_phase = (tick * 0.015) % 1.0 if fx_mode == "color_flow" else 0.0
+
+    # 5. Hologram jitter effect (brief glitches every 60 frames)
+    is_glitch_frame = (fx_mode == "hologram_flicker") and ((tick % 75) in (0, 1, 2))
+
+    output = Text()
+
+    for y, line in enumerate(lines_to_render):
+        # Truncate line width cleanly
+        cropped = line[:max_cols]
+
+        # Calculate gradient position for this row
+        t = (float(y) / max(1.0, float(total_lines - 1)) + flow_phase) % 1.0
+        hex_color = _interpolate_color_stops(stops, t)
+        r, g, b = _hex_to_rgb(hex_color)
+
+        # Apply breathing modulation
+        r = r * breathe_mult
+        g = g * breathe_mult
+        b = b * breathe_mult
+
+        # Apply audio bass pulse
+        if fx_mode == "audio_pulse" and is_playing:
+            boost = 1.0 + 0.5 * bass_energy
+            r, g, b = min(255, r * boost), min(255, g * boost), min(255, b * boost)
+
+        # Apply transient flash
+        if transient_flash:
+            r = min(255, r + 70)
+            g = min(255, g + 70)
+            b = min(255, b + 70)
+
+        # Check scanline shimmer
+        is_scanline = (fx_mode == "scanline_shimmer") and (y == scanline_pos)
+        is_scanline_adjacent = (fx_mode == "scanline_shimmer") and (abs(y - scanline_pos) == 1)
+
+        row_style = ""
+        if is_scanline:
+            row_style = "bold #ffffff"
+        elif is_scanline_adjacent:
+            row_style = f"bold {_rgb_to_hex(min(255, r * 1.4), min(255, g * 1.4), min(255, b * 1.4))}"
+        elif is_glitch_frame and (y % 4 == 0):
+            # Horizontal glitch displacement and color inversion
+            cropped = "  " + cropped[:-2]
+            row_style = f"reverse {_rgb_to_hex(r, g, b)}"
+        else:
+            row_style = _rgb_to_hex(r, g, b)
+
+        output.append(cropped + "\n", style=row_style)
+
+    return output

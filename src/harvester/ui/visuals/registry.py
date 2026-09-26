@@ -399,25 +399,39 @@ class VisualizerRegistry:
     """Master registry holding all available audio visualizer engines."""
 
     _engines: ClassVar[dict[str, type[BaseVisualizerEngine]]] = {}
+    _preset_engines: ClassVar[dict[str, type[BaseVisualizerEngine]]] = {}
 
     @classmethod
     def register(cls, engine_cls: type[BaseVisualizerEngine]) -> type[BaseVisualizerEngine]:
-        """Register an engine class into the catalog."""
+        """Register an engine class into the core catalog."""
         cls._engines[engine_cls.id] = engine_cls
         return engine_cls
 
     @classmethod
+    def register_preset(cls, engine_cls: type[BaseVisualizerEngine]) -> type[BaseVisualizerEngine]:
+        """Register an engine class into the extended preset catalog."""
+        cls._preset_engines[engine_cls.id] = engine_cls
+        return engine_cls
+
+    @classmethod
     def get(cls, engine_id: str) -> BaseVisualizerEngine | None:
-        """Instantiate and return an engine by its identifier."""
-        engine_cls = cls._engines.get(engine_id)
+        """Instantiate and return an engine by its identifier (from core or preset catalog)."""
+        engine_cls = cls._engines.get(engine_id) or cls._preset_engines.get(engine_id)
         if engine_cls:
             return engine_cls()
         return None
 
     @classmethod
-    def list_all(cls) -> list[BaseVisualizerEngine]:
-        """Return instances of all registered visualizer engines."""
-        return [engine_cls() for engine_cls in cls._engines.values()]
+    def list_all(cls, include_presets: bool = False) -> list[BaseVisualizerEngine]:
+        """Return instances of all registered visualizer engines.
+
+        By default, returns the 100 core catalog engines across the 8 categories.
+        If include_presets is True, returns all available engines including presets.
+        """
+        engines = list(cls._engines.values())
+        if include_presets:
+            engines.extend(cls._preset_engines.values())
+        return [engine_cls() for engine_cls in engines]
 
     @classmethod
     def list_by_category(cls, category: str) -> list[BaseVisualizerEngine]:
@@ -464,7 +478,9 @@ VisualizerRegistry.register(AudioFlameFireEngine)
 
 # Register Phase 4 procedural engines (Completing all 100 engines across 8 packs)
 from harvester.ui.visuals.catalog_100 import register_catalog_100  # noqa: E402
+from harvester.ui.visuals.catalog_200 import register_catalog_200  # noqa: E402
 
 register_catalog_100()
+register_catalog_200()
 
 

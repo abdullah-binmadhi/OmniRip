@@ -2,6 +2,7 @@
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.widgets import Button
 
 from harvester.ui.full_vision import (
     FullVisionStudioWidget,
@@ -94,3 +95,76 @@ async def test_preset_catalog_modal_and_apply():
         apply_btn = modal_app.query_one("#btn-preset-apply-preset_matrix_terminal")
         assert apply_btn is not None
         assert "APPLY" in str(apply_btn.label)
+
+
+@pytest.mark.asyncio
+async def test_anime_companion_interactions_and_modals():
+    from harvester.ui.full_vision import (
+        AnimeCharacterSelectModal,
+        AnimeCompanionWidget,
+        AnimePaletteSelectModal,
+    )
+    from harvester.ui.visuals.anime_characters import get_anime_character, list_all_anime_characters
+    from harvester.ui.visuals.base import AudioFeatureContext
+
+    # 1. Test AnimeCompanionWidget cycles and ticks
+    class CompanionApp(App):
+        def compose(self) -> ComposeResult:
+            yield AnimeCompanionWidget(character=get_anime_character("preset_y2k_aesthetic"))
+
+    app = CompanionApp()
+    async with app.run_test() as pilot:
+        comp = app.query_one(AnimeCompanionWidget)
+        assert "Aimi" in comp.character.name
+
+        # Cycle character forward and backward
+        initial_name = comp.character.name
+        comp._cycle_character(1)
+        assert comp.character.name != initial_name
+        comp._cycle_character(-1)
+        assert comp.character.name == initial_name
+
+        # Cycle FX mode
+        initial_fx = comp.fx_mode
+        comp._cycle_fx()
+        assert comp.fx_mode != initial_fx
+
+        # Feed audio context and tick frame
+        ctx = AudioFeatureContext(is_playing=True, transient_flag=True, spectral_centroid=3000.0)
+        comp.feed_audio(ctx)
+        assert comp.audio_ctx == ctx
+        comp._tick_60fps()
+
+        # Test palette selection callback
+        comp._on_palette_selected(("matrix_phosphor", None))
+        assert comp.palette_id == "matrix_phosphor"
+        comp._on_palette_selected(("custom", "#ff007f"))
+        assert comp.palette_id == "custom"
+        assert comp.custom_hex == "#ff007f"
+
+    # 2. Test AnimeCharacterSelectModal composition
+    char_modal = AnimeCharacterSelectModal()
+    assert len(char_modal.all_characters) == 31
+    class CharModalApp(App):
+        def compose(self) -> ComposeResult:
+            yield AnimeCharacterSelectModal()
+
+    c_app = CharModalApp()
+    async with c_app.run_test() as pilot:
+        modal = c_app.query_one(AnimeCharacterSelectModal)
+        assert modal is not None
+        btn = c_app.query_one("#btn-select-char-char_02", Button)
+        assert btn is not None
+
+    # 3. Test AnimePaletteSelectModal composition
+    class PalModalApp(App):
+        def compose(self) -> ComposeResult:
+            yield AnimePaletteSelectModal()
+
+    p_app = PalModalApp()
+    async with p_app.run_test() as pilot:
+        p_modal = p_app.query_one(AnimePaletteSelectModal)
+        assert p_modal is not None
+        apply_pal = p_app.query_one("#btn-apply-pal-matrix_phosphor", Button)
+        assert apply_pal is not None
+

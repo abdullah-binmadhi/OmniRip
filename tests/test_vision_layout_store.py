@@ -110,3 +110,28 @@ def test_preset_engine_diversity():
             # Must not exceed 20% similarity (at least 80% unique)
             assert similarity <= 0.20, f"Presets {id_a} and {id_b} have {similarity:.2%} similarity (max allowed is 20%)"
 
+
+def test_200_unique_engines_across_20_presets():
+    """Verify that every preset has exactly 10 cards, and all 200 engines are 100% unique (0% overlap)."""
+    from harvester.ui.visuals.registry import VisualizerRegistry
+
+    registered_ids = {e.id for e in VisualizerRegistry.list_all(include_presets=True)}
+    presets = [ly for ly in BUILTIN_LAYOUTS if ly.layout_id.startswith("preset_")]
+    assert len(presets) == 20
+
+    all_cards = []
+    for ly in presets:
+        assert len(ly.cards) == 10, f"Preset {ly.layout_id} must have 10 cards, got {len(ly.cards)}"
+        engine_ids = [c.engine_id for c in ly.cards]
+        # Internal uniqueness
+        assert len(set(engine_ids)) == 10, f"Duplicate engines inside preset {ly.layout_id}"
+        # All engines must exist in registry
+        for eid in engine_ids:
+            assert eid in registered_ids, f"Engine {eid} in preset {ly.layout_id} is not registered!"
+        all_cards.extend(engine_ids)
+
+    # 100% uniqueness across the entire preset collection
+    assert len(all_cards) == 200
+    assert len(set(all_cards)) == 200, "Zero overlap allowed: every preset must have 100% unique engines!"
+
+

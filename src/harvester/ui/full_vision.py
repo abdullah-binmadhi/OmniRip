@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from rich.markup import escape
 from textual import events
@@ -52,8 +52,12 @@ from harvester.ui.visual_dashboard import (
     VisualizerEngineCanvas,
 )
 from harvester.ui.visuals.anime_characters import (
+    ANIME_FX_MODES,
+    ANIME_PALETTES,
     AnimeCharacter,
     get_anime_character,
+    list_all_anime_characters,
+    render_animated_anime_frame,
 )
 from harvester.ui.visuals.base import AudioFeatureContext
 from harvester.ui.visuals.registry import VisualizerRegistry
@@ -376,14 +380,242 @@ class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
             self.dismiss(layout)
 
 
+class AnimeCharacterSelectModal(ModalScreen[Optional[AnimeCharacter]]):
+    """Modal dialog for selecting from 31 authentic Braille anime companions."""
+
+    DEFAULT_CSS = """
+    AnimeCharacterSelectModal {
+        align: center middle;
+        background: rgba(10, 14, 20, 0.90);
+    }
+    #char-modal-box {
+        width: 86;
+        height: 82%;
+        border: heavy #00f0ff;
+        background: #0f141c;
+        padding: 1 2;
+    }
+    #char-modal-title {
+        color: #00f0ff;
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #char-search-input {
+        margin-bottom: 1;
+        border: round #5800ff;
+    }
+    #char-scroll-container {
+        height: 1fr;
+        width: 100%;
+        border: solid #1f2937;
+        background: #0a0e14;
+        padding: 0 1;
+    }
+    .char-card-row {
+        height: 4;
+        width: 100%;
+        border-bottom: solid #1f2937;
+        margin-bottom: 1;
+        padding: 0 1;
+        align: left middle;
+    }
+    .char-card-info {
+        width: 1fr;
+        height: 3;
+    }
+    .char-card-name {
+        color: #00f0ff;
+        text-style: bold;
+    }
+    .char-card-desc {
+        color: #8b949e;
+    }
+    .char-card-btn {
+        min-width: 12;
+        height: 3;
+        margin-left: 1;
+    }
+    #char-modal-footer {
+        height: 3;
+        width: 100%;
+        align: right middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.all_characters = list_all_anime_characters()
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="char-modal-box"):
+            yield Label("🎌 SELECT ANIME COMPANION (31 AUTHENTIC BRAILLE ARTWORKS)", id="char-modal-title")
+            yield Input(placeholder="Search character name, title, or lore...", id="char-search-input")
+            with VerticalScroll(id="char-scroll-container"):
+                for char in self.all_characters:
+                    with Horizontal(classes="char-card-row", id=f"char-row-{char.char_id}"):
+                        with Vertical(classes="char-card-info"):
+                            yield Label(f"👤 {char.name} • {char.title}", classes="char-card-name")
+                            yield Label(char.outfit_desc.replace("\n", " • ")[:65], classes="char-card-desc")
+                        yield Button("SELECT", variant="primary", id=f"btn-select-char-{char.char_id}", classes="char-card-btn")
+            with Horizontal(id="char-modal-footer"):
+                yield Button("CANCEL", variant="default", id="btn-char-modal-cancel")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "char-search-input":
+            query = event.value.strip().lower()
+            for char in self.all_characters:
+                try:
+                    row = self.query_one(f"#char-row-{char.char_id}")
+                    matches = (query in char.name.lower()) or (query in char.title.lower()) or (query in char.outfit_desc.lower())
+                    row.display = matches
+                except Exception:
+                    pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id or ""
+        if btn_id == "btn-char-modal-cancel":
+            self.dismiss(None)
+        elif btn_id.startswith("btn-select-char-"):
+            char_id = btn_id[len("btn-select-char-"):]
+            for c in self.all_characters:
+                if c.char_id == char_id:
+                    self.dismiss(c)
+                    return
+            self.dismiss(None)
+
+
+class AnimePaletteSelectModal(ModalScreen[Optional[Tuple[str, Optional[str]]]]):
+    """Modal dialog for selecting anime color palette or picking a custom hex color."""
+
+    DEFAULT_CSS = """
+    AnimePaletteSelectModal {
+        align: center middle;
+        background: rgba(10, 14, 20, 0.90);
+    }
+    #palette-modal-box {
+        width: 82;
+        height: 82%;
+        border: heavy #ff007f;
+        background: #0f141c;
+        padding: 1 2;
+    }
+    #palette-modal-title {
+        color: #ff007f;
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #custom-hex-container {
+        width: 100%;
+        height: 4;
+        border: round #ff007f;
+        padding: 0 1;
+        margin-bottom: 1;
+        align: left middle;
+    }
+    #custom-hex-label {
+        width: 18;
+        color: #ff007f;
+        text-style: bold;
+    }
+    #input-custom-hex {
+        width: 1fr;
+        margin-right: 1;
+    }
+    #palette-scroll-container {
+        height: 1fr;
+        width: 100%;
+        border: solid #1f2937;
+        background: #0a0e14;
+        padding: 0 1;
+    }
+    .pal-card-row {
+        height: 3;
+        width: 100%;
+        border-bottom: solid #1f2937;
+        margin-bottom: 1;
+        padding: 0 1;
+        align: left middle;
+    }
+    .pal-card-name {
+        width: 32;
+        color: #00ffcc;
+        text-style: bold;
+    }
+    .pal-card-swatch {
+        width: 1fr;
+    }
+    .pal-card-btn {
+        min-width: 10;
+        height: 3;
+        margin-left: 1;
+    }
+    #palette-modal-footer {
+        height: 3;
+        width: 100%;
+        align: right middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, active_palette: str = "cyberpunk_neon", custom_hex: Optional[str] = None):
+        super().__init__()
+        self.active_palette = active_palette
+        self.custom_hex = custom_hex or "#00f0ff"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="palette-modal-box"):
+            yield Label("🎨 ANIME GRADIENT PALETTES & COLOR PICKER", id="palette-modal-title")
+            with Horizontal(id="custom-hex-container"):
+                yield Label("CUSTOM HEX COLOR:", id="custom-hex-label")
+                yield Input(value=self.custom_hex, placeholder="#00f0ff or #ff007f", id="input-custom-hex")
+                yield Button("APPLY HEX", variant="primary", id="btn-apply-custom-hex")
+            with VerticalScroll(id="palette-scroll-container"):
+                for pal_id, pal_meta in ANIME_PALETTES.items():
+                    with Horizontal(classes="pal-card-row"):
+                        icon = pal_meta.get("icon", "◈")
+                        name = pal_meta.get("name", pal_id)
+                        stops = pal_meta.get("stops", [("#ffffff", 0.0), ("#000000", 1.0)])  # type: ignore
+                        c1, c2, c3 = stops[0][0], stops[len(stops)//2][0], stops[-1][0]
+                        yield Label(f"{icon} {name}", classes="pal-card-name")
+                        yield Label(f"[{c1}]████[/][{c2}]████[/][{c3}]████[/]", classes="pal-card-swatch")
+                        is_active = (pal_id == self.active_palette)
+                        yield Button(
+                            "ACTIVE" if is_active else "APPLY",
+                            variant="success" if is_active else "default",
+                            id=f"btn-apply-pal-{pal_id}",
+                            classes="pal-card-btn",
+                        )
+            with Horizontal(id="palette-modal-footer"):
+                yield Button("CLOSE", variant="default", id="btn-palette-modal-close")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id or ""
+        if btn_id == "btn-palette-modal-close":
+            self.dismiss(None)
+        elif btn_id == "btn-apply-custom-hex":
+            hex_val = self.query_one("#input-custom-hex", Input).value.strip()
+            if hex_val:
+                if not hex_val.startswith("#"):
+                    hex_val = f"#{hex_val}"
+                self.dismiss(("custom", hex_val))
+            else:
+                self.dismiss(None)
+        elif btn_id.startswith("btn-apply-pal-"):
+            pal_id = btn_id[len("btn-apply-pal-"):]
+            self.dismiss((pal_id, None))
+
+
 class AnimeCompanionWidget(Vertical):
-    """Side panel displaying the theme-dressed ASCII anime character and lore."""
+    """Side panel displaying the theme-dressed Braille anime companion, real-time 60 FPS animation & palette controls."""
 
     DEFAULT_CSS = """
     AnimeCompanionWidget {
-        width: 34;
-        min-width: 30;
-        max-width: 36;
+        width: 38;
+        min-width: 32;
+        max-width: 44;
         height: 100%;
         background: #0f141c;
         border-left: heavy #00ffcc;
@@ -398,18 +630,32 @@ class AnimeCompanionWidget(Vertical):
         color: #00ffcc;
         border-bottom: solid #00ffcc;
     }
+    #anime-char-controls {
+        height: 3;
+        width: 100%;
+        margin-top: 1;
+        margin-bottom: 1;
+        align: center middle;
+    }
+    .char-ctrl-btn {
+        min-width: 5;
+        max-width: 10;
+        height: 3;
+        margin: 0 0;
+        padding: 0 1;
+    }
     #anime-char-art-scroll {
         width: 100%;
         height: 1fr;
     }
     #anime-char-art {
         width: 100%;
-        content-align: center middle;
+        content-align: center top;
         color: #e6edf3;
     }
     #anime-char-footer {
-        height: 4;
-        min-height: 4;
+        height: 5;
+        min-height: 5;
         width: 100%;
         border-top: solid #00ffcc;
         padding-top: 1;
@@ -422,42 +668,140 @@ class AnimeCompanionWidget(Vertical):
     #anime-char-desc {
         color: #8b949e;
     }
+    #anime-char-meta {
+        color: #58a6ff;
+        text-style: italic;
+    }
     """
 
-    def __init__(self, character: Optional[AnimeCharacter] = None, id: Optional[str] = None):
+    def __init__(
+        self,
+        character: Optional[AnimeCharacter] = None,
+        palette_id: str = "cyberpunk_neon",
+        custom_hex: Optional[str] = None,
+        fx_mode: str = "scanline_shimmer",
+        id: Optional[str] = None,
+    ):
         super().__init__(id=id)
         self.character = character or get_anime_character("preset_y2k_aesthetic")
+        self.palette_id = palette_id
+        self.custom_hex = custom_hex
+        self.fx_mode = fx_mode
+        self.tick = 0
+        self.audio_ctx: Optional[AudioFeatureContext] = None
+        self._anim_timer = None
 
     def compose(self) -> ComposeResult:
         yield Label(f"👤 {self.character.name}", id="anime-char-header")
+        with Horizontal(id="anime-char-controls"):
+            yield Button("◀", id="btn-char-prev", classes="char-ctrl-btn")
+            yield Button("⌸ CHAR", id="btn-char-select", classes="char-ctrl-btn")
+            yield Button("◧ COLOR", id="btn-char-color", classes="char-ctrl-btn")
+            yield Button("⚡ FX", id="btn-char-fx", classes="char-ctrl-btn")
+            yield Button("▶", id="btn-char-next", classes="char-ctrl-btn")
         with VerticalScroll(id="anime-char-art-scroll"):
-            yield Label(self.character.ascii_art, id="anime-char-art")
+            yield Static(id="anime-char-art")
         with Vertical(id="anime-char-footer"):
             yield Label(self.character.title, id="anime-char-title")
-            yield Label(self.character.outfit_desc[:60], id="anime-char-desc")
+            yield Label(self.character.outfit_desc[:60].replace("\n", " "), id="anime-char-desc")
+            yield Label(f"PAL: {self._display_pal_name()} • FX: {self.fx_mode.upper()}", id="anime-char-meta")
+
+    def on_mount(self) -> None:
+        self._anim_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
+
+    def _display_pal_name(self) -> str:
+        if self.palette_id == "custom" and self.custom_hex:
+            return self.custom_hex.upper()
+        return self.palette_id.upper()
+
+    def feed_audio(self, ctx: AudioFeatureContext) -> None:
+        self.audio_ctx = ctx
+
+    def _tick_60fps(self) -> None:
+        self.tick += 1
+        frame = render_animated_anime_frame(
+            character=self.character,
+            palette_id=self.palette_id,
+            custom_hex=self.custom_hex,
+            fx_mode=self.fx_mode,
+            tick=self.tick,
+            ctx=self.audio_ctx,
+            max_lines=28,
+            max_cols=36,
+        )
+        try:
+            art_widget = self.query_one("#anime-char-art", Static)
+            art_widget.update(frame)
+        except Exception:
+            pass
+
+    def _cycle_character(self, delta: int) -> None:
+        chars = list_all_anime_characters()
+        curr_idx = 0
+        for i, c in enumerate(chars):
+            if c.char_id == self.character.char_id or c.name == self.character.name:
+                curr_idx = i
+                break
+        next_idx = (curr_idx + delta) % len(chars)
+        self.update_character(chars[next_idx])
+
+    def _cycle_fx(self) -> None:
+        fx_keys = list(ANIME_FX_MODES.keys())
+        idx = fx_keys.index(self.fx_mode) if self.fx_mode in fx_keys else 0
+        self.fx_mode = fx_keys[(idx + 1) % len(fx_keys)]
+        self._update_meta_label()
+
+    def _update_meta_label(self) -> None:
+        try:
+            meta = self.query_one("#anime-char-meta", Label)
+            meta.update(f"PAL: {self._display_pal_name()} • FX: {self.fx_mode.upper()}")
+        except Exception:
+            pass
 
     def update_character(self, character: AnimeCharacter, theme: Optional[StitchTheme] = None) -> None:
         self.character = character
         try:
             hdr = self.query_one("#anime-char-header", Label)
             hdr.update(f"👤 {character.name}")
-            art = self.query_one("#anime-char-art", Label)
-            art.update(character.ascii_art)
             ttl = self.query_one("#anime-char-title", Label)
             ttl.update(character.title)
             desc = self.query_one("#anime-char-desc", Label)
-            desc.update(character.outfit_desc[:60])
+            desc.update(character.outfit_desc[:60].replace("\n", " "))
+            self._update_meta_label()
             if theme:
                 border_type = theme.border_style if theme.border_style in ("heavy", "double", "round", "ascii", "tall", "solid", "dashed") else "heavy"
                 self.styles.background = theme.surface_color
                 self.styles.border_left = (border_type, theme.primary_color)
                 hdr.styles.color = theme.primary_color
                 hdr.styles.border_bottom = ("solid", theme.primary_color)
-                art.styles.color = theme.text_color
                 ttl.styles.color = theme.primary_color
                 desc.styles.color = theme.secondary_color
         except Exception:
             pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id or ""
+        if btn_id == "btn-char-prev":
+            self._cycle_character(-1)
+        elif btn_id == "btn-char-next":
+            self._cycle_character(1)
+        elif btn_id == "btn-char-fx":
+            self._cycle_fx()
+        elif btn_id == "btn-char-select":
+            self.app.push_screen(AnimeCharacterSelectModal(), self._on_character_selected)
+        elif btn_id == "btn-char-color":
+            self.app.push_screen(AnimePaletteSelectModal(active_palette=self.palette_id, custom_hex=self.custom_hex), self._on_palette_selected)
+
+    def _on_character_selected(self, character: Optional[AnimeCharacter]) -> None:
+        if character:
+            self.update_character(character)
+
+    def _on_palette_selected(self, result: Optional[Tuple[str, Optional[str]]]) -> None:
+        if result:
+            pal_id, custom_hex = result
+            self.palette_id = pal_id
+            self.custom_hex = custom_hex
+            self._update_meta_label()
 
 
 class FullVisionStudioWidget(Container):
@@ -928,10 +1272,12 @@ class FullVisionStudioWidget(Container):
         except Exception:
             pass
 
-        # Feed feature frame to all active canvas cards
+        # Feed feature frame to all active canvas cards and anime companion
         try:
             dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
             dash.feed_audio(ctx)
+            companion = self.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+            companion.feed_audio(ctx)
         except Exception:
             pass
 
