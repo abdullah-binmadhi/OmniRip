@@ -123,3 +123,27 @@ def test_animated_rendering_fx():
     )
     assert custom_frame is not None
     assert len(custom_frame.plain) > 0
+
+
+def test_anime_character_autofit_and_scaling():
+    """Verify that wide Braille anime characters auto-fit inside narrow companion frames."""
+    from harvester.ui.visuals.anime_characters import (
+        list_all_anime_characters,
+        render_animated_anime_frame,
+        fit_braille_art,
+    )
+
+    all_chars = list_all_anime_characters()
+    # Test all 31 characters in a realistic narrow companion panel (e.g. 34 cols x 18 lines)
+    for c in all_chars:
+        frame = render_animated_anime_frame(
+            character=c,
+            palette_id="electric_amethyst",
+            max_lines=18,
+            max_cols=34,
+        )
+        lines = frame.plain.split("\n")
+        assert len(lines) <= 18
+        for line in lines:
+            assert len(line) <= 34, f"Line exceeded max_cols: len({line}) > 34 for char {c.char_id}"
+

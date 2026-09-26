@@ -1025,6 +1025,7 @@ class FullVisionStudioWidget(Container):
         # 4. Canvas & Dashboard Cards Layout
         dash = self.query_one("#fvs-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
+        dash.layout_style = layout.ui_structure_style
         dash_cards = []
         for idx, card_conf in enumerate(layout.cards):
             dash_cards.append({

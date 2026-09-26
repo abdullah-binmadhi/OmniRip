@@ -286,6 +286,88 @@ def _build_custom_stops(hex_code: str) -> List[Tuple[str, float]]:
     return [(br, 0.0), (mid, 0.5), (drk, 1.0)]
 
 
+import functools
+import numpy as np
+
+# Map dot position (row 0..3, col 0..1) to bit index in Unicode braille offset (0..255)
+DOT_MAP = [
+    (0, 0, 0x01), (1, 0, 0x02), (2, 0, 0x04), (3, 0, 0x40),
+    (0, 1, 0x08), (1, 1, 0x10), (2, 1, 0x20), (3, 1, 0x80),
+]
+
+
+def _braille_to_dot_grid(text: str) -> np.ndarray:
+    raw_lines = [l.rstrip() for l in text.split("\n") if l.strip()]
+    if not raw_lines:
+        return np.zeros((0, 0), dtype=bool)
+    max_c = max(len(l) for l in raw_lines)
+    grid = np.zeros((len(raw_lines) * 4, max_c * 2), dtype=bool)
+    for r_idx, line in enumerate(raw_lines):
+        for c_idx, ch in enumerate(line):
+            code = ord(ch)
+            if 0x2800 <= code <= 0x28FF:
+                bits = code - 0x2800
+                for dr, dc, bit in DOT_MAP:
+                    if bits & bit:
+                        grid[r_idx * 4 + dr, c_idx * 2 + dc] = True
+    return grid
+
+
+def _dot_grid_to_braille(grid: np.ndarray) -> str:
+    h, w = grid.shape
+    pad_h = (4 - (h % 4)) % 4
+    pad_w = (2 - (w % 2)) % 2
+    if pad_h > 0 or pad_w > 0:
+        grid = np.pad(grid, ((0, pad_h), (0, pad_w)), mode="constant")
+    h, w = grid.shape
+
+    lines = []
+    for r in range(0, h, 4):
+        chars = []
+        for c in range(0, w, 2):
+            code = 0x2800
+            for dr, dc, bit in DOT_MAP:
+                if grid[r + dr, c + dc]:
+                    code |= bit
+            chars.append(chr(code))
+        lines.append("".join(chars).rstrip())
+    return "\n".join(lines)
+
+
+@functools.lru_cache(maxsize=128)
+def fit_braille_art(text: str, max_cols: int = 34, max_lines: int = 28) -> str:
+    """Proportionally downsample 2D Braille dot matrix so art fully fits in frame without cropping."""
+    grid = _braille_to_dot_grid(text)
+    if grid.size == 0:
+        return text
+    src_h, src_w = grid.shape
+    tgt_w = max_cols * 2
+    tgt_h = max_lines * 4
+
+    scale_x = tgt_w / src_w if src_w > tgt_w else 1.0
+    scale_y = tgt_h / src_h if src_h > tgt_h else 1.0
+    scale = min(scale_x, scale_y)
+
+    if scale >= 1.0:
+        # Already fits comfortably
+        return text
+
+    new_w = max(2, int(round(src_w * scale)))
+    new_h = max(4, int(round(src_h * scale)))
+
+    down_grid = np.zeros((new_h, new_w), dtype=bool)
+    for dy in range(new_h):
+        sy0 = int(dy / scale)
+        sy1 = max(sy0 + 1, int((dy + 1) / scale))
+        for dx in range(new_w):
+            sx0 = int(dx / scale)
+            sx1 = max(sx0 + 1, int((dx + 1) / scale))
+            if np.any(grid[sy0:sy1, sx0:sx1]):
+                down_grid[dy, dx] = True
+
+    return _dot_grid_to_braille(down_grid)
+
+
 def render_animated_anime_frame(
     character: AnimeCharacter,
     palette_id: str = "cyberpunk_neon",
@@ -308,13 +390,23 @@ def render_animated_anime_frame(
         max_lines: Maximum terminal lines to render (fits sidebar).
         max_cols: Maximum terminal columns to fit.
     """
-    raw_lines = [l for l in character.ascii_art.split("\n") if l.strip()]
+    # Proportional downscaling via 2D Braille dot-matrix pooling
+    fitted_art = fit_braille_art(character.ascii_art, max_cols=max_cols, max_lines=max_lines)
+    raw_lines = [l for l in fitted_art.split("\n") if l.strip()]
     if not raw_lines:
         return Text("No Braille Art Available", style="dim")
 
-    # Center/crop lines to fit max dimensions
-    total_lines = min(len(raw_lines), max_lines)
-    lines_to_render = raw_lines[:total_lines]
+    # Center lines horizontally within max_cols
+    centered_lines: list[str] = []
+    for l in raw_lines[:max_lines]:
+        if len(l) < max_cols:
+            pad = max(0, (max_cols - len(l)) // 2)
+            centered_lines.append(" " * pad + l)
+        else:
+            centered_lines.append(l[:max_cols])
+
+    total_lines = len(centered_lines)
+    lines_to_render = centered_lines
 
     # Resolve gradient color stops
     if custom_hex and custom_hex.startswith("#") and len(custom_hex) in (4, 7):
@@ -385,9 +477,10 @@ def render_animated_anime_frame(
             # Horizontal glitch displacement and color inversion
             cropped = "  " + cropped[:-2]
             row_style = f"reverse {_rgb_to_hex(r, g, b)}"
+        if y < total_lines - 1:
+            output.append(cropped + "\n", style=row_style)
         else:
-            row_style = _rgb_to_hex(r, g, b)
-
-        output.append(cropped + "\n", style=row_style)
+            output.append(cropped, style=row_style)
 
     return output
+

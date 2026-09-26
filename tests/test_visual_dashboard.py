@@ -398,3 +398,35 @@ async def test_feed_audio_with_audio_feature_context_instance():
             # Must render without TypeError
             rendered = card.canvas.render()
             assert rendered is not None
+
+
+async def test_dynamic_layout_engine_mounts_all_cards():
+    """Verify that all cards (including 7 to 10 cards) are mounted across diverse layout styles."""
+    app = DashboardTestApp()
+    async with app.run_test() as pilot:
+        dash = app.query_one("#test-dashboard", VisualDashboardWidget)
+
+        test_10_cards = [
+            {"card_id": f"c_{i}", "engine_id": "mirrored_dance", "palette": "cyan", "span": "normal", "tall": False}
+            for i in range(10)
+        ]
+
+        styles_to_test = [
+            "termusic_master_stack",
+            "three_column_studio",
+            "hero_top_split_bottom",
+            "multi_tier_rack",
+            "auto",
+        ]
+
+        for style in styles_to_test:
+            dash.layout_style = style
+            dash.cards = list(test_10_cards)
+            dash._refresh_canvas()
+            await pilot.pause()
+
+            mounted_cards = list(app.query(VisualizerCard))
+            assert len(mounted_cards) == 10, (
+                f"Layout style '{style}' mounted {len(mounted_cards)} cards instead of all 10!"
+            )
+

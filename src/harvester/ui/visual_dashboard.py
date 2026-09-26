@@ -140,9 +140,31 @@ class VisualizerCard(Widget):
     VisualizerCard.-span-full {
         width: 100%;
     }
+    VisualizerCard.-hero {
+        width: 2fr;
+        height: 2fr;
+        min-height: 14;
+    }
+    VisualizerCard.-wide {
+        width: 2fr;
+    }
+    VisualizerCard.-compact {
+        height: 1fr;
+        min-height: 6;
+    }
     VisualizerCard.-tall {
         height: 2fr;
         min-height: 14;
+    }
+    .vis-grid-col {
+        width: 1fr;
+        height: 100%;
+    }
+    .vis-grid-col.-hero {
+        width: 2fr;
+    }
+    .vis-grid-col.-sidebar {
+        width: 1fr;
     }
     .vis-card-header {
         height: 1;
@@ -656,6 +678,7 @@ class VisualDashboardWidget(Widget):
     """
 
     cards: reactive[list[dict[str, str]]] = reactive(list)
+    layout_style: reactive[str] = reactive("auto")
     gap_size: reactive[int] = reactive(0)
     is_arrange_mode: reactive[bool] = reactive(False)
     selected_card_id: reactive[str | None] = reactive(None)
@@ -830,38 +853,133 @@ class VisualDashboardWidget(Widget):
             empty_box.styles.display = "none"
             grid.styles.display = "block"
             grid.remove_children()
-            n = len(self.cards)
-            if n <= 2:
-                row = Horizontal(classes="vis-grid-row")
-                if self.gap_size > 0:
-                    row.styles.margin_bottom = self.gap_size
-                grid.mount(row)
-                for item in self.cards:
-                    row.mount(self._create_card(item))
-            elif n <= 4:
-                row1 = Horizontal(classes="vis-grid-row")
-                row2 = Horizontal(classes="vis-grid-row")
-                if self.gap_size > 0:
-                    row1.styles.margin_bottom = self.gap_size
-                    row2.styles.margin_bottom = self.gap_size
-                grid.mount(row1)
-                grid.mount(row2)
-                for item in self.cards[:2]:
-                    row1.mount(self._create_card(item))
-                for item in self.cards[2:4]:
-                    row2.mount(self._create_card(item))
-            else:
-                row1 = Horizontal(classes="vis-grid-row")
-                row2 = Horizontal(classes="vis-grid-row")
-                if self.gap_size > 0:
-                    row1.styles.margin_bottom = self.gap_size
-                    row2.styles.margin_bottom = self.gap_size
-                grid.mount(row1)
-                grid.mount(row2)
-                for item in self.cards[:3]:
-                    row1.mount(self._create_card(item))
-                for item in self.cards[3:6]:
-                    row2.mount(self._create_card(item))
+            self._mount_dynamic_layout(grid)
+
+    def _mount_dynamic_layout(self, grid: Widget) -> None:
+        style = self.layout_style.lower()
+        cards = self.cards
+        n = len(cards)
+        if n == 0:
+            return
+
+        # 1. Master-Stack / Termusic Layout (Inspired by termusic ratatui constraints)
+        # Left Hero panel (or 2 tall panels) + Right satellite column + Bottom full telemetry bar
+        if "master_stack" in style or "termusic" in style:
+            top_area = Horizontal(classes="vis-grid-row", id="vis-layout-top")
+            top_area.styles.height = "3fr" if n >= 5 else "1fr"
+            if self.gap_size > 0:
+                top_area.styles.margin_bottom = self.gap_size
+            grid.mount(top_area)
+
+            # Left hero column (2fr width)
+            left_col = Vertical(classes="vis-grid-col -hero")
+            top_area.mount(left_col)
+            card0 = self._create_card(cards[0])
+            card0.add_class("-hero")
+            left_col.mount(card0)
+
+            # Right satellite column (1fr width)
+            right_col = Vertical(classes="vis-grid-col -sidebar")
+            top_area.mount(right_col)
+            right_limit = min(n, 5 if n >= 6 else n)
+            for item in cards[1:right_limit]:
+                right_col.mount(self._create_card(item))
+
+            # Bottom hardware telemetry rack if remaining cards exist
+            if n > right_limit:
+                bottom_row = Horizontal(classes="vis-grid-row", id="vis-layout-bottom")
+                bottom_row.styles.height = "1fr"
+                grid.mount(bottom_row)
+                for item in cards[right_limit:]:
+                    bottom_row.mount(self._create_card(item))
+            return
+
+        # 2. Three-Column Studio (Left scopes, Center giant hero waterfall, Right forensics)
+        if "three_column" in style or "studio_quad" in style or ("studio" in style and n >= 5):
+            main_row = Horizontal(classes="vis-grid-row")
+            if self.gap_size > 0:
+                main_row.styles.margin_bottom = self.gap_size
+            grid.mount(main_row)
+            col_left = Vertical(classes="vis-grid-col")
+            col_center = Vertical(classes="vis-grid-col -hero")
+            col_right = Vertical(classes="vis-grid-col")
+            main_row.mount(col_left)
+            main_row.mount(col_center)
+            main_row.mount(col_right)
+
+            # Center hero gets cards[0]
+            c_hero = self._create_card(cards[0])
+            c_hero.add_class("-hero")
+            col_center.mount(c_hero)
+            rem = cards[1:]
+            half = len(rem) // 2
+            for item in rem[:half]:
+                col_left.mount(self._create_card(item))
+            for item in rem[half:]:
+                col_right.mount(self._create_card(item))
+            return
+
+        # 3. Hero Top Split Bottom
+        if "hero_top" in style or ("split" in style and n >= 4):
+            row_top = Horizontal(classes="vis-grid-row")
+            row_top.styles.height = "2fr"
+            row_bot = Horizontal(classes="vis-grid-row")
+            row_bot.styles.height = "1fr"
+            if self.gap_size > 0:
+                row_top.styles.margin_bottom = self.gap_size
+                row_bot.styles.margin_bottom = self.gap_size
+            grid.mount(row_top)
+            grid.mount(row_bot)
+            top_count = 2 if n >= 6 else 1
+            for item in cards[:top_count]:
+                c = self._create_card(item)
+                c.add_class("-hero")
+                row_top.mount(c)
+            for item in cards[top_count:]:
+                row_bot.mount(self._create_card(item))
+            return
+
+        # 4. Multi-tier rack / DOS MPXPlay / Asymmetric BSPWM / Auto-balanced flow
+        # Guarantees 100% of all cards (7, 8, 9, 10, etc.) are mounted without dropping any!
+        if n <= 3:
+            row = Horizontal(classes="vis-grid-row")
+            if self.gap_size > 0:
+                row.styles.margin_bottom = self.gap_size
+            grid.mount(row)
+            for item in cards:
+                row.mount(self._create_card(item))
+        elif n <= 6:
+            row1 = Horizontal(classes="vis-grid-row")
+            row2 = Horizontal(classes="vis-grid-row")
+            if self.gap_size > 0:
+                row1.styles.margin_bottom = self.gap_size
+                row2.styles.margin_bottom = self.gap_size
+            grid.mount(row1)
+            grid.mount(row2)
+            half = (n + 1) // 2
+            for item in cards[:half]:
+                row1.mount(self._create_card(item))
+            for item in cards[half:]:
+                row2.mount(self._create_card(item))
+        else:
+            # 7 to 10+ cards: 3 rows balanced
+            row1 = Horizontal(classes="vis-grid-row")
+            row2 = Horizontal(classes="vis-grid-row")
+            row3 = Horizontal(classes="vis-grid-row")
+            if self.gap_size > 0:
+                row1.styles.margin_bottom = self.gap_size
+                row2.styles.margin_bottom = self.gap_size
+                row3.styles.margin_bottom = self.gap_size
+            grid.mount(row1)
+            grid.mount(row2)
+            grid.mount(row3)
+            chunk = (n + 2) // 3
+            for item in cards[:chunk]:
+                row1.mount(self._create_card(item))
+            for item in cards[chunk:chunk * 2]:
+                row2.mount(self._create_card(item))
+            for item in cards[chunk * 2:]:
+                row3.mount(self._create_card(item))
 
     def on_visualizer_card_select_requested(self, event: VisualizerCard.SelectRequested) -> None:
         event.stop()
