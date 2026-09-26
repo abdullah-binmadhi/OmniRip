@@ -667,6 +667,7 @@ class VisualDashboardWidget(Widget):
     def compose(self) -> ComposeResult:
         with Horizontal(id="vis-dash-toolbar"):
             yield Label("⌗ AUDIO VISUALIZATION STUDIO", id="vis-dash-title")
+            yield Button("⛶ FULL VISION", id="btn-vis-full-vision", variant="warning", classes="vis-dash-btn")
             yield Button("＋ ADD VISUAL", id="btn-vis-add", variant="primary", classes="vis-dash-btn")
             with Horizontal(classes="vis-gap-cluster"):
                 yield Label("GAP:", classes="vis-gap-label")
@@ -727,6 +728,18 @@ class VisualDashboardWidget(Widget):
         elif btn_id == "btn-vis-clear":
             event.stop()
             self.clear_canvas()
+        elif btn_id == "btn-vis-full-vision":
+            event.stop()
+            self._open_full_vision()
+
+    def _open_full_vision(self) -> None:
+        """Launch Full Vision Studio in a new terminal window and push in-app screen."""
+        from harvester.ui.full_vision import FullVisionScreen, launch_full_vision_external
+        launch_full_vision_external()
+        try:
+            self.app.push_screen(FullVisionScreen())
+        except Exception as exc:
+            logger.debug("Could not push in-app FullVisionScreen: %s", exc)
 
     def _open_catalog_modal(self) -> None:
         def on_modal_result(engine_id: str | None) -> None:
