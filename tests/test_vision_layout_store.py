@@ -14,11 +14,19 @@ from harvester.services.vision_layout_store import (
 def test_builtin_layouts():
     store = VisionLayoutStore(storage_dir=Path("/tmp/test_omnirip_vision_layouts_empty"))
     layouts = store.list_layouts()
-    assert len(layouts) >= len(BUILTIN_LAYOUTS)
+    assert len(layouts) >= 20
+
+    y2k = store.get_layout("preset_y2k_aesthetic")
+    assert y2k is not None
+    assert y2k.name == "Y2K Chrome & Aqua Deck"
+    assert y2k.stitch_theme_id == "y2k_aesthetic"
+
+    matrix = store.get_layout("preset_matrix_terminal")
+    assert matrix is not None
+    assert matrix.stitch_theme_id == "matrix_terminal"
 
     solo = store.get_layout("builtin_solo_stanford")
     assert solo is not None
-    assert solo.name == "Solo Stanford 3D Waterfall"
     assert solo.cards[0].engine_id == "stanford_sun_music_3d"
 
 

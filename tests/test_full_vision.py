@@ -26,6 +26,12 @@ async def test_full_vision_studio_compose():
         theme_btn = app.query_one("#btn-fvs-theme")
         assert theme_btn is not None
 
+        presets_btn = app.query_one("#btn-fvs-presets")
+        assert "PRESETS" in str(presets_btn.label)
+
+        omnirip_btn = app.query_one("#btn-fvs-omnirip")
+        assert "OMNIRIP" in str(omnirip_btn.label)
+
         gap_btn = app.query_one("#btn-fvs-gap")
         assert "GAP:" in str(gap_btn.label)
 
@@ -40,3 +46,18 @@ async def test_full_vision_studio_compose():
         # Test Stitch theme cycle
         studio._cycle_stitch_theme()
         assert studio.current_theme is not None
+
+
+@pytest.mark.asyncio
+async def test_preset_catalog_modal():
+    from harvester.ui.full_vision import PresetCatalogModal
+    from harvester.services.vision_layout_store import VisionLayoutStore
+
+    store = VisionLayoutStore()
+    modal = PresetCatalogModal(store)
+    assert len(modal.all_presets) >= 20
+    # Verify Y2K and Cyberpunk and Matrix presets are loaded
+    preset_ids = [p.layout_id for p in modal.all_presets]
+    assert "preset_y2k_aesthetic" in preset_ids
+    assert "preset_cyberpunk_2077" in preset_ids
+    assert "preset_matrix_terminal" in preset_ids

@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 def launch_full_vision_external() -> bool:
-    """Launch Full Vision Studio in a new external macOS Terminal or iTerm window."""
+    """Launch Full Vision Studio in a new external macOS Terminal or iTerm tab."""
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
     venv_python = repo_root / ".venv" / "bin" / "python3"
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
@@ -70,15 +70,30 @@ def launch_full_vision_external() -> bool:
         if is_iterm:
             apple_script = f'''
             tell application "iTerm"
-                create window with default profile command "bash -c \\"{cmd_script}; exec bash\\""
                 activate
+                if (count of windows) = 0 then
+                    create window with default profile
+                else
+                    tell current window
+                        create tab with default profile
+                    end tell
+                end if
+                tell current session of current window
+                    write text "{cmd_script}"
+                end tell
             end tell
             '''
         else:
             apple_script = f'''
             tell application "Terminal"
-                do script "{cmd_script}"
                 activate
+                tell application "System Events"
+                    tell process "Terminal"
+                        keystroke "t" using command down
+                    end tell
+                end tell
+                delay 0.3
+                do script "{cmd_script}" in selected tab of front window
             end tell
             '''
 
@@ -253,6 +268,109 @@ class AddSongModal(ModalScreen[Optional[Path]]):
             self.dismiss(None)
 
 
+class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
+    """Modal dialog for choosing from the 20 curated Google Stitch design presets."""
+
+    DEFAULT_CSS = """
+    PresetCatalogModal {
+        align: center middle;
+        background: rgba(10, 14, 20, 0.90);
+    }
+    #preset-catalog-box {
+        width: 86;
+        height: 80%;
+        border: heavy #00ffcc;
+        background: #121820;
+        padding: 1 2;
+    }
+    #preset-catalog-title {
+        color: #00ffcc;
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #preset-search {
+        margin-bottom: 1;
+        border: round #7209b7;
+    }
+    #preset-scroll-container {
+        height: 1fr;
+        width: 100%;
+        border: solid #2d264f;
+        background: #0a0e14;
+        padding: 0 1;
+    }
+    .preset-card-row {
+        height: 4;
+        width: 100%;
+        border-bottom: solid #1f2937;
+        margin-bottom: 1;
+        padding: 0 1;
+        align: left middle;
+    }
+    .preset-card-info {
+        width: 1fr;
+        height: 3;
+    }
+    .preset-card-name {
+        color: #00ffcc;
+        text-style: bold;
+    }
+    .preset-card-desc {
+        color: #8b949e;
+    }
+    .preset-apply-btn {
+        min-width: 12;
+        height: 3;
+        margin-left: 1;
+    }
+    #preset-footer {
+        height: 3;
+        width: 100%;
+        align: right middle;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, layout_store: VisionLayoutStore):
+        super().__init__()
+        self.layout_store = layout_store
+        self.all_presets = [ly for ly in self.layout_store.list_layouts() if ly.is_builtin]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="preset-catalog-box"):
+            yield Label("✨ 20 CURATED GOOGLE STITCH DESIGN PRESETS", id="preset-catalog-title")
+            yield Input(placeholder="Search presets (y2k, cyberpunk, matrix, lofi, synthwave...)", id="preset-search")
+            with VerticalScroll(id="preset-scroll-container"):
+                for ly in self.all_presets:
+                    with Horizontal(classes="preset-card-row", id=f"row-{ly.layout_id}"):
+                        with Vertical(classes="preset-card-info"):
+                            yield Label(f"✨ {ly.name}", classes="preset-card-name")
+                            yield Label(ly.description[:70], classes="preset-card-desc")
+                        btn = Button("APPLY", variant="primary", classes="preset-apply-btn")
+                        btn.name = ly.layout_id
+                        yield btn
+            with Horizontal(id="preset-footer"):
+                yield Button("CLOSE", variant="default", id="btn-preset-close")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        query = event.value.strip().lower()
+        for ly in self.all_presets:
+            try:
+                row = self.query_one(f"#row-{ly.layout_id}")
+                matches = (query in ly.name.lower()) or (query in ly.description.lower()) or (query in ly.stitch_theme_id.lower())
+                row.display = matches
+            except Exception:
+                pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-preset-close":
+            self.dismiss(None)
+        elif event.button.has_class("preset-apply-btn") and event.button.name:
+            layout = self.layout_store.get_layout(event.button.name)
+            self.dismiss(layout)
+
+
 class FullVisionStudioWidget(Container):
     """Main studio widget comprising the visual canvas, top toolbar, and bottom player dock."""
 
@@ -372,11 +490,13 @@ class FullVisionStudioWidget(Container):
         # 1. Top Control Bar
         with Horizontal(id="fvs-top-bar"):
             yield Label("⛶ FULL VISION STUDIO", id="fvs-brand")
+            yield Button("1: OMNIRIP", variant="warning", id="btn-fvs-omnirip", classes="fvs-top-btn")
+            yield Button("✨ PRESETS (20)", variant="primary", id="btn-fvs-presets", classes="fvs-top-btn")
             yield Button("🎨 STITCH THEME", id="btn-fvs-theme", classes="fvs-top-btn")
             yield Button("📐 LOAD LAYOUT", id="btn-fvs-load-layout", classes="fvs-top-btn")
             yield Button("💾 SAVE LAYOUT", id="btn-fvs-save-layout", classes="fvs-top-btn")
             yield Button("GAP: (1)", id="btn-fvs-gap", classes="fvs-top-btn")
-            yield Button("↗ POP NEW TERMINAL", id="btn-fvs-popout", classes="fvs-top-btn")
+            yield Button("↗ NEW TAB", id="btn-fvs-popout", classes="fvs-top-btn")
 
         # 2. Main Visual Canvas
         with Container(id="fvs-canvas-container"):
@@ -516,6 +636,10 @@ class FullVisionStudioWidget(Container):
         elif btn_id == "btn-fvs-shuffle":
             shuf = self.player.toggle_shuffle()
             event.button.label = f"🔀 SHUFFLE: {'ON' if shuf else 'OFF'}"
+        elif btn_id == "btn-fvs-omnirip":
+            self._return_to_omnirip()
+        elif btn_id == "btn-fvs-presets":
+            self.app.push_screen(PresetCatalogModal(self.layout_store), self._handle_preset_selected)
         elif btn_id == "btn-fvs-gap":
             self._cycle_gap()
         elif btn_id == "btn-fvs-theme":
@@ -528,6 +652,21 @@ class FullVisionStudioWidget(Container):
             self._cycle_layout()
         elif btn_id == "btn-fvs-popout":
             launch_full_vision_external()
+
+    def _return_to_omnirip(self) -> None:
+        """Return to the OmniRip main workstation view."""
+        if hasattr(self.screen, "dismiss"):
+            self.screen.dismiss()
+        elif hasattr(self.app, "pop_screen"):
+            try:
+                self.app.pop_screen()
+            except Exception:
+                pass
+
+    def _handle_preset_selected(self, layout: Optional[VisionLayout]) -> None:
+        """Apply a full preset design including Stitch theme and visuals layout."""
+        if layout:
+            self.apply_layout(layout)
 
     def _cycle_gap(self) -> None:
         """Cycle gap distance: 0 -> 1 -> 2 -> 3 -> 4 -> 0."""
@@ -631,7 +770,7 @@ class FullVisionScreen(ModalScreen):
         yield FullVisionStudioWidget()
 
     def on_key(self, event: events.Key) -> None:
-        if event.key == "escape":
+        if event.key in ("1", "escape"):
             self.dismiss()
 
 

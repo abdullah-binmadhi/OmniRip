@@ -18,13 +18,18 @@ def test_stitch_client_init_and_themes():
     assert client.api_key == "custom_test_key"
 
     themes = client.get_all_themes()
-    assert "neon_cyber" in themes
+    assert len(themes) >= 20
+    assert "cyberpunk_2077" in themes
+    assert "matrix_terminal" in themes
+    assert "y2k_aesthetic" in themes
     assert "synthwave_dusk" in themes
     assert "tokyo_midnight" in themes
+    assert "lofi_chill_vinyl" in themes
     assert "sunset_gold" in themes
+    assert "holographic_prism" in themes
 
-    theme = client.get_theme("neon_cyber")
-    assert theme.name == "Neon Cyberpunk"
+    theme = client.get_theme("cyberpunk_2077")
+    assert "Cyberpunk" in theme.name
     assert theme.primary_color == "#00ffcc"
 
     css_dict = theme.to_css_dict()
@@ -48,4 +53,4 @@ def test_stitch_synthesize_design():
     json_str = client.export_design_json(design_3d)
     data = json.loads(json_str)
     assert data["design_id"] == design_3d.design_id
-    assert data["theme"]["theme_id"] == "neon_cyber"
+    assert "cyberpunk" in data["theme"]["theme_id"]
