@@ -158,6 +158,14 @@ class UiConfig:
     refresh_hz: int = 8
     max_log_lines: int = 2000
     status_interval_s: float = 10.0
+    # PLAYER terminal render fidelity: "auto" detects safely (sextant default,
+    # ascii without Unicode/color); explicit values force a mode.
+    visual_fidelity: str = "auto"
+    # Reduce decorative motion: static companion scene, no blink/marquee/scanline.
+    reduced_motion: bool = False
+
+
+VISUAL_FIDELITY_CHOICES = ("auto", "ascii", "braille", "halfblock", "quadrant", "sextant", "octant")
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +272,10 @@ class AppConfig:
             raise ConfigError("ui.refresh_hz must be between 1 and 60")
         if self.ui.max_log_lines < 100:
             raise ConfigError("ui.max_log_lines must be at least 100")
+        if self.ui.visual_fidelity not in VISUAL_FIDELITY_CHOICES:
+            raise ConfigError(
+                "ui.visual_fidelity must be one of " + ", ".join(VISUAL_FIDELITY_CHOICES)
+            )
         if self.ffmpeg.transcode not in _TRANSCODE_MODES:
             raise ConfigError(f"ffmpeg.transcode must be one of {sorted(_TRANSCODE_MODES)}")
         for label, value in (
@@ -425,7 +437,13 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "kill_grace_s": 5.0,
         "jev_s": 15.0,
     },
-    "ui": {"refresh_hz": 8, "max_log_lines": 2000, "status_interval_s": 10.0},
+    "ui": {
+        "refresh_hz": 8,
+        "max_log_lines": 2000,
+        "status_interval_s": 10.0,
+        "visual_fidelity": "auto",
+        "reduced_motion": False,
+    },
     "obsidian": {
         "enabled": False,
         "vault_dir": "~/OmniRip-Vault",
@@ -681,6 +699,8 @@ def _build_config(
             status_interval_s=_float(
                 ui.get("status_interval_s", 10.0), name="ui.status_interval_s"
             ),
+            visual_fidelity=str(ui.get("visual_fidelity", "auto")).strip().lower(),
+            reduced_motion=_bool(ui.get("reduced_motion", False), name="ui.reduced_motion"),
         ),
         obsidian=ObsidianConfig(
             enabled=_bool(obsidian.get("enabled", False), name="obsidian.enabled"),

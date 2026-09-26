@@ -872,9 +872,15 @@ class VisualDashboardWidget(Widget):
     def _open_player(self) -> None:
         """Launch PLAYER Studio in a new terminal window and push in-app screen."""
         from harvester.ui.player_studio import PlayerScreen, launch_player_external
+
         launch_player_external()
+        config = getattr(self.app, "config", None)
+        fidelity_mode = getattr(getattr(config, "ui", None), "visual_fidelity", "auto")
+        reduced_motion = getattr(getattr(config, "ui", None), "reduced_motion", False)
         try:
-            self.app.push_screen(PlayerScreen())
+            self.app.push_screen(
+                PlayerScreen(fidelity_mode=fidelity_mode, reduced_motion=reduced_motion)
+            )
         except Exception as exc:
             logger.debug("Could not push in-app PlayerScreen: %s", exc)
 

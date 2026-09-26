@@ -222,5 +222,25 @@ def test_config_example_matches_genre_keys(tmp_path: Path) -> None:
     cfg = load_config(example_path, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
     assert cfg.processing.genre == "auto"
     assert cfg.processing.genre_intensity == "subtle"
+    assert cfg.ui.visual_fidelity == "auto"
+    assert cfg.ui.reduced_motion is False
+
+
+def test_ui_fidelity_and_reduced_motion_override(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[ui]\nvisual_fidelity = "OCTANT"\nreduced_motion = true\n',
+        encoding="utf-8",
+    )
+    cfg = load_config(config_file, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
+    assert cfg.ui.visual_fidelity == "octant"
+    assert cfg.ui.reduced_motion is True
+
+
+def test_invalid_visual_fidelity_is_rejected(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[ui]\nvisual_fidelity = "vhs"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="ui.visual_fidelity"):
+        load_config(config_file, environ={"HARVESTER_DATA_DIR": str(tmp_path / "data")})
 
 

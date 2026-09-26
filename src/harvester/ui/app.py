@@ -1057,8 +1057,14 @@ class HarvesterApp(App[None]):
     def action_switch_to_player(self) -> None:
         """Switch to [2] PLAYER Studio."""
         from harvester.ui.player_studio import PlayerScreen
+
         if not isinstance(self.screen, PlayerScreen):
-            self.push_screen(PlayerScreen())
+            self.push_screen(
+                PlayerScreen(
+                    fidelity_mode=self.config.ui.visual_fidelity,
+                    reduced_motion=self.config.ui.reduced_motion,
+                )
+            )
 
     def action_select_stream_mp3(self) -> None:
         """Switch audition stream to [1] MP3 (Original)."""

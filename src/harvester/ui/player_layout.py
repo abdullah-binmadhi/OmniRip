@@ -439,10 +439,13 @@ class MotionDriver:
     driven here.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, reduced: bool = False) -> None:
+        self.reduced = reduced
         self.tick = 0
 
     def observe(self, studio: PlayerStudioWidget, page: ResolvedPage) -> None:
+        if self.reduced:
+            return
         self.tick += 1
         for spec in page.motion:
             kind, _trigger, intensity, reduced = (spec + ("",))[:4]

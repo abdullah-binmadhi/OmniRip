@@ -383,6 +383,15 @@ OmniRip handles everything inside the TUI — **no editing config files or `.env
    - **AcoustID:** Paste your application key for fingerprinting.
    - **Cloud AI (MVSEP / TypeSafe Jev):** Optional keys for cloud separation and smart triage.
    - **Obsidian Vault:** Set your vault directory for bidirectional second-brain syncing.
+3. **PLAYER render fidelity & reduced motion (optional `config.toml`):** the PLAYER studio (press `2`) draws its artwork through a terminal-fidelity ladder — sextant blocks by default, dropping to ASCII when Unicode or color are unavailable. Two optional keys under `[ui]` tune it:
+
+   ```toml
+   [ui]
+   visual_fidelity = "auto"   # auto | ascii | braille | halfblock | quadrant | sextant | octant
+   reduced_motion = false     # freeze companion scene; no blink, marquee, or scanline
+   ```
+
+   `auto` never picks octants on its own (font coverage varies; opt in explicitly), and `braille` restores the classic monochrome portrait look. `reduced_motion` also renders the portrait statically and switches the companion to its idle-breathe effect.
 
 ---
 

@@ -9,6 +9,7 @@ new window via AppleScript) or an in-app fullscreen studio.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -51,6 +52,13 @@ from harvester.ui.player_layout import (
     theme_color_palette,
     theme_palette,
 )
+from harvester.ui.render_fidelity import (
+    CELL_GEOMETRY,
+    Cell,
+    render_bitmap,
+    render_to_text,
+    resolve_mode,
+)
 from harvester.ui.visual_dashboard import (
     VisualDashboardWidget,
 )
@@ -58,6 +66,8 @@ from harvester.ui.visuals.anime_characters import (
     ANIME_FX_MODES,
     ANIME_PALETTES,
     AnimeCharacter,
+    _braille_to_dot_grid,
+    fit_braille_art,
     get_anime_character,
     list_all_anime_characters,
     render_animated_anime_frame,
@@ -707,6 +717,8 @@ class AnimeCompanionWidget(Vertical):
         fx_mode: str = "scanline_shimmer",
         id: str | None = None,
         clock_managed_externally: bool = False,
+        fidelity_mode: str = "sextant",
+        reduced_motion: bool = False,
     ):
         super().__init__(id=id)
         self.character = character or get_anime_character("preset_y2k_aesthetic")
@@ -716,6 +728,9 @@ class AnimeCompanionWidget(Vertical):
         self.tick = 0
         self.audio_ctx: AudioFeatureContext | None = None
         self.clock_managed_externally = clock_managed_externally
+        self.fidelity_mode = fidelity_mode if fidelity_mode in CELL_GEOMETRY else "sextant"
+        self.reduced_motion = reduced_motion
+        self.palette = None
         self._anim_timer = None
         self.session = CompanionSession()
 
@@ -766,6 +781,7 @@ class AnimeCompanionWidget(Vertical):
 
     def apply_palette(self, palette) -> None:
         """Recolor companion chrome from the shared PLAYER palette."""
+        self.palette = palette
         try:
             self.query_one("#anime-char-scene", Label).styles.color = palette.accent
             self.query_one("#anime-char-status", Label).styles.color = palette.accent
@@ -774,6 +790,37 @@ class AnimeCompanionWidget(Vertical):
             self.query_one("#anime-char-meta", Label).styles.color = palette.secondary
         except Exception:
             pass
+
+    @staticmethod
+    def _shade(hex_color: str, factor: float) -> str:
+        text = hex_color.lstrip("#")
+        if len(text) != 6:
+            return hex_color
+        scale = max(0.0, min(1.0, factor))
+        channels = (int(text[index : index + 2], 16) for index in (0, 2, 4))
+        return "#" + "".join(f"{int(channel * scale):02x}" for channel in channels)
+
+    def _render_fidelity_frame(self, max_cols: int = 36, max_lines: int = 28):
+        """Render the portrait through the block-fidelity ladder."""
+        mode = self.fidelity_mode
+        rows_per_cell, cols_per_cell = CELL_GEOMETRY.get(mode, (4, 2))
+        glyph_cols = max(8, max_cols * cols_per_cell // 2)
+        glyph_lines = max(4, max_lines * rows_per_cell // 4)
+        art = fit_braille_art(self.character.ascii_art, max_cols=glyph_cols, max_lines=glyph_lines)
+        grid = _braille_to_dot_grid(art).astype(float)
+        base = self.palette.primary if self.palette else "#e6edf3"
+        background = self.palette.background if self.palette else None
+        breathe = 1.0 if self.reduced_motion else 0.88 + 0.12 * math.sin(self.tick * 0.08)
+        rows = render_bitmap(grid, mode, fg=None, bg=None)
+        total = max(1, len(rows) - 1)
+        shaded = [
+            [
+                Cell(cell.char, self._shade(base, breathe * (1.0 - 0.35 * (index / total))), background)
+                for cell in row
+            ]
+            for index, row in enumerate(rows)
+        ]
+        return render_to_text(shaded)
 
     def feed_audio(self, ctx: AudioFeatureContext) -> None:
         self.audio_ctx = ctx
@@ -789,7 +836,8 @@ class AnimeCompanionWidget(Vertical):
             status.update(self.session.status_line())
             scene = self.query_one("#anime-char-scene", Label)
             width = max(12, (self.size.width or 34) - 4)
-            scene.update(self.session.scene_line(width, self.tick))
+            tick = 0 if self.reduced_motion else self.tick
+            scene.update(self.session.scene_line(width, tick))
             speech = self.query_one("#anime-char-speech", Label)
             speech.update(self.session.speech)
         except Exception:
@@ -797,16 +845,20 @@ class AnimeCompanionWidget(Vertical):
 
     def _tick_60fps(self) -> None:
         self.tick += 1
-        frame = render_animated_anime_frame(
-            character=self.character,
-            palette_id=self.palette_id,
-            custom_hex=self.custom_hex,
-            fx_mode=self.fx_mode,
-            tick=self.tick,
-            ctx=self.audio_ctx,
-            max_lines=28,
-            max_cols=36,
-        )
+        if self.fidelity_mode == "braille":
+            fx_mode = "idle_breathe" if self.reduced_motion else self.fx_mode
+            frame = render_animated_anime_frame(
+                character=self.character,
+                palette_id=self.palette_id,
+                custom_hex=self.custom_hex,
+                fx_mode=fx_mode,
+                tick=self.tick,
+                ctx=self.audio_ctx,
+                max_lines=28,
+                max_cols=36,
+            )
+        else:
+            frame = self._render_fidelity_frame()
         try:
             art_widget = self.query_one("#anime-char-art", Static)
             art_widget.update(frame)
@@ -1017,7 +1069,7 @@ class PlayerStudioWidget(Container):
     }
     """
 
-    def __init__(self, layout_store=None):
+    def __init__(self, layout_store=None, fidelity_mode: str = "auto", reduced_motion: bool = False):
         super().__init__()
         self.stitch_client = StitchClient()
         self.layout_store = layout_store or VisionLayoutStore()
@@ -1027,7 +1079,9 @@ class PlayerStudioWidget(Container):
         self.current_theme: StitchTheme = self.stitch_client.get_theme("neon_cyber")
         self.active_gap: int = 1
         self.palette = theme_palette(self.current_theme)
-        self._motion = MotionDriver()
+        self.fidelity_mode = resolve_mode(fidelity_mode if fidelity_mode != "auto" else None)
+        self.reduced_motion = bool(reduced_motion)
+        self._motion = MotionDriver(reduced=self.reduced_motion)
         self._resolved_page = None
         self._last_button_state = None
 
@@ -1051,6 +1105,8 @@ class PlayerStudioWidget(Container):
         yield AnimeCompanionWidget(
             id="plr-anime-companion",
             clock_managed_externally=True,
+            fidelity_mode=self.fidelity_mode,
+            reduced_motion=self.reduced_motion,
         )
 
         # 3. Bottom Music Player Dock
@@ -1629,8 +1685,20 @@ class PlayerScreen(ModalScreen):
     }
     """
 
+    def __init__(
+        self,
+        fidelity_mode: str = "auto",
+        reduced_motion: bool = False,
+    ) -> None:
+        super().__init__()
+        self.fidelity_mode = fidelity_mode
+        self.reduced_motion = reduced_motion
+
     def compose(self) -> ComposeResult:
-        yield PlayerStudioWidget()
+        yield PlayerStudioWidget(
+            fidelity_mode=self.fidelity_mode,
+            reduced_motion=self.reduced_motion,
+        )
 
     def on_key(self, event: events.Key) -> None:
         if event.key in ("1", "escape"):
@@ -1646,8 +1714,16 @@ class PlayerApp(App):
     }
     """
 
+    def __init__(self, fidelity_mode: str = "auto", reduced_motion: bool = False) -> None:
+        super().__init__()
+        self.fidelity_mode = fidelity_mode
+        self.reduced_motion = reduced_motion
+
     def compose(self) -> ComposeResult:
-        yield PlayerStudioWidget()
+        yield PlayerStudioWidget(
+            fidelity_mode=self.fidelity_mode,
+            reduced_motion=self.reduced_motion,
+        )
         yield Footer()
 
 

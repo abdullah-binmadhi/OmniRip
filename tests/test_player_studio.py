@@ -78,6 +78,50 @@ def test_legacy_full_vision_module_is_removed():
     assert "fvs-" not in PlayerStudioWidget.DEFAULT_CSS
 
 
+def test_auto_fidelity_resolves_to_a_supported_mode():
+    from harvester.ui.render_fidelity import MODES
+
+    studio = PlayerStudioWidget()
+    assert studio.fidelity_mode in MODES
+    assert studio.reduced_motion is False
+
+
+@pytest.mark.asyncio
+async def test_fidelity_and_reduced_motion_thread_from_screen():
+    from textual.widgets import Label
+
+    from harvester.ui.player_studio import AnimeCompanionWidget, PlayerScreen
+
+    class ConfiguredPlayerApp(App):
+        def compose(self) -> ComposeResult:
+            yield PlayerScreen(fidelity_mode="braille", reduced_motion=True)
+
+    app = ConfiguredPlayerApp()
+    async with app.run_test(size=(120, 36)) as pilot:
+        studio = app.query_one(PlayerStudioWidget)
+        companion = app.query_one("#plr-anime-companion", AnimeCompanionWidget)
+        assert studio.fidelity_mode == "braille"
+        assert companion.fidelity_mode == "braille"
+        assert studio.reduced_motion is True
+        assert companion.reduced_motion is True
+
+        await pilot.pause()
+        motif = app.query_one("#plr-motif", Label)
+        before = str(motif.render())
+        for _ in range(30):
+            studio._motion.observe(studio, studio._resolved_page)
+            companion._tick_60fps()
+        assert str(motif.render()) == before
+
+        scene = companion.query_one("#anime-char-scene", Label)
+        companion.tick = 10
+        companion._update_session_labels()
+        first = str(scene.render())
+        companion.tick = 900
+        companion._update_session_labels()
+        assert str(scene.render()) == first
+
+
 @pytest.mark.asyncio
 async def test_preset_catalog_modal_and_apply():
     from harvester.services.vision_layout_store import VisionLayoutStore

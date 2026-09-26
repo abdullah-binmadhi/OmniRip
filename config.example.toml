@@ -121,6 +121,14 @@ jev_s = 15
 refresh_hz = 8
 max_log_lines = 2000
 status_interval_s = 10
+# PLAYER terminal render fidelity. "auto" detects safely: sextant blocks by
+# default, dropping to ascii when Unicode or color are unavailable. Force a
+# mode with: ascii | braille | halfblock | quadrant | sextant | octant.
+# Octants (Unicode 16) are opt-in because font coverage varies.
+visual_fidelity = "auto"
+# Reduce decorative motion in PLAYER: companion scene freezes, blink/marquee
+# and scanline effects stop, and portraits render statically.
+reduced_motion = false
 
 [obsidian]
 # Optional: treat a local Obsidian vault as the second brain / database (docs/15).
