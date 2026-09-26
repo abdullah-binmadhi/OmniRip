@@ -8,7 +8,8 @@ reviewable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Mapping, Sequence
 
 SUPPORTED_DASHBOARD_LAYOUTS = frozenset(
     {
@@ -51,7 +52,13 @@ LEGACY_CONTROL_STYLES = {
 
 @dataclass(frozen=True, slots=True)
 class PlayerPageDesign:
-    """One curated visual language for a built-in PLAYER layout."""
+    """One curated visual language for a built-in PLAYER layout.
+
+    The first block of fields is applied by ``PlayerStudioWidget`` directly.
+    The second block is the runtime page grammar consumed by ``player_layout``;
+    it defaults to the current masthead/footer shell so a design can be
+    authored incrementally without a code change.
+    """
 
     layout_id: str
     eyebrow: str
@@ -63,6 +70,20 @@ class PlayerPageDesign:
     title_style: str
     companion_heading: str
     top_controls: tuple[str, str, str, str, str, str]
+    rail: str = "masthead"
+    rail_axis: str = "horizontal"
+    button_family: str = ""
+    button_frame: str = ""
+    panel_slots: dict[str, str] = field(
+        default_factory=lambda: {
+            "companion": "rail_right",
+            "dock": "footer",
+            "motif": "masthead",
+        }
+    )
+    frame_glyphs: str = ""
+    border_roles: Mapping[str, str] = field(default_factory=dict)
+    motion: Sequence[tuple[str, str, float, str]] = ()
 
 
 PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {

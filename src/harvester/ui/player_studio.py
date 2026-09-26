@@ -41,7 +41,17 @@ from harvester.services.vision_player import (
     PlaylistTrack,
     VisionAudioPlayer,
 )
+from harvester.ui.companion import CompanionSession
 from harvester.ui.player_designs import PlayerPageDesign, get_player_design
+from harvester.ui.player_layout import (
+    ButtonState,
+    MotionDriver,
+    apply_button_frames,
+    apply_page,
+    resolve_page,
+    theme_color_palette,
+    theme_palette,
+)
 from harvester.ui.visual_dashboard import (
     VisualDashboardWidget,
 )
@@ -53,7 +63,7 @@ from harvester.ui.visuals.anime_characters import (
     list_all_anime_characters,
     render_animated_anime_frame,
 )
-from harvester.ui.visuals.base import AudioFeatureContext, ColorPalette
+from harvester.ui.visuals.base import AudioFeatureContext
 
 logger = logging.getLogger(__name__)
 
@@ -623,6 +633,20 @@ class AnimeCompanionWidget(Vertical):
         color: #00ffcc;
         border-bottom: solid #00ffcc;
     }
+    #anime-char-motif {
+        height: 1;
+        width: 100%;
+        display: none;
+        color: #8b949e;
+        text-align: center;
+    }
+    #anime-char-scene {
+        height: 1;
+        width: 100%;
+        color: #58a6ff;
+        text-align: center;
+        overflow: hidden;
+    }
     #anime-char-controls {
         height: 3;
         width: 100%;
@@ -647,12 +671,21 @@ class AnimeCompanionWidget(Vertical):
         color: #e6edf3;
     }
     #anime-char-footer {
-        height: 5;
-        min-height: 5;
+        height: 7;
+        min-height: 7;
         width: 100%;
         border-top: solid #00ffcc;
         padding-top: 1;
         layout: vertical;
+    }
+    #anime-char-speech {
+        height: 1;
+        color: #e6edf3;
+        text-style: italic;
+    }
+    #anime-char-status {
+        height: 1;
+        color: #58a6ff;
     }
     #anime-char-title {
         color: #00ffcc;
@@ -685,9 +718,12 @@ class AnimeCompanionWidget(Vertical):
         self.audio_ctx: Optional[AudioFeatureContext] = None
         self.clock_managed_externally = clock_managed_externally
         self._anim_timer = None
+        self.session = CompanionSession()
 
     def compose(self) -> ComposeResult:
         yield Label(f"👤 {self.character.name}", id="anime-char-header")
+        yield Label("", id="anime-char-motif")
+        yield Label("", id="anime-char-scene")
         with Horizontal(id="anime-char-controls"):
             yield Button("◀", id="btn-char-prev", classes="char-ctrl-btn")
             yield Button("⌸ CHAR", id="btn-char-select", classes="char-ctrl-btn")
@@ -699,6 +735,8 @@ class AnimeCompanionWidget(Vertical):
         with Vertical(id="anime-char-footer"):
             yield Label(self.character.title, id="anime-char-title")
             yield Label(self.character.outfit_desc[:60].replace("\n", " "), id="anime-char-desc")
+            yield Label("", id="anime-char-speech")
+            yield Label("", id="anime-char-status")
             yield Label(f"PAL: {self._display_pal_name()} • FX: {self.fx_mode.upper()}", id="anime-char-meta")
 
     def on_mount(self) -> None:
@@ -715,8 +753,48 @@ class AnimeCompanionWidget(Vertical):
             return self.custom_hex.upper()
         return self.palette_id.upper()
 
+    def set_motif(self, text: Optional[str]) -> None:
+        """Show or hide the preset motif line inside the companion frame."""
+        try:
+            label = self.query_one("#anime-char-motif", Label)
+        except Exception:
+            return
+        if text:
+            label.update(text)
+            label.styles.display = "block"
+        else:
+            label.styles.display = "none"
+
+    def apply_palette(self, palette) -> None:
+        """Recolor companion chrome from the shared PLAYER palette."""
+        try:
+            self.query_one("#anime-char-scene", Label).styles.color = palette.accent
+            self.query_one("#anime-char-status", Label).styles.color = palette.accent
+            self.query_one("#anime-char-speech", Label).styles.color = palette.foreground
+            self.query_one("#anime-char-motif", Label).styles.color = palette.secondary
+            self.query_one("#anime-char-meta", Label).styles.color = palette.secondary
+        except Exception:
+            pass
+
     def feed_audio(self, ctx: AudioFeatureContext) -> None:
         self.audio_ctx = ctx
+
+    def notify_event(self, event: str) -> None:
+        """Route a context event (track_change, pause, drop) to companion dialogue."""
+        self.session.notify(event, self.tick)
+        self._update_session_labels()
+
+    def _update_session_labels(self) -> None:
+        try:
+            status = self.query_one("#anime-char-status", Label)
+            status.update(self.session.status_line())
+            scene = self.query_one("#anime-char-scene", Label)
+            width = max(12, (self.size.width or 34) - 4)
+            scene.update(self.session.scene_line(width, self.tick))
+            speech = self.query_one("#anime-char-speech", Label)
+            speech.update(self.session.speech)
+        except Exception:
+            pass
 
     def _tick_60fps(self) -> None:
         self.tick += 1
@@ -735,6 +813,11 @@ class AnimeCompanionWidget(Vertical):
             art_widget.update(frame)
         except Exception:
             pass
+
+        ctx = self.audio_ctx or AudioFeatureContext.synthesize_idle(self.tick * 0.02)
+        self.session.observe(ctx, self.tick)
+        if self.tick % 6 == 0:
+            self._update_session_labels()
 
     def _cycle_character(self, delta: int) -> None:
         chars = list_all_anime_characters()
@@ -761,6 +844,7 @@ class AnimeCompanionWidget(Vertical):
 
     def update_character(self, character: AnimeCharacter, theme: Optional[StitchTheme] = None) -> None:
         self.character = character
+        self.session.set_design(character.preset_id)
         try:
             hdr = self.query_one("#anime-char-header", Label)
             hdr.update(f"👤 {character.name}")
@@ -833,6 +917,19 @@ class PlayerStudioWidget(Container):
         color: #8b949e;
         width: 1fr;
         content-align: left middle;
+    }
+    #plr-motif {
+        width: auto;
+        color: #8b949e;
+        content-align: left middle;
+        margin-right: 1;
+    }
+    #plr-dock-motif {
+        width: auto;
+        display: none;
+        color: #8b949e;
+        content-align: left middle;
+        margin-right: 2;
     }
     .plr-top-btn {
         margin: 0 1;
@@ -930,12 +1027,17 @@ class PlayerStudioWidget(Container):
         self.current_design: Optional[PlayerPageDesign] = None
         self.current_theme: StitchTheme = self.stitch_client.get_theme("neon_cyber")
         self.active_gap: int = 1
+        self.palette = theme_palette(self.current_theme)
+        self._motion = MotionDriver()
+        self._resolved_page = None
+        self._last_button_state = None
 
     def compose(self) -> ComposeResult:
         # 1. Top Control Bar
         with Horizontal(id="plr-top-bar"):
             yield Label("⛶ PLAYER STUDIO", id="plr-page-title")
             yield Label("SYSTEM NOMINAL", id="plr-theme-subtitle")
+            yield Label("", id="plr-motif")
             yield Button("1: OMNIRIP", variant="warning", id="btn-plr-omnirip", classes="plr-top-btn")
             yield Button("✨ PRESETS (20)", variant="primary", id="btn-plr-presets", classes="plr-top-btn")
             yield Button("📐 LOAD LAYOUT", id="btn-plr-load-layout", classes="plr-top-btn")
@@ -943,16 +1045,18 @@ class PlayerStudioWidget(Container):
             yield Button("GAP: (1)", id="btn-plr-gap", classes="plr-top-btn")
             yield Button("↗ NEW TAB", id="btn-plr-popout", classes="plr-top-btn")
 
-        # 2. Main Visual Canvas & Anime Companion Side Panel
+        # 2. Main Visual Canvas; the companion is a root sibling so the page
+        # orchestrator can dock it to any rail or footer per preset.
         with Horizontal(id="plr-canvas-container"):
             yield VisualDashboardWidget(id="plr-dashboard", clock_managed_externally=True)
-            yield AnimeCompanionWidget(
-                id="plr-anime-companion",
-                clock_managed_externally=True,
-            )
+        yield AnimeCompanionWidget(
+            id="plr-anime-companion",
+            clock_managed_externally=True,
+        )
 
         # 3. Bottom Music Player Dock
         with Horizontal(id="plr-bottom-dock"):
+            yield Label("", id="plr-dock-motif")
             # Left: Track Metadata
             with Vertical(id="plr-track-info-col"):
                 yield Label("🎵 Standby Synthesizer", id="plr-now-playing-title")
@@ -1005,6 +1109,8 @@ class PlayerStudioWidget(Container):
             pass
 
         theme = self.current_theme
+        palette = theme_palette(theme)
+        self.palette = palette
         border_type = theme.border_style if theme.border_style in ("heavy", "double", "round", "ascii", "tall", "solid", "dashed") else "heavy"
 
         try:
@@ -1041,15 +1147,7 @@ class PlayerStudioWidget(Container):
         dash.set_editable(not layout.is_builtin)
         dash.layout_style = self.current_design.dashboard_layout
 
-        custom_palette = ColorPalette(
-            id="theme_bound",
-            name="Theme",
-            primary=theme.gradient_stops[0] if theme.gradient_stops else theme.primary_color,
-            secondary=theme.gradient_stops[1] if len(theme.gradient_stops) > 1 else theme.secondary_color,
-            accent=theme.accent_color,
-            background=theme.background_color,
-            dim=theme.surface_color
-        )
+        custom_palette = theme_color_palette(theme)
 
         dash_cards = []
         for idx, card_conf in enumerate(layout.cards):
@@ -1077,6 +1175,23 @@ class PlayerStudioWidget(Container):
         self._apply_button_and_layout_structure(layout, theme)
         self._apply_design_control_labels()
         self.query_one("#anime-char-header", Label).update(self.current_design.companion_heading)
+
+        # 8. Apply resolved page grammar: rail, panel slots, frames, motion.
+        page = resolve_page(self.current_design, layout, theme=theme)
+        self._resolved_page = page
+        apply_page(self, page, theme)
+        self._refresh_transport_labels(force=True)
+
+        # 9. One palette source for chrome, companion, and scene.
+        try:
+            self.query_one("#plr-motif", Label).styles.color = palette.secondary
+        except Exception:
+            pass
+        try:
+            companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
+            companion.apply_palette(palette)
+        except Exception:
+            pass
 
     def _apply_button_and_layout_structure(self, layout: VisionLayout, theme: StitchTheme) -> None:
         """Completely overhaul button styling, labeling, placements, and structural heights."""
@@ -1272,6 +1387,26 @@ class PlayerStudioWidget(Container):
         playing_label, paused_label = labels.get(mode, ("⏸ PAUSE", "▶ PLAY"))
         return playing_label if is_playing else paused_label
 
+    def _transport_button_state(self) -> ButtonState:
+        return ButtonState(
+            playing=self.player.state == PlaybackState.PLAYING,
+            loop_mode=self.player.loop_mode.value,
+            shuffle=bool(self.player.shuffle_mode),
+            queue_size=len(self.player.playlist),
+            gap=self.active_gap,
+        )
+
+    def _refresh_transport_labels(self, force: bool = False) -> None:
+        """Apply design button frames when the preset defines them."""
+        page = self._resolved_page
+        if page is None or not page.button_frame:
+            return
+        state = self._transport_button_state()
+        key = (state.playing, state.loop_mode, state.shuffle, state.queue_size)
+        if force or key != self._last_button_state:
+            apply_button_frames(self, page, state)
+            self._last_button_state = key
+
     def _on_track_changed(self, track: PlaylistTrack) -> None:
         """Update track information in UI."""
         try:
@@ -1288,6 +1423,11 @@ class PlayerStudioWidget(Container):
                 self._apply_design_control_labels()
             else:
                 queue_btn.label = f"QUEUE ({len(self.player.playlist)})"
+            try:
+                companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
+                companion.notify_event("track_change")
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1309,16 +1449,18 @@ class PlayerStudioWidget(Container):
             except Exception:
                 pass
 
-        # Update Play/Pause button label
-        try:
-            play_btn = self.query_one("#btn-plr-play", Button)
-            is_playing = self.player.state == PlaybackState.PLAYING
-            label = Content(self._play_pause_label(is_playing))
-            if str(play_btn.label) != label:
-                play_btn.label = label
-            play_btn.variant = "warning" if is_playing else "primary"
-        except Exception:
-            pass
+        # Update Play/Pause button label (legacy path; framed designs refresh below)
+        page = self._resolved_page
+        if page is None or not page.button_frame:
+            try:
+                play_btn = self.query_one("#btn-plr-play", Button)
+                is_playing = self.player.state == PlaybackState.PLAYING
+                label = Content(self._play_pause_label(is_playing))
+                if str(play_btn.label) != label:
+                    play_btn.label = label
+                play_btn.variant = "warning" if is_playing else "primary"
+            except Exception:
+                pass
 
         # Feed feature frame to all active canvas cards and anime companion
         try:
@@ -1327,14 +1469,30 @@ class PlayerStudioWidget(Container):
             companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
             companion.feed_audio(ctx)
             companion._tick_60fps()
+            if ctx.transient_flag and self.player.state == PlaybackState.PLAYING:
+                companion.notify_event("drop")
         except Exception:
             pass
+
+        # Design-level motion and framed transport labels
+        if page is not None:
+            try:
+                self._motion.observe(self, page)
+                self._refresh_transport_labels()
+            except Exception:
+                pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
 
         if btn_id == "btn-plr-play":
             self.player.toggle_play_pause()
+            if self.player.state != PlaybackState.PLAYING:
+                try:
+                    companion = self.query_one("#plr-anime-companion", AnimeCompanionWidget)
+                    companion.notify_event("pause")
+                except Exception:
+                    pass
         elif btn_id == "btn-plr-stop":
             self.player.stop()
         elif btn_id == "btn-plr-next":
