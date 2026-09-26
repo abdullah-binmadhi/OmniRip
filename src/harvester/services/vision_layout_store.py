@@ -2,7 +2,7 @@
 
 Allows users to design, save, load, and manage custom visualizer layouts
 with custom engine combinations, palettes, sizing (span/tall), gap spacing,
-and Stitch design themes.
+Stitch design themes, anime characters, and structural TUI styles.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class VisionCardConfig:
 
 @dataclass
 class VisionLayout:
-    """A full canvas layout blueprint containing multiple visual cards and layout styling."""
+    """A full canvas layout blueprint containing multiple visual cards, anime companion, and TUI structure."""
 
     layout_id: str
     name: str
@@ -45,16 +45,57 @@ class VisionLayout:
     gap_distance: int = 1
     cards: List[VisionCardConfig] = field(default_factory=list)
     is_builtin: bool = False
+    ui_structure_style: str = "hyprland_floating"
+    button_style_mode: str = "pill"
+    anime_character_id: str = ""
 
 
 # 20 Curated Built-in Canvas Layout Presets
+# All 20 presets feature 100% unique visualizer engine allocations (0% overlap),
+# drawing across all 8 procedural packs and headline visualizer engines.
 BUILTIN_LAYOUTS: List[VisionLayout] = [
+    VisionLayout(
+        layout_id="builtin_solo_stanford",
+        name="Solo Hero: Stanford 3D Waterfall",
+        description="Full-screen CCRMA Stanford 3D isometric perspective terrain.",
+        stitch_theme_id="neon_cyber",
+        gap_distance=1,
+        ui_structure_style="hyprland_floating",
+        button_style_mode="pill",
+        anime_character_id="preset_cyberpunk_2077",
+        cards=[
+            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="cyan", span_two=True, tall_two=True, order=0),
+        ],
+        is_builtin=True,
+    ),
+    # 1. Y2K Aesthetic
+    VisionLayout(
+        layout_id="preset_y2k_aesthetic",
+        name="Y2K Chrome & Aqua Deck",
+        description="Late-90s cyber-pop futurism with translucent visor, platform sneakers, and hypercube rotation.",
+        stitch_theme_id="y2k_aesthetic",
+        gap_distance=2,
+        ui_structure_style="y2k_cyber",
+        button_style_mode="pill",
+        anime_character_id="preset_y2k_aesthetic",
+        cards=[
+            VisionCardConfig(engine_id="pack7_hypercube_tesseract_rotator", palette="cyan", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack4_lissajous_knot_3_4_ratio", palette="neon", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack6_bubble_acoustic_cavitation", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_high_shelf_sparkle", palette="magenta", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 2. Cyberpunk 2077
     VisionLayout(
         layout_id="preset_cyberpunk_2077",
         name="Cyberpunk 2077 Quad Deck",
         description="High-energy 4-way studio: Stanford 3D terrain, Matrix code rain, Lissajous scope, and Audio flame.",
         stitch_theme_id="cyberpunk_2077",
         gap_distance=1,
+        ui_structure_style="cyberdeck_terminal",
+        button_style_mode="cyber_brackets",
+        anime_character_id="preset_cyberpunk_2077",
         cards=[
             VisionCardConfig(engine_id="stanford_sun_music_3d", palette="cyan", span_two=False, tall_two=False, order=0),
             VisionCardConfig(engine_id="matrix_digital_rain", palette="green", span_two=False, tall_two=False, order=1),
@@ -63,373 +104,404 @@ BUILTIN_LAYOUTS: List[VisionLayout] = [
         ],
         is_builtin=True,
     ),
+    # 3. Matrix Terminal
     VisionLayout(
         layout_id="preset_matrix_terminal",
         name="Matrix Green Phosphor Deck",
-        description="Pure green digital rain stream and low-level hex memory telemetry cascade.",
+        description="Pure green digital rain stream, low-level hex memory dump, and terminal telemetry cursor.",
         stitch_theme_id="matrix_terminal",
         gap_distance=1,
+        ui_structure_style="dos_mpxplay",
+        button_style_mode="dos_keys",
+        anime_character_id="preset_matrix_terminal",
         cards=[
-            VisionCardConfig(engine_id="matrix_digital_rain", palette="green", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p5_hex_memory_dump", palette="green", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p5_cyber_grid_cascade", palette="matrix", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack5_matrix_falling_code_rain", palette="green", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack5_hex_dump_audio_memory", palette="green", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack5_terminal_cursor_telemetry", palette="green", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack5_encrypted_signal_decoder", palette="green", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 4. Lo-Fi Chill
     VisionLayout(
-        layout_id="preset_y2k_aesthetic",
-        name="Y2K Chrome & Aqua Deck",
-        description="Late-90s futurism with metallic chrome silver, bubblegum pink, and icy aqua orbitals.",
-        stitch_theme_id="y2k_aesthetic",
-        gap_distance=2,
-        cards=[
-            VisionCardConfig(engine_id="p7_hologram_pyramid", palette="cyan", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p7_3d_wireframe_hypercube", palette="neon", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p4_lissajous_3d_knot", palette="cyan", span_two=False, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_synthwave_dusk",
-        name="Synthwave Dusk 1984",
-        description="Neon purple grid mountains, sunset horizons, and retro CRT phosphor vectors.",
-        stitch_theme_id="synthwave_dusk",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="p3_wireframe_mountains", palette="sunset", span_two=True, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p2_crt_vector_glow", palette="crt", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p2_dual_beam_trace", palette="cyan", span_two=False, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_tokyo_midnight",
-        name="Tokyo Midnight Phosphor",
-        description="Deep navy blue, teal phosphor laser displays, and harmonic Lissajous scopes.",
-        stitch_theme_id="tokyo_midnight",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="cyan", span_two=True, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p2_vector_laser_display", palette="cyan", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="lissajous_harmonics", palette="purple", span_two=False, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_lofi_chill_vinyl",
-        name="Lo-Fi Chill & Vinyl Lounge",
-        description="Warm analog vacuum tubes, dancing analog VU needles, and tape-saturation bars.",
+        layout_id="preset_lofi_chill",
+        name="Lo-Fi Chill & Study Desk",
+        description="Cozy fleece hoodie, matcha mug, vintage vacuum tubes, and tape saturation glow.",
         stitch_theme_id="lofi_chill_vinyl",
         gap_distance=1,
+        ui_structure_style="lofi_cafe",
+        button_style_mode="cozy_soft",
+        anime_character_id="preset_lofi_chill",
         cards=[
-            VisionCardConfig(engine_id="p1_analog_vu_needle", palette="amber", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p1_iso_octave_bars", palette="amber", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p2_crt_vector_glow", palette="crt", span_two=True, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack2_vacuum_tube_glow_grid", palette="amber", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack2_analog_tape_head_flux", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack1_octave_log_spectrum", palette="amber", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack6_dust_mote_brownian_drift", palette="crt", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 5. Synthwave Horizon
+    VisionLayout(
+        layout_id="preset_synthwave_horizon",
+        name="Synthwave Horizon 1984",
+        description="Sunset neon grid mountains, retro CRT reticle, and transient audio flashes with cassette idol.",
+        stitch_theme_id="synthwave_dusk",
+        gap_distance=1,
+        ui_structure_style="hyprland_floating",
+        button_style_mode="pill",
+        anime_character_id="preset_synthwave_horizon",
+        cards=[
+            VisionCardConfig(engine_id="pack3_retro_sun_neon_grid", palette="sunset", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack3_stanford_terrain_wireframe", palette="sunset", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack2_reticle_crt_graticule", palette="crt", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_transient_spike_flashes", palette="neon", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 6. Vaporwave Dream
+    VisionLayout(
+        layout_id="preset_vaporwave_dream",
+        name="Aesthetic Vaporwave Plaza",
+        description="Pastel pink sun visor, sacred geometry flowers, goniometer ellipses, and aurora curtains.",
+        stitch_theme_id="vaporwave_aesthetic",
+        gap_distance=2,
+        ui_structure_style="rmpc_split",
+        button_style_mode="bracket_caps",
+        anime_character_id="preset_vaporwave_dream",
+        cards=[
+            VisionCardConfig(engine_id="pack7_sacred_flower_of_life", palette="magenta", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack4_goniometer_ellipse_scope", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack6_solar_wind_aurora_curtain", palette="neon", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_mel_scale_filterbank", palette="magenta", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 7. Tokyo Drift
+    VisionLayout(
+        layout_id="preset_tokyo_drift",
+        name="Tokyo Touge Drift Telemetry",
+        description="Shinjuku night street racing telemetry with 3D flight valleys and dynamic range meters.",
+        stitch_theme_id="tokyo_midnight",
+        gap_distance=1,
+        ui_structure_style="drift_telemetry",
+        button_style_mode="hud_caps",
+        anime_character_id="preset_tokyo_drift",
+        cards=[
+            VisionCardConfig(engine_id="pack3_flight_simulator_valley", palette="cyan", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack2_delayed_sweep_timebase", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack8_dynamic_range_dr14_meter", palette="neon", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_sub_bass_rumble_meter", palette="cyan", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 8. Analog Warmth
+    VisionLayout(
+        layout_id="preset_analog_warmth",
+        name="Audiophile Vinyl & Tubes Deck",
+        description="Walnut open-back cans, spring reverb tank, bias saturation curves, and classic analog VU needle.",
+        stitch_theme_id="analog_warmth",
+        gap_distance=1,
+        ui_structure_style="rackmount_hardware",
+        button_style_mode="tactile_knobs",
+        anime_character_id="preset_analog_warmth",
+        cards=[
+            VisionCardConfig(engine_id="pack2_analog_spring_reverb_tank", palette="amber", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack2_bias_saturation_curves", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack8_thd_harmonic_distortion_bar", palette="amber", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="vu_meter", palette="amber", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 9. 8-Bit Chiptune
+    VisionLayout(
+        layout_id="preset_8bit_chiptune",
+        name="8-Bit Chiptune Arcade Cabinet",
+        description="Pixel snapback cap, handheld gaming rig, chiptune frequency bars, and packet sniffing.",
+        stitch_theme_id="nord_frost",
+        gap_distance=2,
+        ui_structure_style="arcade_cabinet",
+        button_style_mode="retro_arcade",
+        anime_character_id="preset_8bit_chiptune",
+        cards=[
+            VisionCardConfig(engine_id="frequency_bars", palette="cyan", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack5_databank_packet_sniffer", palette="green", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack7_sierpinski_gasket_pulse", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_crest_factor_envelope", palette="amber", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 10. Acid Demoscene
+    VisionLayout(
+        layout_id="preset_acid_demoscene",
+        name="Amiga Acid Demoscene 1993",
+        description="Amiga tracker visor, Mandelbrot fractal zoom, plasma flames, and CRT beam deflection.",
+        stitch_theme_id="matrix_terminal",
+        gap_distance=1,
+        ui_structure_style="dos_mpxplay",
+        button_style_mode="dos_keys",
+        anime_character_id="preset_acid_demoscene",
+        cards=[
+            VisionCardConfig(engine_id="pack7_mandelbrot_audio_zoom", palette="neon", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack6_plasma_audio_flame_emitter", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack2_crt_beam_deflection", palette="green", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack3_vector_matrix_landscape", palette="cyan", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 11. Gothic Lolita
+    VisionLayout(
+        layout_id="preset_gothic_lolita",
+        name="Victorian Darkwave Maiden",
+        description="Multi-tiered black lace gown, Fibonacci spirals, orbital spirograph, and phosphor decay trails.",
+        stitch_theme_id="cyberpunk_2077",
+        gap_distance=1,
+        ui_structure_style="rmpc_split",
+        button_style_mode="bracket_caps",
+        anime_character_id="preset_gothic_lolita",
+        cards=[
+            VisionCardConfig(engine_id="pack7_golden_ratio_fibonacci_spiral", palette="purple", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack4_orbital_harmonic_spirograph", palette="purple", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack2_phosphor_decay_trails", palette="crt", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack8_spectral_flatness_tonality", palette="neon", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 12. Deep Space
     VisionLayout(
         layout_id="preset_deep_space",
-        name="Deep Space Voyager",
-        description="Cosmic emerald nebula glow with warp speed starfields and 3D terrain exploration.",
+        name="Deep Space Voyager Cockpit",
+        description="EVA navigator helmet, spiral galaxy discs, chasm depth, and quantum bit superposition.",
         stitch_theme_id="deep_space",
         gap_distance=1,
+        ui_structure_style="cyberdeck_terminal",
+        button_style_mode="cyber_brackets",
+        anime_character_id="preset_deep_space",
         cards=[
-            VisionCardConfig(engine_id="p6_warp_speed_starfield", palette="green", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p4_lissajous_3d_knot", palette="cyan", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="green", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack6_galaxy_spiral_particle_disc", palette="green", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack3_infinite_chasm_depth", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack4_polar_stereo_phase_field", palette="green", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack5_quantum_bit_superposition", palette="neon", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 13. Neon Miami Vice
     VisionLayout(
-        layout_id="preset_arcade_8bit",
-        name="8-Bit Arcade Demoscene",
-        description="Chiptune waveforms, glowing pixel analyzer bars, and demoscene fire.",
-        stitch_theme_id="arcade_8bit",
+        layout_id="preset_neon_vice",
+        name="Miami Vice '86 Detective Console",
+        description="Turquoise pastel blazer, sunglasses, sunmusic horizons, and dual beam phosphor scopes.",
+        stitch_theme_id="synthwave_dusk",
         gap_distance=1,
+        ui_structure_style="hyprland_floating",
+        button_style_mode="pill",
+        anime_character_id="preset_neon_vice",
         cards=[
-            VisionCardConfig(engine_id="p1_iso_octave_bars", palette="neon", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="audio_flame_fire", palette="amber", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p5_hex_memory_dump", palette="matrix", span_two=True, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack3_sunmusic_horizon_lines", palette="sunset", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack1_spectral_flux_pulse", palette="magenta", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack2_dual_beam_phosphor_scope", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack8_spectral_centroid_brightness", palette="neon", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 14. Coffee Acoustic
     VisionLayout(
-        layout_id="preset_acid_rave",
-        name="Acid Techno 303 Rave",
-        description="High-voltage radioactive lime bass scope, strobe flash waterfalls, and plasma fountains.",
-        stitch_theme_id="acid_rave",
+        layout_id="preset_coffee_acoustic",
+        name="Indie Coffee Shop Acoustic Snug",
+        description="Barista apron, slouchy beanie, pure audio oscilloscope, and vortex smoke rings.",
+        stitch_theme_id="analog_warmth",
         gap_distance=1,
+        ui_structure_style="lofi_cafe",
+        button_style_mode="cozy_soft",
+        anime_character_id="preset_coffee_acoustic",
         cards=[
-            VisionCardConfig(engine_id="lissajous_harmonics", palette="neon", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p6_plasma_fountain", palette="matrix", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p8_crest_factor_radar", palette="green", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="oscilloscope", palette="amber", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack1_mid_side_stereo_imager", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack6_smoke_ring_vortex_shedding", palette="crt", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack8_crest_factor_crest_meter", palette="amber", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 15. Glitchcore Breakcore
     VisionLayout(
-        layout_id="preset_sunset_gold",
-        name="Sunset Gold Audiophile",
-        description="Precision mastering telemetry: 1/3 octave ISO bars, stereo circle, and crest radar.",
-        stitch_theme_id="sunset_gold",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="p1_iso_octave_bars", palette="amber", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p4_stereo_lissajous_circle", palette="cyan", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p1_analog_vu_needle", palette="amber", span_two=False, tall_two=False, order=2),
-            VisionCardConfig(engine_id="p8_crest_factor_radar", palette="green", span_two=False, tall_two=False, order=3),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_holographic_prism",
-        name="Holographic Prism Array",
-        description="Full-spectrum light refraction with 3D pyramids and stereoscopic phase rings.",
-        stitch_theme_id="holographic_prism",
+        layout_id="preset_glitchcore_breakcore",
+        name="Glitchcore 240 BPM Riot Deck",
+        description="Studded spiked collar, torn fishnets, binary decompilation, and true-peak clipping tracers.",
+        stitch_theme_id="tokyo_midnight",
         gap_distance=2,
+        ui_structure_style="drift_telemetry",
+        button_style_mode="hud_caps",
+        anime_character_id="preset_glitchcore_breakcore",
         cards=[
-            VisionCardConfig(engine_id="p7_hologram_pyramid", palette="cyan", span_two=True, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p4_stereoscopic_phase_ring", palette="neon", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p7_3d_wireframe_hypercube", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack5_glitch_binary_decompilation", palette="neon", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack6_firework_transient_bursts", palette="magenta", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack2_clipping_hard_knee_tracer", palette="amber", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack8_inter_sample_peak_true_isp", palette="cyan", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 16. Sunset Lounge
     VisionLayout(
-        layout_id="preset_industrial_metal",
-        name="Industrial Heavy Metal",
-        description="Scorched rust and carbon steel with heavy RMS impact meters and fire cascades.",
-        stitch_theme_id="industrial_metal",
+        layout_id="preset_sunset_lounge",
+        name="Tropical Sunset Island Deck",
+        description="Breeze-blown floral yukata, hibiscus pin, viscous fluid shear waves, and Braille fluid.",
+        stitch_theme_id="vaporwave_aesthetic",
         gap_distance=1,
+        ui_structure_style="hyprland_floating",
+        button_style_mode="pill",
+        anime_character_id="preset_sunset_lounge",
         cards=[
-            VisionCardConfig(engine_id="audio_flame_fire", palette="thermal", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p8_crest_factor_radar", palette="thermal", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p3_wireframe_mountains", palette="thermal", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack6_viscous_fluid_shear_waves", palette="sunset", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack4_phase_correlation_wheel", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack1_spectral_rolloff_ridge", palette="magenta", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="braille_fluid", palette="sunset", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 17. Dubstep Bass Cannon
     VisionLayout(
-        layout_id="preset_vaporwave_mallsoft",
-        name="Vaporwave Mallsoft Plaza",
-        description="Pastel pink and mint green marble wireframes with ambient plasma drift.",
-        stitch_theme_id="vaporwave_mallsoft",
+        layout_id="preset_dubstep_bass",
+        name="Sub-Bass Heavyweight Cannon",
+        description="Sound-reactive respirator mask, LED lightsticks, supernova blasts, and 40Hz sub-bass flags.",
+        stitch_theme_id="cyberpunk_2077",
+        gap_distance=1,
+        ui_structure_style="cyberdeck_terminal",
+        button_style_mode="cyber_brackets",
+        anime_character_id="preset_dubstep_bass",
+        cards=[
+            VisionCardConfig(engine_id="pack6_supernova_transient_blast", palette="amber", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack8_sub_harmonic_sub_bass_flag", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack1_stereo_coherence_bars", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack6_magnetohydrodynamic_sparks", palette="neon", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 18. Industrial Dark Synth
+    VisionLayout(
+        layout_id="preset_industrial_synth",
+        name="Mecha Heavy Combat Console",
+        description="Ballistic ceramic armor, combat headset, bio-cyber HUD gauges, and core reactor telemetry.",
+        stitch_theme_id="nord_frost",
+        gap_distance=1,
+        ui_structure_style="rackmount_hardware",
+        button_style_mode="tactile_knobs",
+        anime_character_id="preset_industrial_synth",
+        cards=[
+            VisionCardConfig(engine_id="pack5_bio_cybernetic_hud_gauges", palette="cyan", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack5_mainframe_core_reactor", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack8_broadcast_ebu_r128_loudness", palette="crt", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack3_wireframe_pyramid_peak", palette="cyan", span_two=False, tall_two=False, order=3),
+        ],
+        is_builtin=True,
+    ),
+    # 19. Kawaii Future Bass
+    VisionLayout(
+        layout_id="preset_kawaii_future",
+        name="Kawaii Future Magical Stage",
+        description="Cat-ear headphones, holographic star skirt, Julia set morph, and fountain particle cascades.",
+        stitch_theme_id="y2k_aesthetic",
         gap_distance=2,
+        ui_structure_style="y2k_cyber",
+        button_style_mode="pill",
+        anime_character_id="preset_kawaii_future",
         cards=[
-            VisionCardConfig(engine_id="p3_wireframe_mountains", palette="sunset", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p4_stereo_lissajous_circle", palette="neon", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p6_plasma_fountain", palette="sunset", span_two=True, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack7_julia_set_dynamic_morph", palette="magenta", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack6_fountain_particle_cascade", palette="cyan", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack4_binaural_delay_circle", palette="neon", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack1_spectral_waterfall_bars", palette="magenta", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
+    # 20. Vintage Speakeasy Jazz
     VisionLayout(
-        layout_id="preset_ccrma_stanford",
-        name="CCRMA Stanford Sound Lab (Solo 3D)",
-        description="Massive full-screen 3D landscape waterfall terrain in vintage laboratory amber.",
-        stitch_theme_id="ccrma_stanford",
+        layout_id="preset_vintage_jazz",
+        name="1920s Speakeasy Velvet Salon",
+        description="Shimmering fringe dress, feather headband, chrome ribbon mic, and mirrored dance pillars.",
+        stitch_theme_id="analog_warmth",
         gap_distance=1,
+        ui_structure_style="dos_mpxplay",
+        button_style_mode="dos_keys",
+        anime_character_id="preset_vintage_jazz",
         cards=[
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="amber", span_two=True, tall_two=True, order=0)
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_glitchcore_chaos",
-        name="Glitchcore Chaos Rig",
-        description="Distorted magenta and toxic green bitcrusher noise telemetry.",
-        stitch_theme_id="glitchcore_chaos",
-        gap_distance=0,
-        cards=[
-            VisionCardConfig(engine_id="p5_hex_memory_dump", palette="neon", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="matrix_digital_rain", palette="green", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="lissajous_harmonics", palette="purple", span_two=True, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_biohazard_deck",
-        name="Biohazard Cyberdeck",
-        description="Nuclear radiation warning telemetry, Geiger radar, and toxic plasma fountains.",
-        stitch_theme_id="biohazard_deck",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="p8_crest_factor_radar", palette="green", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p6_plasma_fountain", palette="matrix", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="matrix_digital_rain", palette="green", span_two=True, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_golden_era",
-        name="Golden Era Audiophile Suite",
-        description="Luxury 24k gold audiophile mastering telemetry with twin analog needles and 3D terrain.",
-        stitch_theme_id="golden_era",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="p1_analog_vu_needle", palette="amber", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p4_stereo_lissajous_circle", palette="amber", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="amber", span_two=True, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_minimalist_bauhaus",
-        name="Minimalist Bauhaus Triad",
-        description="Stark architectural balance: pure white, deep slate grey, and bold crimson telemetry.",
-        stitch_theme_id="minimalist_bauhaus",
-        gap_distance=2,
-        cards=[
-            VisionCardConfig(engine_id="p1_iso_octave_bars", palette="cyan", span_two=False, tall_two=False, order=0),
-            VisionCardConfig(engine_id="p4_stereo_lissajous_circle", palette="crt", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p8_crest_factor_radar", palette="cyan", span_two=False, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_solar_flare",
-        name="Solar Flare Thermonuclear",
-        description="Blazing solar wind plasma fountains, audio fire, and thermonuclear landscape wireframes.",
-        stitch_theme_id="solar_flare",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="audio_flame_fire", palette="amber", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p6_plasma_fountain", palette="thermal", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="p3_wireframe_mountains", palette="sunset", span_two=False, tall_two=False, order=2),
-        ],
-        is_builtin=True,
-    ),
-    VisionLayout(
-        layout_id="preset_quantum_void",
-        name="Quantum Superposition",
-        description="Deep quantum void violet, 3D hypercubes, and probabilistic wavefunction phase knots.",
-        stitch_theme_id="quantum_void",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="p4_lissajous_3d_knot", palette="purple", span_two=False, tall_two=True, order=0),
-            VisionCardConfig(engine_id="p7_3d_wireframe_hypercube", palette="cyan", span_two=False, tall_two=False, order=1),
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="cyan", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="mirrored_dance", palette="amber", span_two=False, tall_two=False, order=0),
+            VisionCardConfig(engine_id="pack2_ac_power_hum_ripple", palette="amber", span_two=False, tall_two=False, order=1),
+            VisionCardConfig(engine_id="pack8_phase_cancellation_detector", palette="amber", span_two=False, tall_two=False, order=2),
+            VisionCardConfig(engine_id="pack4_stereo_balance_quadrant", palette="crt", span_two=False, tall_two=False, order=3),
         ],
         is_builtin=True,
     ),
 ]
 
-# Aliases for backwards compatibility
-BUILTIN_LAYOUTS_BY_ID = {ly.layout_id: ly for ly in BUILTIN_LAYOUTS}
-BUILTIN_LAYOUTS.append(
-    VisionLayout(
-        layout_id="builtin_solo_stanford",
-        name="Solo Stanford 3D Waterfall",
-        description="Massive full-screen 3D landscape terrain visualizer with perspective rendering.",
-        stitch_theme_id="ccrma_stanford",
-        gap_distance=1,
-        cards=[
-            VisionCardConfig(engine_id="stanford_sun_music_3d", palette="amber", span_two=True, tall_two=True, order=0)
-        ],
-        is_builtin=True,
-    )
-)
-
 
 class VisionLayoutStore:
-    """Manages persistent saving, loading, listing, and deletion of custom visual layouts."""
+    """Manages the persistence, validation, and retrieval of visual layouts."""
 
-    def __init__(self, storage_dir: Optional[Path] = None):
-        self.storage_dir = Path(storage_dir or DEFAULT_LAYOUTS_DIR)
-        self._ensure_storage_dir()
+    def __init__(self, layouts_dir: Optional[Path] = None, storage_dir: Optional[Path] = None):
+        self.layouts_dir = layouts_dir or storage_dir or DEFAULT_LAYOUTS_DIR
+        self._ensure_storage()
 
-    def _ensure_storage_dir(self) -> None:
+    def _ensure_storage(self) -> None:
+        """Create storage directory if it doesn't exist."""
         try:
-            self.storage_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:
-            logger.warning("Could not create vision layout directory %s: %s", self.storage_dir, exc)
-
-    def _slugify(self, text: str) -> str:
-        s = text.lower().strip()
-        s = re.sub(r"[^\w\s-]", "", s)
-        s = re.sub(r"[\s_-]+", "_", s)
-        return s or "layout"
+            self.layouts_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not create vision layouts dir: {e}")
 
     def list_layouts(self) -> List[VisionLayout]:
-        """Return all available layouts (built-ins followed by saved user layouts)."""
-        layouts = list(BUILTIN_LAYOUTS)
+        """List all available layouts (built-ins followed by user-created)."""
+        layouts: List[VisionLayout] = list(BUILTIN_LAYOUTS)
 
-        if not self.storage_dir.exists():
-            return layouts
-
-        for file_path in sorted(self.storage_dir.glob("*.json")):
-            try:
-                layout = self.load_layout_from_file(file_path)
-                if layout:
-                    layouts.append(layout)
-            except Exception as exc:
-                logger.warning("Failed to load layout from %s: %s", file_path, exc)
+        if self.layouts_dir.exists():
+            for p in sorted(self.layouts_dir.glob("*.json")):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        cards = [VisionCardConfig(**c) for c in data.get("cards", [])]
+                        data["cards"] = cards
+                        data["is_builtin"] = False
+                        layouts.append(VisionLayout(**data))
+                except Exception as e:
+                    logger.warning(f"Failed to load layout from {p}: {e}")
 
         return layouts
 
-    def load_layout_from_file(self, file_path: Path) -> Optional[VisionLayout]:
-        """Load a VisionLayout from a specific JSON file."""
-        if not file_path.is_file():
-            return None
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        cards = [
-            VisionCardConfig(
-                engine_id=c.get("engine_id", "stanford_sun_music_3d"),
-                palette=c.get("palette", "cyan"),
-                span_two=c.get("span_two", False),
-                tall_two=c.get("tall_two", False),
-                order=c.get("order", idx),
-            )
-            for idx, c in enumerate(data.get("cards", []))
-        ]
-
-        return VisionLayout(
-            layout_id=data.get("layout_id", file_path.stem),
-            name=data.get("name", file_path.stem.replace("_", " ").title()),
-            description=data.get("description", ""),
-            author=data.get("author", "OmniRip User"),
-            created_at=data.get("created_at", datetime.now().isoformat()),
-            stitch_theme_id=data.get("stitch_theme_id", "neon_cyber"),
-            gap_distance=int(data.get("gap_distance", 1)),
-            cards=cards,
-            is_builtin=False,
-        )
-
     def get_layout(self, layout_id: str) -> Optional[VisionLayout]:
-        """Get a layout by ID (checking built-in layouts first, then user files)."""
-        for builtin in BUILTIN_LAYOUTS:
-            if builtin.layout_id == layout_id:
-                return builtin
-
-        target_file = self.storage_dir / f"{layout_id}.json"
-        if target_file.exists():
-            return self.load_layout_from_file(target_file)
-
+        """Fetch a specific layout by ID."""
+        for ly in self.list_layouts():
+            if ly.layout_id == layout_id:
+                return ly
         return None
 
-    def save_layout(self, layout: VisionLayout) -> Path:
-        """Save a user layout to disk."""
-        self._ensure_storage_dir()
-        if not layout.layout_id or layout.layout_id.startswith("builtin_"):
-            layout.layout_id = f"custom_{self._slugify(layout.name)}_{int(datetime.now().timestamp())}"
+    def save_layout(self, layout: VisionLayout) -> Optional[Path]:
+        """Persist a user custom layout to disk and return saved Path."""
+        if not layout.layout_id:
+            import uuid
+            layout.layout_id = f"custom_{uuid.uuid4().hex[:8]}"
 
-        target_file = self.storage_dir / f"{layout.layout_id}.json"
-        layout_dict = asdict(layout)
-        layout_dict["is_builtin"] = False
+        if layout.is_builtin:
+            return None
 
-        with open(target_file, "w", encoding="utf-8") as f:
-            json.dump(layout_dict, f, indent=2)
+        clean_id = re.sub(r"[^a-zA-Z0-9_-]", "_", layout.layout_id.lower())
+        target_path = self.layouts_dir / f"{clean_id}.json"
 
-        logger.info("Saved visual layout %s to %s", layout.name, target_file)
-        return target_file
+        try:
+            data = asdict(layout)
+            data["is_builtin"] = False
+            with open(target_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            return target_path
+        except Exception as e:
+            logger.error(f"Failed to save layout {layout.layout_id}: {e}")
+            return None
 
     def delete_layout(self, layout_id: str) -> bool:
-        """Delete a custom layout file (cannot delete built-ins)."""
-        if layout_id.startswith("builtin_"):
-            return False
+        """Delete a custom layout file."""
+        clean_id = re.sub(r"[^a-zA-Z0-9_-]", "_", layout_id.lower())
+        target_path = self.layouts_dir / f"{clean_id}.json"
 
-        target_file = self.storage_dir / f"{layout_id}.json"
-        if target_file.exists():
-            target_file.unlink()
-            return True
+        if target_path.exists():
+            try:
+                target_path.unlink()
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete layout {layout_id}: {e}")
+                return False
         return False

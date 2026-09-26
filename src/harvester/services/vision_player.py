@@ -206,6 +206,11 @@ class VisionAudioPlayer:
         secs = int(pos % 60)
         return f"{mins:02d}:{secs:02d}"
 
+    @property
+    def shuffle(self) -> bool:
+        """Return current shuffle mode status."""
+        return self.shuffle_mode
+
     def add_listener(self, callback: Callable[[PlaylistTrack], None]) -> None:
         """Register a callback for track changes."""
         self._on_track_change_listeners.append(callback)

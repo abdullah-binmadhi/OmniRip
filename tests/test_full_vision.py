@@ -48,6 +48,25 @@ async def test_full_vision_studio_compose():
         top_bar = studio.query_one("#fvs-top-bar")
         assert top_bar.styles.background.hex.lower() == studio.current_theme.surface_color.lower()
 
+        # Verify Anime Companion Character and Outfit Lore
+        from harvester.ui.full_vision import AnimeCompanionWidget
+        companion = studio.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+        assert companion is not None
+        assert "Trinity-X" in companion.character.name
+        assert "trenchcoat" in companion.character.outfit_desc.lower()
+
+        # Verify DOS Function Key button redesign
+        assert "[F1:OMNIRIP]" in str(omnirip_btn.label)
+        assert "[F8:PLAY]" in str(play_btn.label)
+
+        # Apply Cyberpunk layout with cyber_brackets
+        cyber_layout = studio.layout_store.get_layout("preset_cyberpunk_2077")
+        assert cyber_layout is not None
+        studio.apply_layout(cyber_layout)
+        assert "V-Kira" in companion.character.name
+        assert "[// OMNIRIP //]" in str(omnirip_btn.label)
+        assert "[>> EXEC]" in str(play_btn.label)
+
 
 @pytest.mark.asyncio
 async def test_preset_catalog_modal_and_apply():

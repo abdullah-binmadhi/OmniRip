@@ -70,3 +70,43 @@ def test_save_load_custom_layout(tmp_path: Path):
 
     # Deleting builtin is prevented
     assert store.delete_layout("builtin_solo_stanford") is False
+
+
+def test_preset_engine_diversity():
+    """Verify that all 20 presets have at least 80% unique visualizer engines (<= 20% similarity)."""
+    presets = [ly for ly in BUILTIN_LAYOUTS if ly.layout_id.startswith("preset_")]
+    assert len(presets) == 20
+
+    # Collect all engines used across presets
+    all_engines = set()
+    preset_engines = {}
+
+    for ly in presets:
+        engines = [c.engine_id for c in ly.cards]
+        assert len(engines) >= 3, f"Preset {ly.layout_id} must have at least 3 visualizer engines"
+        preset_engines[ly.layout_id] = set(engines)
+        all_engines.update(engines)
+        # Verify anime character and structural style are set
+        assert ly.anime_character_id != ""
+        assert ly.ui_structure_style != ""
+        assert ly.button_style_mode != ""
+
+    # At least 60 distinct visualizer engines must be utilized across the presets
+    assert len(all_engines) >= 60, f"Expected at least 60 distinct engines utilized, got {len(all_engines)}"
+
+    # Check pairwise similarity between every preset pair
+    preset_ids = list(preset_engines.keys())
+    for i in range(len(preset_ids)):
+        for j in range(i + 1, len(preset_ids)):
+            id_a = preset_ids[i]
+            id_b = preset_ids[j]
+            set_a = preset_engines[id_a]
+            set_b = preset_engines[id_b]
+
+            intersection = set_a.intersection(set_b)
+            smaller_len = min(len(set_a), len(set_b))
+            similarity = len(intersection) / smaller_len if smaller_len > 0 else 0.0
+
+            # Must not exceed 20% similarity (at least 80% unique)
+            assert similarity <= 0.20, f"Presets {id_a} and {id_b} have {similarity:.2%} similarity (max allowed is 20%)"
+

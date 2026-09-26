@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from rich.markup import escape
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -49,6 +50,10 @@ from harvester.ui.visual_dashboard import (
     VisualDashboardWidget,
     VisualizerCard,
     VisualizerEngineCanvas,
+)
+from harvester.ui.visuals.anime_characters import (
+    AnimeCharacter,
+    get_anime_character,
 )
 from harvester.ui.visuals.base import AudioFeatureContext
 from harvester.ui.visuals.registry import VisualizerRegistry
@@ -371,6 +376,90 @@ class PresetCatalogModal(ModalScreen[Optional[VisionLayout]]):
             self.dismiss(layout)
 
 
+class AnimeCompanionWidget(Vertical):
+    """Side panel displaying the theme-dressed ASCII anime character and lore."""
+
+    DEFAULT_CSS = """
+    AnimeCompanionWidget {
+        width: 34;
+        min-width: 30;
+        max-width: 36;
+        height: 100%;
+        background: #0f141c;
+        border-left: heavy #00ffcc;
+        padding: 0 1;
+        layout: vertical;
+    }
+    #anime-char-header {
+        height: 3;
+        width: 100%;
+        content-align: center middle;
+        text-style: bold;
+        color: #00ffcc;
+        border-bottom: solid #00ffcc;
+    }
+    #anime-char-art-scroll {
+        width: 100%;
+        height: 1fr;
+    }
+    #anime-char-art {
+        width: 100%;
+        content-align: center middle;
+        color: #e6edf3;
+    }
+    #anime-char-footer {
+        height: 4;
+        min-height: 4;
+        width: 100%;
+        border-top: solid #00ffcc;
+        padding-top: 1;
+        layout: vertical;
+    }
+    #anime-char-title {
+        color: #00ffcc;
+        text-style: bold;
+    }
+    #anime-char-desc {
+        color: #8b949e;
+    }
+    """
+
+    def __init__(self, character: Optional[AnimeCharacter] = None, id: Optional[str] = None):
+        super().__init__(id=id)
+        self.character = character or get_anime_character("preset_y2k_aesthetic")
+
+    def compose(self) -> ComposeResult:
+        yield Label(f"👤 {self.character.name}", id="anime-char-header")
+        with VerticalScroll(id="anime-char-art-scroll"):
+            yield Label(self.character.ascii_art, id="anime-char-art")
+        with Vertical(id="anime-char-footer"):
+            yield Label(self.character.title, id="anime-char-title")
+            yield Label(self.character.outfit_desc[:60], id="anime-char-desc")
+
+    def update_character(self, character: AnimeCharacter, theme: Optional[StitchTheme] = None) -> None:
+        self.character = character
+        try:
+            hdr = self.query_one("#anime-char-header", Label)
+            hdr.update(f"👤 {character.name}")
+            art = self.query_one("#anime-char-art", Label)
+            art.update(character.ascii_art)
+            ttl = self.query_one("#anime-char-title", Label)
+            ttl.update(character.title)
+            desc = self.query_one("#anime-char-desc", Label)
+            desc.update(character.outfit_desc[:60])
+            if theme:
+                border_type = theme.border_style if theme.border_style in ("heavy", "double", "round", "ascii", "tall", "solid", "dashed") else "heavy"
+                self.styles.background = theme.surface_color
+                self.styles.border_left = (border_type, theme.primary_color)
+                hdr.styles.color = theme.primary_color
+                hdr.styles.border_bottom = ("solid", theme.primary_color)
+                art.styles.color = theme.text_color
+                ttl.styles.color = theme.primary_color
+                desc.styles.color = theme.secondary_color
+        except Exception:
+            pass
+
+
 class FullVisionStudioWidget(Container):
     """Main studio widget comprising the visual canvas, top toolbar, and bottom player dock."""
 
@@ -405,6 +494,11 @@ class FullVisionStudioWidget(Container):
         height: 1fr;
         padding: 0;
         margin: 0;
+        layout: horizontal;
+    }
+    #fvs-dashboard {
+        width: 1fr;
+        height: 100%;
     }
     #fvs-bottom-dock {
         width: 100%;
@@ -497,9 +591,10 @@ class FullVisionStudioWidget(Container):
             yield Button("GAP: (1)", id="btn-fvs-gap", classes="fvs-top-btn")
             yield Button("↗ NEW TAB", id="btn-fvs-popout", classes="fvs-top-btn")
 
-        # 2. Main Visual Canvas
-        with Container(id="fvs-canvas-container"):
+        # 2. Main Visual Canvas & Anime Companion Side Panel
+        with Horizontal(id="fvs-canvas-container"):
             yield VisualDashboardWidget(id="fvs-dashboard")
+            yield AnimeCompanionWidget(id="fvs-anime-companion")
 
         # 3. Bottom Music Player Dock
         with Horizontal(id="fvs-bottom-dock"):
@@ -612,6 +707,179 @@ class FullVisionStudioWidget(Container):
                     title.styles.color = theme.primary_color
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+        # 6. Transform Anime Companion Character & Lore
+        try:
+            char_id = layout.anime_character_id or layout.layout_id
+            character = get_anime_character(char_id)
+            companion = self.query_one("#fvs-anime-companion", AnimeCompanionWidget)
+            companion.update_character(character, theme)
+        except Exception:
+            pass
+
+        # 7. Transform Full TUI Button Labels and Layout Structure
+        self._apply_button_and_layout_structure(layout, theme)
+
+    def _apply_button_and_layout_structure(self, layout: VisionLayout, theme: StitchTheme) -> None:
+        """Completely overhaul button styling, labeling, placements, and structural heights."""
+        mode = getattr(layout, "button_style_mode", "pill")
+        structure = getattr(layout, "ui_structure_style", "hyprland_floating")
+
+        # Map button labels based on mode
+        style_maps = {
+            "dos_keys": {
+                "#btn-fvs-omnirip": "[F1:OMNIRIP]",
+                "#btn-fvs-presets": "[F2:PRESETS]",
+                "#btn-fvs-load-layout": "[F3:LOAD]",
+                "#btn-fvs-save-layout": "[F4:SAVE]",
+                "#btn-fvs-gap": f"[F5:GAP:{self.active_gap}]",
+                "#btn-fvs-popout": "[F6:TAB]",
+                "#btn-fvs-prev": "[F7:PREV]",
+                "#btn-fvs-play": "[F8:PLAY]",
+                "#btn-fvs-stop": "[F9:STOP]",
+                "#btn-fvs-next": "[F10:NEXT]",
+                "#btn-fvs-loop": f"[F11:LOOP:{self.player.loop_mode.value[:3]}]",
+                "#btn-fvs-shuffle": f"[F12:SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-fvs-add-song": "[+LOAD SONG]",
+                "#btn-fvs-queue": f"[QUEUE:{len(self.player.playlist)}]",
+            },
+            "cyber_brackets": {
+                "#btn-fvs-omnirip": "[// OMNIRIP //]",
+                "#btn-fvs-presets": "[// PRESETS:20 //]",
+                "#btn-fvs-load-layout": "[// IMPORT //]",
+                "#btn-fvs-save-layout": "[// EXPORT //]",
+                "#btn-fvs-gap": f"[// GAP:{self.active_gap} //]",
+                "#btn-fvs-popout": "[// SHELL //]",
+                "#btn-fvs-prev": "[<< SCAN]",
+                "#btn-fvs-play": "[>> EXEC]",
+                "#btn-fvs-stop": "[## HALT]",
+                "#btn-fvs-next": "[>> SEEK]",
+                "#btn-fvs-loop": f"[↺ LOOP:{self.player.loop_mode.value[:3]}]",
+                "#btn-fvs-shuffle": f"[∿ SHUF:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-fvs-add-song": "[++ AUDIO_SRC]",
+                "#btn-fvs-queue": f"[Q_BUFF:{len(self.player.playlist)}]",
+            },
+            "retro_arcade": {
+                "#btn-fvs-omnirip": "[🪙 1P/OMNI]",
+                "#btn-fvs-presets": "[🕹️ PRESETS]",
+                "#btn-fvs-load-layout": "[📂 LOAD]",
+                "#btn-fvs-save-layout": "[💾 SAVE]",
+                "#btn-fvs-gap": f"[● GAP:{self.active_gap}]",
+                "#btn-fvs-popout": "[↗ NEW]",
+                "#btn-fvs-prev": "[◀ REV]",
+                "#btn-fvs-play": "[★ START]",
+                "#btn-fvs-stop": "[■ OVER]",
+                "#btn-fvs-next": "[▶ FWD]",
+                "#btn-fvs-loop": f"[🔄 RPT:{self.player.loop_mode.value[:3]}]",
+                "#btn-fvs-shuffle": f"[🎲 RND:{'ON' if self.player.shuffle_mode else 'OFF'}]",
+                "#btn-fvs-add-song": "[INSERT COIN]",
+                "#btn-fvs-queue": f"[STAGE:{len(self.player.playlist)}]",
+            },
+            "cozy_soft": {
+                "#btn-fvs-omnirip": "☕ omnirip",
+                "#btn-fvs-presets": "✿ presets",
+                "#btn-fvs-load-layout": "♡ load",
+                "#btn-fvs-save-layout": "☁ save",
+                "#btn-fvs-gap": f"⋆ gap ({self.active_gap})",
+                "#btn-fvs-popout": "↗ tab",
+                "#btn-fvs-prev": "⏮ softly",
+                "#btn-fvs-play": "▶ listen",
+                "#btn-fvs-stop": "⏹ rest",
+                "#btn-fvs-next": "⏭ skip",
+                "#btn-fvs-loop": f"↻ loop: {self.player.loop_mode.value}",
+                "#btn-fvs-shuffle": f"~ shuffle: {'on' if self.player.shuffle else 'off'}",
+                "#btn-fvs-add-song": "♪ add track",
+                "#btn-fvs-queue": f"tea queue ({len(self.player.playlist)})",
+            },
+            "tactile_knobs": {
+                "#btn-fvs-omnirip": "[CH-1: OMNI]",
+                "#btn-fvs-presets": "[BNK: PRESETS]",
+                "#btn-fvs-load-layout": "[INP: LOAD]",
+                "#btn-fvs-save-layout": "[ROM: SAVE]",
+                "#btn-fvs-gap": f"[ATT: GAP-{self.active_gap}]",
+                "#btn-fvs-popout": "[AUX: TAB]",
+                "#btn-fvs-prev": "|<< REWIND",
+                "#btn-fvs-play": "> PLAY",
+                "#btn-fvs-stop": "[] STOP",
+                "#btn-fvs-next": ">>| FAST-FWD",
+                "#btn-fvs-loop": f"(RPT: {self.player.loop_mode.value[:3]})",
+                "#btn-fvs-shuffle": f"(RND: {'ON' if self.player.shuffle_mode else 'OFF'})",
+                "#btn-fvs-add-song": "[REC INP]",
+                "#btn-fvs-queue": f"[TRK-Q: {len(self.player.playlist)}]",
+            },
+            "hud_caps": {
+                "#btn-fvs-omnirip": "1//OMNI",
+                "#btn-fvs-presets": "2//PRESETS",
+                "#btn-fvs-load-layout": "3//LOAD",
+                "#btn-fvs-save-layout": "4//SAVE",
+                "#btn-fvs-gap": f"5//GAP:{self.active_gap}",
+                "#btn-fvs-popout": "6//POPOUT",
+                "#btn-fvs-prev": "◄◄ REV",
+                "#btn-fvs-play": "► IGNITION",
+                "#btn-fvs-stop": "■ BRAKE",
+                "#btn-fvs-next": "►► FWD",
+                "#btn-fvs-loop": f"↺ LAP:{self.player.loop_mode.value[:3]}",
+                "#btn-fvs-shuffle": f"⇄ DRIFT:{'ON' if self.player.shuffle_mode else 'OFF'}",
+                "#btn-fvs-add-song": "+ TELEMETRY",
+                "#btn-fvs-queue": f"GRID:[{len(self.player.playlist)}]",
+            },
+            "bracket_caps": {
+                "#btn-fvs-omnirip": "【OMNIRIP】",
+                "#btn-fvs-presets": "【PRESETS】",
+                "#btn-fvs-load-layout": "【LOAD】",
+                "#btn-fvs-save-layout": "【SAVE】",
+                "#btn-fvs-gap": f"【GAP:{self.active_gap}】",
+                "#btn-fvs-popout": "【TAB】",
+                "#btn-fvs-prev": "【⏮ PREV】",
+                "#btn-fvs-play": "【▶ PLAY】",
+                "#btn-fvs-stop": "【⏹ STOP】",
+                "#btn-fvs-next": "【⏭ NEXT】",
+                "#btn-fvs-loop": f"【🔁 {self.player.loop_mode.value[:3]}】",
+                "#btn-fvs-shuffle": f"【🔀 {'ON' if self.player.shuffle_mode else 'OFF'}】",
+                "#btn-fvs-add-song": "【+ SONG】",
+                "#btn-fvs-queue": f"【Q:{len(self.player.playlist)}】",
+            },
+            "pill": {
+                "#btn-fvs-omnirip": "( 1: OMNIRIP )",
+                "#btn-fvs-presets": "( ✨ PRESETS )",
+                "#btn-fvs-load-layout": "( 📐 LOAD )",
+                "#btn-fvs-save-layout": "( 💾 SAVE )",
+                "#btn-fvs-gap": f"( ⚬ GAP: {self.active_gap} )",
+                "#btn-fvs-popout": "( ↗ TAB )",
+                "#btn-fvs-prev": "◀ PREV",
+                "#btn-fvs-play": "▶ PLAY",
+                "#btn-fvs-stop": "■ STOP",
+                "#btn-fvs-next": "▶▶ NEXT",
+                "#btn-fvs-loop": f"🔁 {self.player.loop_mode.value}",
+                "#btn-fvs-shuffle": f"🔀 {'ON' if self.player.shuffle else 'OFF'}",
+                "#btn-fvs-add-song": "+ LOAD SONG",
+                "#btn-fvs-queue": f"QUEUE ({len(self.player.playlist)})",
+            },
+        }
+
+        labels = style_maps.get(mode, style_maps["pill"])
+        for btn_id, label_text in labels.items():
+            try:
+                b = self.query_one(btn_id, Button)
+                b.label = escape(label_text)
+            except Exception:
+                pass
+
+        # Structural layout sizing adjustments per style
+        try:
+            dock = self.query_one("#fvs-bottom-dock")
+            top_bar = self.query_one("#fvs-top-bar")
+            if structure in ("dos_mpxplay", "rackmount_hardware"):
+                top_bar.styles.height = 3
+                dock.styles.height = 6
+            elif structure in ("hyprland_floating", "rmpc_split"):
+                top_bar.styles.height = 3
+                dock.styles.height = 7
+            else:
+                top_bar.styles.height = 3
+                dock.styles.height = 7
         except Exception:
             pass
 
