@@ -31,6 +31,7 @@
   <a href="https://github.com/abdullah-binmadhi/OmniRip/raw/main/docs/assets/omnirip_demo.mp4"><img src="https://img.shields.io/badge/▶%20WATCH%20VIDEO-1080p%20MP4-ff007f?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/QUICKSTART-READY-7928ca?style=for-the-badge&logo=gnubash&logoColor=white" alt="Quickstart"></a>
   <a href="#mastering-workbench--10-band-studio-eq"><img src="https://img.shields.io/badge/10--BAND%20EQ-REALTIME%20DSP-00f0ff?style=for-the-badge&logo=apple&logoColor=white" alt="10-Band Studio EQ"></a>
+  <a href="#12-player-studio--living-companion"><img src="https://img.shields.io/badge/PLAYER%20STUDIO-23%20PRESETS%20%C2%B7%206--MODE%20FIDELITY-ff007f?style=for-the-badge&logo=windowsterminal&logoColor=white" alt="PLAYER Studio"></a>
   <a href="#genre-intent-engine-m20"><img src="https://img.shields.io/badge/GENRE%20ENGINE-20%20PROFILES-10b981?style=for-the-badge&logo=musicbrainz&logoColor=white" alt="Genre Engine"></a>
   <a href="#lossless-24-bit-masters-m19"><img src="https://img.shields.io/badge/24--BIT%20MASTERS-WAV%20%7C%20FLAC-ffaa00?style=for-the-badge&logo=audiomack&logoColor=white" alt="Lossless 24-Bit Masters"></a>
   <a href="#neural-ensemble--guided-repair-m18"><img src="https://img.shields.io/badge/NEURAL%20REPAIR-BS--ROFORMER%20%2B%20HDEMUCS-7928ca?style=for-the-badge&logo=soundcharts&logoColor=white" alt="Neural Stems"></a>
@@ -78,7 +79,7 @@ For decades, digital music listening has meant making frustrating compromises:
 
 ---
 
-## 🎛️ The Eight Pillars of OmniRip
+## 🎛️ The Pillars of OmniRip
 
 ```mermaid
 graph TD
@@ -339,6 +340,49 @@ graph LR
 
 ---
 
+### 12. PLAYER Studio & Living Companion
+
+```mermaid
+graph TD
+    subgraph GRAMMAR["Page Grammar (authored per preset)"]
+        RAIL["Control Rail & Axis (masthead / side rails / footer / split HUD)"]
+        SLOTS["Panel Slots (dashboard, companion, dock, motif)"]
+        FRAME["Frame Glyphs & Border Roles"]
+        MOTION["Motion Signature (blink / marquee / scanline / drift)"]
+    end
+
+    subgraph FIDELITY["Terminal Fidelity Ladder"]
+        OCT["Octant (opt-in)"]
+        SEX["Sextant (default)"]
+        QUAD["Quadrant"]
+        HALF["Half-block"]
+        BRA["Braille (classic FX)"]
+        ASC["ASCII (universal fallback)"]
+    end
+
+    subgraph LIFE["Living Companion"]
+        MOOD["Mood Engine + BPM from onset intervals"]
+        SCENE["23 Ambient Scene Recipes"]
+        VOICE["Preset-Voiced Dialogue & Cheer Meter"]
+    end
+
+    GRAMMAR --> RESOLVE["player_layout.py (runtime orchestrator)"]
+    FIDELITY --> PORTRAIT["Companion Portrait Renderer"]
+    LIFE --> PORTRAIT
+    RESOLVE --> PAGES["23 Built-in PLAYER Pages"]
+    PORTRAIT --> PAGES
+```
+
+- **Formerly Full Vision, now PLAYER:** The fullscreen studio is renamed end to end (`player_studio.py`, `Player*` classes, `plr-*` widget ids, `2: PLAYER` navigation) and ships a standalone `omnirip-player` console script beside the in-TUI screen.
+- **23 Unique Page Grammars:** Every built-in page — the 20 themed presets plus three starter decks — carries its own authored composition: rail placement and axis, companion/dock/motif slots, frame glyphs, border roles, and a motion signature. Acceptance tests assert unique structural, visual, and companion signatures across all 23, at compact and wide terminal sizes.
+- **Per-Family Transport Vocabulary:** Buttons speak each preset's language through eight families (`keys` F-key rows, `brackets`, `pills`, `plaques`, `knobs`, `kiosk`, `toggles`, `lcd`) with live `PLAY`/`PAUSE`, `LOOP`, `SHUFFLE` and queue state. User-saved layouts keep the familiar legacy chrome.
+- **6-Mode Fidelity Ladder:** Portraits and artwork render through octant (opt-in), sextant (default), quadrant, half-block, braille, and ASCII — built from Unicode character-name pattern tables with nearest-pattern shape matching, Floyd–Steinberg/Atkinson dithering, and cell-delta updates. Every mode renders a 32×70-cell frame in under 2.5 ms.
+- **Living Companion:** The themed companion reacts to the same audio stream as the visualizers — a hysteresis-gated mood engine (sleepy ➔ chill ➔ focus ➔ groove ➔ hype ➔ euphoric), BPM estimated from stable onset intervals, one of 23 ambient scene strips, short preset-voiced dialogue on track changes, pauses and drops, and an eight-segment cheer meter.
+- **One Palette Bus:** Chrome, visualizer cards, companion, and scene colors all derive from the active Stitch theme, so a preset switch recolors the entire page from a single source.
+- **Accessible by Config:** `[ui] visual_fidelity` and `[ui] reduced_motion` tune the ladder and motion; reduced motion freezes the scene strip, disables blink/marquee/scanline, and renders portraits statically.
+
+---
+
 ## ⚡ Quick Start (1-Command Install)
 
 ### 🚀 Instant Install & Run
@@ -440,8 +484,8 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 | <kbd>T</kbd> / <kbd>Shift+T</kbd> | **LUFS Target** | Cycle reference target: `-14 LUFS` (Spotify/YT) ➔ `-16` (Apple) ➔ `-9` (Club) |
 | <kbd>p</kbd> | **Reset Peaks** | Clear peak hold and reset vectorscope drift to current baseline |
 | <kbd>F1</kbd>–<kbd>F5</kbd> | **Page Navigation** | Switch studio pages: `[F1]` Tracks & Logs, `[F2]` Visualizer, `[F3]` Deck, `[F4]` Repair, `[F5]` EQ |
-| <kbd>1</kbd> | **Audition [1] ♫ MP3** | Switch playback to Original MP3 Baseband stream with live 10-band EQ filtering |
-| <kbd>2</kbd> | **Audition [2] ✦ ENH** | Switch playback to Enhanced Derivative stream with live 10-band EQ filtering |
+| <kbd>1</kbd> | **OmniRip Workstation** | Return to the main workstation page (`1: OMNIRIP`) |
+| <kbd>2</kbd> | **PLAYER Studio** | Open the fullscreen PLAYER studio: 23 curated presets, 6-mode fidelity ladder, living companion |
 | <kbd>w</kbd> | **Mastering Workbench** | Open the Curation & Enhancement Workbench to sculpt EQ, preview and export |
 | <kbd>v</kbd> | **Cycle Visualizer** | Cycle between all 7 visualizer modes (Spectrogram, Phase Scope, Spectrum, etc.) |
 | <kbd>g</kbd> | **Genre Intent Mix** | Open the 20-Genre Intent Mixer modal with intensity controls |
@@ -470,6 +514,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 | **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, MSST de-reverb |
 | **Guided Repair** | Acoustic Fingerprints | Quick Fix, 10-question MCQ wizard, section ranges, Local/Hosted MVSEP |
 | **Visualizer** | 200-Renderer Dashboard Engine | Spectrogram waterfalls, stereo Lissajous phase scopes, fractal generation, fluid dynamics, and 200 distinct 60 FPS visual engines mapped uniquely across 20 curated presets |
+| **PLAYER Studio** | Textual + NumPy | 23 unique page grammars, 6-mode Unicode fidelity ladder with shape matching and dithering, 8 transport families, mood/BPM companion with 23 scenes, single-palette bus |
 | **Batch Engine** | `harvester.batch` | Serial walk, safe atomic swap with `.trash/` rollback, Markdown reports |
 | **Memory Engine** | `harvester.util.memory`| MPS FP16 acceleration, dynamic chunk scaling, automatic `purge_neural_vram()` |
 | **Second Brain** | Obsidian Sync API | 2-way sync, Wants wishlist queue, album notes, Studio preset links |
