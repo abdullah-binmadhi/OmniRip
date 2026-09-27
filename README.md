@@ -379,6 +379,7 @@ graph TD
 - **6-Mode Fidelity Ladder:** Portraits and artwork render through octant (opt-in), sextant (default), quadrant, half-block, braille, and ASCII — built from Unicode character-name pattern tables with nearest-pattern shape matching, Floyd–Steinberg/Atkinson dithering, and cell-delta updates. Every mode renders a 32×70-cell frame in under 2.5 ms.
 - **Living Companion:** The themed companion reacts to the same audio stream as the visualizers — a hysteresis-gated mood engine (sleepy ➔ chill ➔ focus ➔ groove ➔ hype ➔ euphoric), BPM estimated from stable onset intervals, one of 23 ambient scene strips, short preset-voiced dialogue on track changes, pauses and drops, and an eight-segment cheer meter.
 - **One Palette Bus:** Chrome, visualizer cards, companion, and scene colors all derive from the active Stitch theme, so a preset switch recolors the entire page from a single source.
+- **Space-Fit Controls (OPTIMIZE / GENERATE / SEED):** a compact ops rail (or <kbd>o</kbd>/<kbd>g</kbd>/<kbd>s</kbd>) re-tiles any preset so every card clears its engine minimum with no dead cells or clipped visuals — OPTIMIZE keeps the curated composition when it fits, trims or swaps engines when it cannot, and never mutates the built-in; GENERATE deals a seeded, reproducible new mix of grammar, grid, engines, palettes, and gap as an editable layout; SEED re-runs a typed seed to reproduce a mix exactly. Grid rails size themselves from visible children, optimized views re-fit on terminal resize and GAP changes, and an active fit mode survives THEME cycling.
 - **Accessible by Config:** `[ui] visual_fidelity` and `[ui] reduced_motion` tune the ladder and motion; reduced motion freezes the scene strip, disables blink/marquee/scanline, and renders portraits statically.
 
 ---
@@ -514,7 +515,7 @@ OmniRip --enhance /path/to/song.mp3 --preset extended_air --bitrate 320k
 | **Neural Ensemble** | BS-RoFormer + HDEMUCS | 5-stage pipeline, zero-phase LR4 crossover, MSST de-reverb |
 | **Guided Repair** | Acoustic Fingerprints | Quick Fix, 10-question MCQ wizard, section ranges, Local/Hosted MVSEP |
 | **Visualizer** | 200-Renderer Dashboard Engine | Spectrogram waterfalls, stereo Lissajous phase scopes, fractal generation, fluid dynamics, and 200 distinct 60 FPS visual engines mapped uniquely across 20 curated presets |
-| **PLAYER Studio** | Textual + NumPy | 23 unique page grammars, 6-mode Unicode fidelity ladder with shape matching and dithering, 8 transport families, mood/BPM companion with 23 scenes, single-palette bus |
+| **PLAYER Studio** | Textual + NumPy | 23 unique page grammars, space-fit OPTIMIZE/GENERATE ops, 6-mode Unicode fidelity ladder with shape matching and dithering, 8 transport families, mood/BPM companion with 23 scenes, single-palette bus |
 | **Batch Engine** | `harvester.batch` | Serial walk, safe atomic swap with `.trash/` rollback, Markdown reports |
 | **Memory Engine** | `harvester.util.memory`| MPS FP16 acceleration, dynamic chunk scaling, automatic `purge_neural_vram()` |
 | **Second Brain** | Obsidian Sync API | 2-way sync, Wants wishlist queue, album notes, Studio preset links |

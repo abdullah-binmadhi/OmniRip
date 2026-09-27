@@ -9,6 +9,7 @@ import typing
 from dataclasses import replace
 from pathlib import Path
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.coordinate import Coordinate
@@ -457,6 +458,16 @@ class HarvesterApp(App[None]):
         ("p", "purge_trash", "Purge trash"),
         ("w", "open_workbench", "Workbench"),
         ("t", "cycle_theme", "Theme"),
+        ("cmd+right", "cycle_theme_next", "Next Theme"),
+        ("super+right", "cycle_theme_next", "Next Theme"),
+        ("ctrl+right", "cycle_theme_next", "Next Theme"),
+        ("meta+right", "cycle_theme_next", "Next Theme"),
+        ("shift+right", "cycle_theme_next", "Next Theme"),
+        ("cmd+left", "cycle_theme_prev", "Prev Theme"),
+        ("super+left", "cycle_theme_prev", "Prev Theme"),
+        ("ctrl+left", "cycle_theme_prev", "Prev Theme"),
+        ("meta+left", "cycle_theme_prev", "Prev Theme"),
+        ("shift+left", "cycle_theme_prev", "Prev Theme"),
         ("k", "open_soulseek_login", "Soulseek"),
         ("ctrl+s", "open_settings", "Settings"),
         ("f6", "open_settings", "Settings"),
@@ -913,10 +924,35 @@ class HarvesterApp(App[None]):
             )
         )
 
-    def action_cycle_theme(self) -> None:
+    def action_cycle_theme_next(self) -> None:
+        """Cycle to next dynamic color theme."""
+        self.action_cycle_theme(direction=1)
+
+    def action_cycle_theme_prev(self) -> None:
+        """Cycle to previous dynamic color theme."""
+        self.action_cycle_theme(direction=-1)
+
+    def action_cycle_theme(self, direction: int = 1) -> None:
         """Cycle to next dynamic color theme."""
         theme_name = cycle_theme(self)
         self.notify(f"Theme: {theme_name}", timeout=2.0)
+        
+        # Also cycle the PlayerStudioWidget layout so the player page updates its theme
+        try:
+            from harvester.ui.player_studio import PlayerStudioWidget
+            studio = self.query_one(PlayerStudioWidget)
+            studio._cycle_layout(direction)
+        except Exception:
+            pass
+
+    def on_key(self, event: events.Key) -> None:
+        key = event.key.lower()
+        if key in ("cmd+right", "super+right", "ctrl+right", "meta+right", "shift+right"):
+            event.stop()
+            self.action_cycle_theme_next()
+        elif key in ("cmd+left", "super+left", "ctrl+left", "meta+left", "shift+left"):
+            event.stop()
+            self.action_cycle_theme_prev()
 
     def action_open_soulseek_login(self) -> None:
         """Open the Soulseek credentials and configuration dialog."""

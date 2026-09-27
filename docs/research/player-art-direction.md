@@ -188,6 +188,21 @@ Authoring rules:
 
 Legacy compatibility: user-saved layouts carry `ui_structure_style` and `button_style_mode`. `LEGACY_DASHBOARD_LAYOUTS` and `LEGACY_CONTROL_STYLES` in `player_designs.py` map those onto the vocabulary above. Built-in layouts resolve to their curated design; custom layouts fall back to the canonical design and remain editable.
 
+### Space Fit, Optimize, and Generated Mixes
+
+The authored design fixes the grammar, but the terminal decides the canvas. `player_ops.py` is the pure planner and auditor that keep every preset full at any size. Its rules are normative:
+
+- **Grid capacity:** a card cell must clear the engine minimum (10×4) plus the one-row card header and the two border cells; the visible gap is subtracted again per axis. The planner scans the card list downward and keeps the largest count whose tiling still clears those minimums, so nothing is ever rendered clipped or blank.
+- **Style choice:** within the chosen count, the curated `dashboard_layout` is kept whenever it fits; otherwise the tiling with the best cell aspect wins. Counts are only trimmed when no supported style can hold them.
+- **Engine fit:** a card whose engine minimums exceed its planned cell is swapped for the closest fitting engine in the same category, keeping visual families distinct; the card's `span`/`tall` overrides are cleared because the style owns hero sizing.
+- **Rail grid:** grid rails size themselves from the *visible* children (`fit_grid`), so hidden motif/subtitle slots never leave dead cells; `split_hud` remains 2×4 only while eight children are shown.
+- **No double gaps:** the gap lives on the card margins only; rows do not add a second vertical margin that would shrink every rendered card.
+- **Transience:** OPTIMIZE re-tiles the live view without mutating the built-in record (built-ins stay curated and read-only); SAVE LAYOUT persists the optimized result as a user layout, carrying its tiling in `VisionLayout.dashboard_layout` so a reload keeps the exact fit. GENERATE builds a seeded, reproducible mix — random base grammar among the 23 built-ins minus the current one, random fitting count/style, unique visual families, per-card palettes, gap 0–2 — applies it as a non-builtin editable layout, and runs the same fit pass.
+- **Gap and resize:** changing GAP on an optimized or generated view re-runs the fit (wider gaps shrink every cell), and so does a terminal resize (debounced).
+- **Mode persistence and seed re-entry:** an active fit mode survives THEME cycling (each newly applied preset is re-fitted), and SEED re-runs GENERATE from a typed seed; explicit seeds plan against the editable canvas and never exclude the current base, so the same seed always yields the same grammar, tiling, engines, and palettes. The generator shows the seed in its notice for later reproduction.
+- **Audit:** the `audit_layout` contract asserts no collapsed panel, no empty rail grid cell, no empty dashboard row, and no card canvas below its engine minimum. Resize re-runs the fit (debounced) for optimized and generated views only.
+- **Reachability:** the `o`/`g` keys and the compact OPTIMIZE/GENERATE ops rail expose both actions on every preset, including locked built-ins.
+
 ### Terminal Rendering Fidelity
 
 Default ladder: **sextant → quadrant → half-block → braille**, with octants only behind an explicit capability opt-in and ASCII as the universal fallback. Kitty/Sixel pixel protocols remain an optional future mode, not a requirement for the standard PLAYER experience. [R41–R45]

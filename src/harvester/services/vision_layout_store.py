@@ -31,6 +31,9 @@ class VisionLayout:
     gap_distance: int = 1
     ui_structure_style: str = "default_cards"  # cyberdeck_terminal, dos_mpxplay, hyprland_rice, lofi_cafe, demoscene_split, modern_minimal
     button_style_mode: str = "cyber_brackets"  # cyber_brackets, dos_keys, hyprland_pills, cozy_soft, minimal_clean
+    # Saved tiling style for optimized/generated layouts; empty falls back to
+    # the resolved page design's dashboard_layout.
+    dashboard_layout: str = ""
     anime_character_id: str = "default"
     cards: list[VisionCardConfig] = field(default_factory=list)
     is_builtin: bool = False

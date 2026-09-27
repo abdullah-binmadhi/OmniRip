@@ -9,6 +9,7 @@ and ``button_style_mode`` values only apply to user-saved layouts.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -44,7 +45,9 @@ COMPANION_STYLES: dict[str, dict[str, Any]] = {
     "rail_right": {"dock": "right", "width": 38, "height": "100%", "display": "block"},
     "rail_left": {"dock": "left", "width": 38, "height": "100%", "display": "block"},
     "footer": {"dock": "bottom", "height": 9, "width": "100%", "display": "block"},
-    "inset": {"dock": None, "width": 38, "height": "100%", "display": "block"},
+    # `inset` reads as a floating right panel; it must dock, otherwise the
+    # full-height companion steals the canvas in vertical flow.
+    "inset": {"dock": "right", "width": 38, "height": "100%", "display": "block"},
     "hidden": {"display": "none"},
 }
 
@@ -252,6 +255,27 @@ def _panel_slot(design: PlayerPageDesign, name: str, allowed: frozenset[str], de
     return value if value in allowed else default
 
 
+def fit_grid(style_rows: int, style_columns: int, child_count: int) -> tuple[int, int]:
+    """Choose grid dimensions that leave no empty cells for ``child_count`` children.
+
+    The authored grid is preferred unless it cannot hold every child or it would
+    expose dead cells; in that case the closest exact tiling wins.
+    """
+    style_rows = max(1, style_rows)
+    style_columns = max(1, style_columns)
+    if child_count <= 0:
+        return style_rows, style_columns
+    best: tuple[int, int] | None = None
+    best_key: tuple[int, int, int] | None = None
+    for columns in range(1, max(style_columns, child_count) + 1):
+        rows = max(1, math.ceil(child_count / columns))
+        key = (rows * columns - child_count, abs(columns - style_columns), abs(rows - style_rows))
+        if best_key is None or key < best_key:
+            best_key = key
+            best = (rows, columns)
+    return best if best is not None else (style_rows, style_columns)
+
+
 def resolve_page(
     design: PlayerPageDesign,
     layout: VisionLayout,
@@ -273,6 +297,11 @@ def resolve_page(
     rail_style = dict(RAIL_STYLES[rail])
     if rail_axis != "horizontal":
         rail_style["layout"] = "vertical" if rail_axis == "vertical" else "grid"
+
+    dock_style = dict(DOCK_STYLES[dock_slot])
+    if rail_style.get("dock") == dock_style.get("dock"):
+        dock_slot = "footer" if rail_style.get("dock") == "top" else "header"
+        dock_style = dict(DOCK_STYLES[dock_slot])
 
     motion = tuple(tuple(spec) for spec in design.motion if spec and spec[0])
 
@@ -372,8 +401,11 @@ def apply_page(studio: PlayerStudioWidget, page: ResolvedPage, theme: StitchThem
     align = page.rail_style.get("align")
     if align:
         rail.styles.align = align
+    _apply_motif(studio, page)
     if layout == "grid":
-        rows, columns = page.rail_style.get("grid", (2, 4))
+        style_rows, style_columns = page.rail_style.get("grid", (2, 4))
+        visible = sum(1 for child in rail.children if child.display)
+        rows, columns = fit_grid(int(style_rows), int(style_columns), visible)
         rail.styles.grid_size_rows = rows
         rail.styles.grid_size_columns = columns
     _apply_border(rail, _border_edge(str(page.rail_style.get("dock") or "top")), border_type, primary)
@@ -396,11 +428,12 @@ def apply_page(studio: PlayerStudioWidget, page: ResolvedPage, theme: StitchThem
 
     dock = studio.query_one("#plr-bottom-dock")
     dock.styles.display = page.dock_style.get("display", "block")
-    dock.styles.dock = page.dock_style.get("dock")
+    dock_dock = page.dock_style.get("dock") or "bottom"
+    if dock_dock == rail.styles.dock:
+        dock_dock = "bottom" if str(rail.styles.dock) == "top" else "top"
+    dock.styles.dock = dock_dock
     dock.styles.height = page.dock_style.get("height")
-    _apply_border(dock, _border_edge(str(page.dock_style.get("dock") or "bottom")), border_type, dock_role)
-
-    _apply_motif(studio, page)
+    _apply_border(dock, _border_edge(str(dock_dock)), border_type, dock_role)
 
 
 def _apply_motif(studio: PlayerStudioWidget, page: ResolvedPage) -> None:

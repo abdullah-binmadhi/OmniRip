@@ -35,7 +35,6 @@ class InteractiveScrubber(Widget):
     InteractiveScrubber {
         height: 1;
         width: 1fr;
-        background: transparent;
         margin-top: 1;
     }
     """

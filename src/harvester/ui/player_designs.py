@@ -97,7 +97,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "capsule",
         "bold",
         "AQUA BUDDY // WINDOW 01",
-        ("⌂ DESKTOP", "✦ STYLES", "▣ OPEN", "↓ SAVE", "GAP {gap}", "↗ NEW TAB"),
+        ("⌂ DESKTOP", "✦ STYLES", "THEME", "↓ SAVE", "GAP {gap}", "↗ NEW TAB"),
     ),
     "preset_cyberpunk_2077": PlayerPageDesign(
         "preset_cyberpunk_2077",
@@ -109,7 +109,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "heavy",
         "bold underline",
         "NIGHT CITY OPERATIVE",
-        ("◈ MAIN", "⚡ LOADOUT", "⇧ IMPORT", "⇩ EXPORT", "GAP {gap}", "⌑ JACK OUT"),
+        ("◈ MAIN", "⚡ LOADOUT", "THEME", "⇩ EXPORT", "GAP {gap}", "⌑ JACK OUT"),
     ),
     "preset_matrix_terminal": PlayerPageDesign(
         "preset_matrix_terminal",
@@ -133,7 +133,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "soft",
         "italic",
         "STUDY BUDDY // TEA BREAK",
-        ("☕ HOME", "✿ MOODS", "♡ OPEN", "☁ KEEP", "GAP {gap}", "↗ ROOM"),
+        ("☕ HOME", "✿ MOODS", "THEME", "☁ KEEP", "GAP {gap}", "↗ ROOM"),
     ),
     "preset_tokyo_night": PlayerPageDesign(
         "preset_tokyo_night",
@@ -145,7 +145,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "cutout",
         "bold",
         "MIDNIGHT RIDER // PLATFORM 03",
-        ("⌂ STATION", "◆ SCENES", "↧ BOARD", "↓ STORE", "GAP {gap}", "↗ PLATFORM"),
+        ("⌂ STATION", "◆ SCENES", "THEME", "↓ STORE", "GAP {gap}", "↗ PLATFORM"),
     ),
     "preset_retrowave_sunset": PlayerPageDesign(
         "preset_retrowave_sunset",
@@ -157,7 +157,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "heavy",
         "bold",
         "OUTRUN PILOT // GOLDEN HOUR",
-        ("⌂ GARAGE", "◈ SETS", "▣ LOAD", "▣ SAVE", "GAP {gap}", "↗ OUTRUN"),
+        ("⌂ GARAGE", "◈ SETS", "THEME", "▣ SAVE", "GAP {gap}", "↗ OUTRUN"),
     ),
     "preset_industrial_decay": PlayerPageDesign(
         "preset_industrial_decay",
@@ -169,7 +169,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "heavy",
         "bold",
         "SECTOR WARDEN // SHIFT 03",
-        ("⌂ CONTROL", "! PROFILES", "▣ LOAD", "↓ LOG", "GAP {gap}", "↗ EXIT"),
+        ("⌂ CONTROL", "! PROFILES", "THEME", "↓ LOG", "GAP {gap}", "↗ EXIT"),
     ),
     "preset_deep_ocean": PlayerPageDesign(
         "preset_deep_ocean",
@@ -181,7 +181,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "terminal",
         "bold",
         "ABYSS DIVER // PRESSURE SUIT",
-        ("⌂ LAB", "◉ MISSIONS", "▣ DEPLOY", "↓ LOG", "GAP {gap}", "↗ SUB"),
+        ("⌂ LAB", "◉ MISSIONS", "THEME", "↓ LOG", "GAP {gap}", "↗ SUB"),
     ),
     "preset_solar_flare": PlayerPageDesign(
         "preset_solar_flare",
@@ -193,7 +193,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "heavy",
         "bold",
         "CORONA OBSERVER // HELIO LAB",
-        ("⌂ FLIGHT", "☼ FLARES", "▣ LOAD", "↓ RECORD", "GAP {gap}", "↗ ORBIT"),
+        ("⌂ FLIGHT", "☼ FLARES", "THEME", "↓ RECORD", "GAP {gap}", "↗ ORBIT"),
     ),
     "preset_acid_techno": PlayerPageDesign(
         "preset_acid_techno",
@@ -205,7 +205,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "lcd",
         "bold",
         "ACID OPERATOR // PATTERN A",
-        ("◂ MIXER", "⚡ PATTERNS", "▣ LOAD", "↓ STORE", "GAP {gap}", "↗ LIVE"),
+        ("◂ MIXER", "⚡ PATTERNS", "THEME", "↓ STORE", "GAP {gap}", "↗ LIVE"),
     ),
     "preset_vaporwave_mall": PlayerPageDesign(
         "preset_vaporwave_mall",
@@ -217,7 +217,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "cutout",
         "italic",
         "MALL WALKER // ATRIUM LEVEL 03",
-        ("⌂ ATRIUM", "◈ DIRECTORY", "▣ ENTER", "↓ POLAROID", "GAP {gap}", "↗ MALL"),
+        ("⌂ ATRIUM", "◈ DIRECTORY", "THEME", "↓ POLAROID", "GAP {gap}", "↗ MALL"),
     ),
     "preset_dungeon_synth": PlayerPageDesign(
         "preset_dungeon_synth",
@@ -229,7 +229,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "heavy",
         "bold",
         "CRYPT KEEPER // THE LOWER HALL",
-        ("⌂ CAMP", "♜ TOMES", "▣ UNSEAL", "↓ CHRONICLE", "GAP {gap}", "↗ PORTAL"),
+        ("⌂ CAMP", "♜ TOMES", "THEME", "↓ CHRONICLE", "GAP {gap}", "↗ PORTAL"),
     ),
     "preset_chiptune_gameboy": PlayerPageDesign(
         "preset_chiptune_gameboy",
@@ -241,7 +241,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "lcd",
         "bold",
         "POCKET COMPANION // PIXEL MODE",
-        ("⌂ HOME", "◉ CARTS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ LINK"),
+        ("⌂ HOME", "◉ CARTS", "THEME", "↓ SAVE", "GAP {gap}", "↗ LINK"),
     ),
     "preset_nordic_aurora": PlayerPageDesign(
         "preset_nordic_aurora",
@@ -253,7 +253,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "soft",
         "italic",
         "BOREALIS SCOUT // WINTER WATCH",
-        ("⌂ STATION", "✧ LAYERS", "▣ LOAD", "↓ JOURNAL", "GAP {gap}", "↗ FIELD"),
+        ("⌂ STATION", "✧ LAYERS", "THEME", "↓ JOURNAL", "GAP {gap}", "↗ FIELD"),
     ),
     "preset_bioshock_steampunk": PlayerPageDesign(
         "preset_bioshock_steampunk",
@@ -265,7 +265,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "cutout",
         "bold",
         "BATHYSPHERE DIVER // RAPTURE",
-        ("⌂ DOCK", "◈ PROFILES", "▣ DIVE", "↓ JOURNAL", "GAP {gap}", "↗ ASCEND"),
+        ("⌂ DOCK", "◈ PROFILES", "THEME", "↓ JOURNAL", "GAP {gap}", "↗ ASCEND"),
     ),
     "preset_quantum_void": PlayerPageDesign(
         "preset_quantum_void",
@@ -277,7 +277,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "terminal",
         "bold",
         "STATE OBSERVER // PHASE UNRESOLVED",
-        ("⌂ LAB", "⌬ STATES", "▣ MEASURE", "↓ RECORD", "GAP {gap}", "↗ COLLAPSE"),
+        ("⌂ LAB", "⌬ STATES", "THEME", "↓ RECORD", "GAP {gap}", "↗ COLLAPSE"),
     ),
     "preset_hyprland_rice": PlayerPageDesign(
         "preset_hyprland_rice",
@@ -289,7 +289,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "flat",
         "bold",
         "WORKSPACE COMPANION // FLOATING",
-        ("⌂ SPACE", "◫ THEMES", "▣ TILE IN", "↓ SAVE RICE", "GAP {gap}", "↗ FLOAT"),
+        ("⌂ SPACE", "◫ THEMES", "THEME", "↓ SAVE RICE", "GAP {gap}", "↗ FLOAT"),
     ),
     "preset_dos_mpxplay": PlayerPageDesign(
         "preset_dos_mpxplay",
@@ -301,7 +301,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "lcd",
         "bold",
         "DOS BUDDY // ANSI SESSION",
-        ("OMNI", "PRESETS", "LOAD", "SAVE", "GAP {gap}", "SHELL"),
+        ("OMNI", "PRESETS", "THEME", "SAVE", "GAP {gap}", "SHELL"),
     ),
     "preset_analog_mastering": PlayerPageDesign(
         "preset_analog_mastering",
@@ -313,7 +313,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "instrument",
         "bold",
         "MASTERING ENGINEER // CONTROL ROOM",
-        ("⌂ CONSOLE", "◈ BANKS", "RECALL", "STORE", "GAP {gap}", "PATCH BAY"),
+        ("⌂ CONSOLE", "◈ BANKS", "THEME", "STORE", "GAP {gap}", "PATCH BAY"),
     ),
     "preset_stellar_galaxy": PlayerPageDesign(
         "preset_stellar_galaxy",
@@ -325,7 +325,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "cutout",
         "italic",
         "FIELD ASTRONOMER // DEEP SPACE",
-        ("⌂ MISSION", "✦ STARS", "▣ LOAD", "↓ ARCHIVE", "GAP {gap}", "↗ LAUNCH"),
+        ("⌂ MISSION", "✦ STARS", "THEME", "↓ ARCHIVE", "GAP {gap}", "↗ LAUNCH"),
     ),
     "builtin_solo_stanford": PlayerPageDesign(
         "builtin_solo_stanford",
@@ -337,7 +337,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "instrument",
         "bold",
         "CCRMA RESEARCH COMPANION",
-        ("⌂ HOME", "⌗ MODES", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ OPEN"),
+        ("⌂ HOME", "⌗ MODES", "THEME", "↓ SAVE", "GAP {gap}", "↗ OPEN"),
     ),
     "builtin_dual_cyber": PlayerPageDesign(
         "builtin_dual_cyber",
@@ -349,7 +349,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "terminal",
         "bold",
         "CYBERDECK COMPANION // LINKED",
-        ("⌂ HOME", "◈ FEEDS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ SHELL"),
+        ("⌂ HOME", "◈ FEEDS", "THEME", "↓ SAVE", "GAP {gap}", "↗ SHELL"),
     ),
     "builtin_quad_matrix": PlayerPageDesign(
         "builtin_quad_matrix",
@@ -361,7 +361,7 @@ PLAYER_PAGE_DESIGNS: dict[str, PlayerPageDesign] = {
         "cutout",
         "bold",
         "STUDIO COMPANION // FOUR-BUS",
-        ("⌂ HOME", "🎛 BANKS", "▣ LOAD", "↓ SAVE", "GAP {gap}", "↗ STUDIO"),
+        ("⌂ HOME", "🎛 BANKS", "THEME", "↓ SAVE", "GAP {gap}", "↗ STUDIO"),
     ),
 }
 
@@ -494,7 +494,7 @@ _RUNTIME_PAGE_GRAMMAR: dict[str, dict[str, object]] = {
     "preset_nordic_aurora": {
         "rail": "masthead",
         "rail_axis": "horizontal",
-        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "masthead"},
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "masthead"},
         "frame_glyphs": "round",
         "button_family": "pills",
         "button_frame": "~ {label}",
@@ -542,7 +542,7 @@ _RUNTIME_PAGE_GRAMMAR: dict[str, dict[str, object]] = {
     "preset_analog_mastering": {
         "rail": "masthead",
         "rail_axis": "horizontal",
-        "panel_slots": {"companion": "rail_left", "dock": "header", "motif": "companion"},
+        "panel_slots": {"companion": "rail_left", "dock": "footer", "motif": "companion"},
         "frame_glyphs": "solid",
         "button_family": "knobs",
         "button_frame": "{label}",
@@ -561,7 +561,7 @@ _RUNTIME_PAGE_GRAMMAR: dict[str, dict[str, object]] = {
     "builtin_solo_stanford": {
         "rail": "masthead",
         "rail_axis": "horizontal",
-        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "footer"},
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "footer"},
         "frame_glyphs": "heavy",
         "button_family": "knobs",
         "button_frame": "{label}",
@@ -579,7 +579,7 @@ _RUNTIME_PAGE_GRAMMAR: dict[str, dict[str, object]] = {
     "builtin_quad_matrix": {
         "rail": "split_hud",
         "rail_axis": "grid",
-        "panel_slots": {"companion": "rail_right", "dock": "header", "motif": "footer"},
+        "panel_slots": {"companion": "rail_right", "dock": "footer", "motif": "footer"},
         "frame_glyphs": "double",
         "button_family": "plaques",
         "button_frame": "[| {label} |]",

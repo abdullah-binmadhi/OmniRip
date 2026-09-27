@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -51,6 +52,15 @@ from harvester.ui.player_layout import (
     resolve_page,
     theme_color_palette,
     theme_palette,
+)
+from harvester.ui.player_ops import (
+    MIN_CARD_HEIGHT,
+    MIN_CARD_WIDTH,
+    build_generated_layout,
+    dashboard_region,
+    fit_cards_to_plan,
+    generate_mix,
+    plan_dashboard,
 )
 from harvester.ui.render_fidelity import (
     CELL_GEOMETRY,
@@ -208,6 +218,72 @@ class SaveLayoutModal(ModalScreen[str | None]):
                 self.dismiss(None)
         else:
             self.dismiss(None)
+
+
+class SeedInputModal(ModalScreen[int | None]):
+    """Modal dialog for re-running GENERATE with a known seed."""
+
+    DEFAULT_CSS = """
+    SeedInputModal {
+        align: center middle;
+        background: rgba(10, 14, 20, 0.85);
+    }
+    #seed-input-box {
+        width: 52;
+        height: auto;
+        border: heavy #00ffcc;
+        background: #121820;
+        padding: 1 2;
+    }
+    #seed-input-title {
+        color: #00ffcc;
+        text-style: bold;
+        margin-bottom: 1;
+        text-align: center;
+    }
+    #seed-input-hint {
+        color: #8b949e;
+        margin-bottom: 1;
+    }
+    #input-seed {
+        margin: 1 0;
+        border: round #7209b7;
+    }
+    .seed-actions {
+        width: 100%;
+        height: 3;
+        margin-top: 1;
+        align: center middle;
+    }
+    .seed-btn {
+        margin: 0 1;
+        min-width: 14;
+        height: 3;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="seed-input-box"):
+            yield Label("SEED  ·  GENERATE FROM SEED", id="seed-input-title")
+            yield Label("Enter a seed number to reproduce a mix.", id="seed-input-hint")
+            yield Input(placeholder="e.g. 42", id="input-seed")
+            with Horizontal(classes="seed-actions"):
+                yield Button("CANCEL", variant="default", id="btn-seed-cancel", classes="seed-btn")
+                yield Button("GENERATE", variant="primary", id="btn-seed-confirm", classes="seed-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-seed-confirm":
+            self.dismiss(self._seed_value())
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self.dismiss(self._seed_value())
+
+    def _seed_value(self) -> int | None:
+        raw = self.query_one("#input-seed", Input).value.strip()
+        return max(1, int(raw)) if raw.isdigit() else None
 
 
 class AddSongModal(ModalScreen[Path | None]):
@@ -579,7 +655,7 @@ class AnimePaletteSelectModal(ModalScreen[tuple[str, str | None] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="palette-modal-box"):
-            yield Label("🎨 ANIME GRADIENT PALETTES & COLOR PICKER", id="palette-modal-title")
+            yield Label("ANIME GRADIENT PALETTES & COLOR PICKER", id="palette-modal-title")
             with Horizontal(id="custom-hex-container"):
                 yield Label("CUSTOM HEX COLOR:", id="custom-hex-label")
                 yield Input(value=self.custom_hex, placeholder="#00f0ff or #ff007f", id="input-custom-hex")
@@ -739,11 +815,11 @@ class AnimeCompanionWidget(Vertical):
         yield Label("", id="anime-char-motif")
         yield Label("", id="anime-char-scene")
         with Horizontal(id="anime-char-controls"):
-            yield Button("◀", id="btn-char-prev", classes="char-ctrl-btn")
-            yield Button("⌸ CHAR", id="btn-char-select", classes="char-ctrl-btn")
-            yield Button("◧ COLOR", id="btn-char-color", classes="char-ctrl-btn")
-            yield Button("⚡ FX", id="btn-char-fx", classes="char-ctrl-btn")
-            yield Button("▶", id="btn-char-next", classes="char-ctrl-btn")
+            yield Button("<", id="btn-char-prev", classes="char-ctrl-btn")
+            yield Button("CHAR", id="btn-char-select", classes="char-ctrl-btn")
+            yield Button("COLOR", id="btn-char-color", classes="char-ctrl-btn")
+            yield Button("FX", id="btn-char-fx", classes="char-ctrl-btn")
+            yield Button(">", id="btn-char-next", classes="char-ctrl-btn")
         with VerticalScroll(id="anime-char-art-scroll"):
             yield Static(id="anime-char-art")
         with Vertical(id="anime-char-footer"):
@@ -808,7 +884,14 @@ class AnimeCompanionWidget(Vertical):
         glyph_lines = max(4, max_lines * rows_per_cell // 4)
         art = fit_braille_art(self.character.ascii_art, max_cols=glyph_cols, max_lines=glyph_lines)
         grid = _braille_to_dot_grid(art).astype(float)
-        base = self.palette.primary if self.palette else "#e6edf3"
+        base = "#e6edf3"
+        if self.palette_id == "custom" and self.custom_hex:
+            base = self.custom_hex
+        elif self.palette_id in ANIME_PALETTES:
+            stops = ANIME_PALETTES[self.palette_id].get("stops", [("#ffffff", 0.0)])
+            base = stops[0][0]
+        elif self.palette:
+            base = self.palette.primary
         background = self.palette.background if self.palette else None
         breathe = 1.0 if self.reduced_motion else 0.88 + 0.12 * math.sin(self.tick * 0.08)
         rows = render_bitmap(grid, mode, fg=None, bg=None)
@@ -987,6 +1070,21 @@ class PlayerStudioWidget(Container):
         height: 3;
         min-height: 3;
     }
+    #plr-ops-bar {
+        dock: top;
+        width: 100%;
+        height: 1;
+        background: #10141d;
+        align: right middle;
+        padding: 0 1;
+    }
+    .plr-ops-btn {
+        height: 1;
+        min-height: 1;
+        background: transparent;
+        padding: 0 1;
+        margin: 0 1;
+    }
     #plr-canvas-container {
         width: 100%;
         height: 1fr;
@@ -1084,6 +1182,8 @@ class PlayerStudioWidget(Container):
         self._motion = MotionDriver(reduced=self.reduced_motion)
         self._resolved_page = None
         self._last_button_state = None
+        self._ops_managed = False
+        self._resize_timer = None
 
     def compose(self) -> ComposeResult:
         # 1. Top Control Bar
@@ -1093,12 +1193,19 @@ class PlayerStudioWidget(Container):
             yield Label("", id="plr-motif")
             yield Button("1: OMNIRIP", variant="warning", id="btn-plr-omnirip", classes="plr-top-btn")
             yield Button("✨ PRESETS (20)", variant="primary", id="btn-plr-presets", classes="plr-top-btn")
-            yield Button("📐 LOAD LAYOUT", id="btn-plr-load-layout", classes="plr-top-btn")
+            yield Button("THEME", variant="primary", id="btn-plr-load-layout", classes="plr-top-btn")
             yield Button("💾 SAVE LAYOUT", id="btn-plr-save-layout", classes="plr-top-btn")
             yield Button("GAP: (1)", id="btn-plr-gap", classes="plr-top-btn")
             yield Button("↗ NEW TAB", id="btn-plr-popout", classes="plr-top-btn")
 
-        # 2. Main Visual Canvas; the companion is a root sibling so the page
+        # 2. Space-fit and generation rail; constant across every preset so the
+        # optimized/generated views are reachable even on locked built-ins.
+        with Horizontal(id="plr-ops-bar"):
+            yield Button("OPTIMIZE", id="btn-plr-optimize", classes="plr-ops-btn", compact=True)
+            yield Button("GENERATE", id="btn-plr-generate", classes="plr-ops-btn", compact=True)
+            yield Button("SEED…", id="btn-plr-seed", classes="plr-ops-btn", compact=True)
+
+        # 3. Main Visual Canvas; the companion is a root sibling so the page
         # orchestrator can dock it to any rail or footer per preset.
         with Horizontal(id="plr-canvas-container"):
             yield VisualDashboardWidget(id="plr-dashboard", clock_managed_externally=True)
@@ -1148,13 +1255,19 @@ class PlayerStudioWidget(Container):
 
         self._frame_timer = self.set_interval(1.0 / 60.0, self._tick_60fps)
 
-    def apply_layout(self, layout: VisionLayout) -> None:
+    def apply_layout(
+        self,
+        layout: VisionLayout,
+        *,
+        design_override: PlayerPageDesign | None = None,
+    ) -> None:
         """Apply a full visual layout and transform the entire TUI design."""
         self.current_layout = layout
+        self._ops_managed = False
         self.active_gap = layout.gap_distance
         self.current_theme = self.stitch_client.get_theme(layout.stitch_theme_id)
 
-        design = get_player_design(layout.layout_id)
+        design = design_override or get_player_design(layout.layout_id)
         self.current_design = design or get_player_design("preset_matrix_terminal")
 
         try:
@@ -1187,6 +1300,14 @@ class PlayerStudioWidget(Container):
             pass
 
         try:
+            ops_bar = self.query_one("#plr-ops-bar")
+            ops_bar.styles.background = theme.background_color
+            for button in ops_bar.query(Button):
+                button.styles.color = theme.primary_color
+        except Exception:
+            pass
+
+        try:
             dock = self.query_one("#plr-bottom-dock")
             dock.styles.background = theme.surface_color
             dock.styles.border_top = (border_type, theme.secondary_color)
@@ -1200,7 +1321,7 @@ class PlayerStudioWidget(Container):
         dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
         dash.set_editable(not layout.is_builtin)
-        dash.layout_style = self.current_design.dashboard_layout
+        dash.layout_style = layout.dashboard_layout or self.current_design.dashboard_layout
 
         custom_palette = theme_color_palette(theme)
 
@@ -1259,7 +1380,7 @@ class PlayerStudioWidget(Container):
             "dos_keys": {
                 "#btn-plr-omnirip": "[F1:OMNIRIP]",
                 "#btn-plr-presets": "[F2:PRESETS]",
-                "#btn-plr-load-layout": "[F3:LOAD]",
+                "#btn-plr-load-layout": "[F3:THEME]",
                 "#btn-plr-save-layout": "[F4:SAVE]",
                 "#btn-plr-gap": f"[F5:GAP:{self.active_gap}]",
                 "#btn-plr-popout": "[F6:TAB]",
@@ -1275,7 +1396,7 @@ class PlayerStudioWidget(Container):
             "cyber_brackets": {
                 "#btn-plr-omnirip": "[// OMNIRIP //]",
                 "#btn-plr-presets": "[// PRESETS:20 //]",
-                "#btn-plr-load-layout": "[// IMPORT //]",
+                "#btn-plr-load-layout": "[THEME]",
                 "#btn-plr-save-layout": "[// EXPORT //]",
                 "#btn-plr-gap": f"[// GAP:{self.active_gap} //]",
                 "#btn-plr-popout": "[// SHELL //]",
@@ -1291,7 +1412,7 @@ class PlayerStudioWidget(Container):
             "retro_arcade": {
                 "#btn-plr-omnirip": "[🪙 1P/OMNI]",
                 "#btn-plr-presets": "[🕹️ PRESETS]",
-                "#btn-plr-load-layout": "[📂 LOAD]",
+                "#btn-plr-load-layout": "[THEME]",
                 "#btn-plr-save-layout": "[💾 SAVE]",
                 "#btn-plr-gap": f"[● GAP:{self.active_gap}]",
                 "#btn-plr-popout": "[↗ NEW]",
@@ -1307,7 +1428,7 @@ class PlayerStudioWidget(Container):
             "cozy_soft": {
                 "#btn-plr-omnirip": "☕ omnirip",
                 "#btn-plr-presets": "✿ presets",
-                "#btn-plr-load-layout": "♡ load",
+                "#btn-plr-load-layout": "♡ theme",
                 "#btn-plr-save-layout": "☁ save",
                 "#btn-plr-gap": f"⋆ gap ({self.active_gap})",
                 "#btn-plr-popout": "↗ tab",
@@ -1323,7 +1444,7 @@ class PlayerStudioWidget(Container):
             "tactile_knobs": {
                 "#btn-plr-omnirip": "[CH-1: OMNI]",
                 "#btn-plr-presets": "[BNK: PRESETS]",
-                "#btn-plr-load-layout": "[INP: LOAD]",
+                "#btn-plr-load-layout": "[THEME]",
                 "#btn-plr-save-layout": "[ROM: SAVE]",
                 "#btn-plr-gap": f"[ATT: GAP-{self.active_gap}]",
                 "#btn-plr-popout": "[AUX: TAB]",
@@ -1339,7 +1460,7 @@ class PlayerStudioWidget(Container):
             "hud_caps": {
                 "#btn-plr-omnirip": "1//OMNI",
                 "#btn-plr-presets": "2//PRESETS",
-                "#btn-plr-load-layout": "3//LOAD",
+                "#btn-plr-load-layout": "3//THEME",
                 "#btn-plr-save-layout": "4//SAVE",
                 "#btn-plr-gap": f"5//GAP:{self.active_gap}",
                 "#btn-plr-popout": "6//POPOUT",
@@ -1355,7 +1476,7 @@ class PlayerStudioWidget(Container):
             "bracket_caps": {
                 "#btn-plr-omnirip": "【OMNIRIP】",
                 "#btn-plr-presets": "【PRESETS】",
-                "#btn-plr-load-layout": "【LOAD】",
+                "#btn-plr-load-layout": "【THEME】",
                 "#btn-plr-save-layout": "【SAVE】",
                 "#btn-plr-gap": f"【GAP:{self.active_gap}】",
                 "#btn-plr-popout": "【TAB】",
@@ -1371,7 +1492,7 @@ class PlayerStudioWidget(Container):
             "pill": {
                 "#btn-plr-omnirip": "( 1: OMNIRIP )",
                 "#btn-plr-presets": "( ✨ PRESETS )",
-                "#btn-plr-load-layout": "( 📐 LOAD )",
+                "#btn-plr-load-layout": "( THEME )",
                 "#btn-plr-save-layout": "( 💾 SAVE )",
                 "#btn-plr-gap": f"( ⚬ GAP: {self.active_gap} )",
                 "#btn-plr-popout": "( ↗ TAB )",
@@ -1594,6 +1715,12 @@ class PlayerStudioWidget(Container):
             self.app.push_screen(SaveLayoutModal(), self._handle_save_layout)
         elif btn_id == "btn-plr-load-layout":
             self._cycle_layout()
+        elif btn_id == "btn-plr-optimize":
+            self._optimize_view()
+        elif btn_id == "btn-plr-generate":
+            self._generate_view()
+        elif btn_id == "btn-plr-seed":
+            self._seed_view()
         elif btn_id == "btn-plr-popout":
             launch_player_external()
 
@@ -1619,10 +1746,131 @@ class PlayerStudioWidget(Container):
 
         dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
         dash.gap_size = self.active_gap
-        dash._refresh_canvas()
+        if self._ops_managed:
+            # Wider gaps shrink every cell, so an optimized/generated view must
+            # re-fit instead of clipping its cards.
+            self._optimize_view(announce=False)
+        else:
+            dash._refresh_canvas()
 
-    def _cycle_layout(self) -> None:
-        """Cycle through available layouts."""
+    def on_key(self, event: events.Key) -> None:
+        key = event.key.lower()
+        if key in ("cmd+right", "super+right", "ctrl+right", "meta+right", "shift+right"):
+            event.stop()
+            self._cycle_layout(1)
+        elif key in ("cmd+left", "super+left", "ctrl+left", "meta+left", "shift+left"):
+            event.stop()
+            self._cycle_layout(-1)
+        elif key == "o":
+            event.stop()
+            self._optimize_view()
+        elif key == "g":
+            event.stop()
+            self._generate_view()
+        elif key == "s":
+            event.stop()
+            self._seed_view()
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Re-tile optimized/generated views when the terminal geometry changes."""
+        if not self._ops_managed or self.current_layout is None:
+            return
+        if self._resize_timer is not None:
+            self._resize_timer.stop()
+        self._resize_timer = self.set_timer(0.25, self._reoptimize)
+
+    def _reoptimize(self) -> None:
+        self._resize_timer = None
+        if self._ops_managed:
+            self._optimize_view(announce=False)
+
+    def _optimize_view(
+        self,
+        announce: bool = True,
+        measure: bool = True,
+        assume_editable: bool = False,
+    ) -> bool:
+        """Re-tile the dashboard so the canvas holds no dead space or clipped cards.
+
+        The current built-in layout object is never mutated; the optimized view
+        is transient and becomes persistent only when the user saves it.
+        """
+        dash = self.query_one("#plr-dashboard", VisualDashboardWidget)
+        original = len(dash.cards)
+        gap = int(self.active_gap)
+        width, height = dashboard_region(
+            self, measure=measure, assume_editable=assume_editable
+        )
+        plan = plan_dashboard(
+            dash.cards,
+            width,
+            height,
+            prefer_style=dash.layout_style,
+            min_width=MIN_CARD_WIDTH + gap,
+            min_height=MIN_CARD_HEIGHT + gap,
+        )
+        if plan is None:
+            if announce:
+                self.notify("OPTIMIZE: no usable canvas region", severity="warning", timeout=2.0)
+            return False
+        cards, swaps = fit_cards_to_plan(list(dash.cards), plan, gap)
+        dash.cards = cards
+        dash.layout_style = plan.layout_style
+        dash._refresh_canvas()
+        self._ops_managed = True
+        if announce:
+            trimmed = f" · trimmed from {original}" if plan.card_count < original else ""
+            swapped = f" · {swaps} engine swap(s)" if swaps else ""
+            self.notify(
+                f"OPTIMIZED {plan.layout_style} · {plan.card_count} tiles"
+                f" ({plan.grid_label}){trimmed}{swapped}",
+                timeout=3.0,
+            )
+        return True
+
+    def _generate_view(self, seed: int | None = None) -> None:
+        """Apply a fresh random mix, then fit it to the measured canvas.
+
+        An explicit ``seed`` is fully reproducible: the plan is computed against
+        the editable canvas and the current layout is never excluded, so the
+        same seed always yields the same grammar, tiling, engines, and palettes.
+        """
+        explicit = seed is not None
+        if seed is None:
+            seed = random.SystemRandom().randrange(1, 1_000_000_000)
+        width, height = dashboard_region(self, measure=False, assume_editable=True)
+        exclude = None
+        if (
+            not explicit
+            and self.current_layout is not None
+            and self.current_layout.layout_id.startswith("builtin_")
+        ):
+            exclude = self.current_layout.layout_id
+        mix = generate_mix(seed, width, height, exclude_layout_id=exclude)
+        if mix is None:
+            self.notify("GENERATE: no mix fits this canvas", severity="warning", timeout=2.0)
+            return
+        design = get_player_design(mix.base_layout_id)
+        layout = build_generated_layout(mix)
+        self.apply_layout(layout, design_override=design)
+        self._ops_managed = True
+        # The editable dashboard toolbar appears with this layout, so derive the
+        # region from the new page chrome instead of the stale grid geometry.
+        self._optimize_view(announce=False, measure=False, assume_editable=True)
+        title = design.page_title if design is not None else mix.base_layout_id
+        label = "GENERATED" if not explicit else "SEEDED"
+        self.notify(f"{label} {title} · seed {seed}", timeout=3.0)
+
+    def _seed_view(self) -> None:
+        """Prompt for a seed and regenerate that exact mix."""
+        self.app.push_screen(SeedInputModal(), self._handle_seed_selected)
+
+    def _handle_seed_selected(self, seed: int | None) -> None:
+        if seed is not None:
+            self._generate_view(seed=seed)
+
+    def _cycle_layout(self, direction: int = 1) -> None:
+        """Cycle through available layouts, keeping an active fit mode."""
         layouts = self.layout_store.list_layouts()
         if not layouts:
             return
@@ -1634,8 +1882,13 @@ class PlayerStudioWidget(Container):
                     current_idx = i
                     break
 
-        next_idx = (current_idx + 1) % len(layouts)
+        next_idx = (current_idx + direction) % len(layouts)
+        was_managed = self._ops_managed
         self.apply_layout(layouts[next_idx])
+        if was_managed:
+            # OPTIMIZE/GENERATE mode survives theme hopping: every newly applied
+            # preset is re-fitted instead of silently reverting to a clipped view.
+            self._optimize_view(announce=False)
 
     def _handle_add_song(self, path: Path | None) -> None:
         if path and path.exists():
@@ -1666,6 +1919,7 @@ class PlayerStudioWidget(Container):
             description="",
             stitch_theme_id=self.current_theme.theme_id,
             gap_distance=self.active_gap,
+            dashboard_layout=dash.layout_style,
             cards=cards,
             is_builtin=False,
         )
@@ -1685,6 +1939,24 @@ class PlayerScreen(ModalScreen):
     }
     """
 
+    BINDINGS = [
+        ("cmd+right", "cycle_theme_next", "Next Theme"),
+        ("super+right", "cycle_theme_next", "Next Theme"),
+        ("ctrl+right", "cycle_theme_next", "Next Theme"),
+        ("meta+right", "cycle_theme_next", "Next Theme"),
+        ("shift+right", "cycle_theme_next", "Next Theme"),
+        ("cmd+left", "cycle_theme_prev", "Prev Theme"),
+        ("super+left", "cycle_theme_prev", "Prev Theme"),
+        ("ctrl+left", "cycle_theme_prev", "Prev Theme"),
+        ("meta+left", "cycle_theme_prev", "Prev Theme"),
+        ("shift+left", "cycle_theme_prev", "Prev Theme"),
+        ("o", "optimize_view", "Optimize"),
+        ("g", "generate_view", "Generate"),
+        ("s", "seed_view", "Seed"),
+        ("1", "dismiss", "Exit"),
+        ("escape", "dismiss", "Exit"),
+    ]
+
     def __init__(
         self,
         fidelity_mode: str = "auto",
@@ -1700,9 +1972,46 @@ class PlayerScreen(ModalScreen):
             reduced_motion=self.reduced_motion,
         )
 
+    def action_cycle_theme_next(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._cycle_layout(1)
+        except Exception:
+            pass
+
+    def action_cycle_theme_prev(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._cycle_layout(-1)
+        except Exception:
+            pass
+
+    def action_optimize_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._optimize_view()
+        except Exception:
+            pass
+
+    def action_generate_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._generate_view()
+        except Exception:
+            pass
+
+    def action_seed_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._seed_view()
+        except Exception:
+            pass
+
     def on_key(self, event: events.Key) -> None:
-        if event.key in ("1", "escape"):
+        key = event.key.lower()
+        if key in ("1", "escape"):
             self.dismiss()
+        elif key in ("cmd+right", "super+right", "ctrl+right", "meta+right", "shift+right"):
+            event.stop()
+            self.action_cycle_theme_next()
+        elif key in ("cmd+left", "super+left", "ctrl+left", "meta+left", "shift+left"):
+            event.stop()
+            self.action_cycle_theme_prev()
 
 
 class PlayerApp(App):
@@ -1713,6 +2022,23 @@ class PlayerApp(App):
         background: #0a0e14;
     }
     """
+
+    BINDINGS = [
+        ("cmd+right", "cycle_theme_next", "Next Theme"),
+        ("super+right", "cycle_theme_next", "Next Theme"),
+        ("ctrl+right", "cycle_theme_next", "Next Theme"),
+        ("meta+right", "cycle_theme_next", "Next Theme"),
+        ("shift+right", "cycle_theme_next", "Next Theme"),
+        ("cmd+left", "cycle_theme_prev", "Prev Theme"),
+        ("super+left", "cycle_theme_prev", "Prev Theme"),
+        ("ctrl+left", "cycle_theme_prev", "Prev Theme"),
+        ("meta+left", "cycle_theme_prev", "Prev Theme"),
+        ("shift+left", "cycle_theme_prev", "Prev Theme"),
+        ("o", "optimize_view", "Optimize"),
+        ("g", "generate_view", "Generate"),
+        ("s", "seed_view", "Seed"),
+        ("ctrl+q", "quit", "Quit"),
+    ]
 
     def __init__(self, fidelity_mode: str = "auto", reduced_motion: bool = False) -> None:
         super().__init__()
@@ -1725,6 +2051,45 @@ class PlayerApp(App):
             reduced_motion=self.reduced_motion,
         )
         yield Footer()
+
+    def action_cycle_theme_next(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._cycle_layout(1)
+        except Exception:
+            pass
+
+    def action_cycle_theme_prev(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._cycle_layout(-1)
+        except Exception:
+            pass
+
+    def action_optimize_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._optimize_view()
+        except Exception:
+            pass
+
+    def action_generate_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._generate_view()
+        except Exception:
+            pass
+
+    def action_seed_view(self) -> None:
+        try:
+            self.query_one(PlayerStudioWidget)._seed_view()
+        except Exception:
+            pass
+
+    def on_key(self, event: events.Key) -> None:
+        key = event.key.lower()
+        if key in ("cmd+right", "super+right", "ctrl+right", "meta+right", "shift+right"):
+            event.stop()
+            self.action_cycle_theme_next()
+        elif key in ("cmd+left", "super+left", "ctrl+left", "meta+left", "shift+left"):
+            event.stop()
+            self.action_cycle_theme_prev()
 
 
 def main():

@@ -176,16 +176,6 @@ class VisualizerCard(Widget):
     VisualizerCard.-read-only .vis-card-arrange-bar {
         display: none;
     }
-    .vis-grid-col {
-        width: 1fr;
-        height: 100%;
-    }
-    .vis-grid-col.-hero {
-        width: 2fr;
-    }
-    .vis-grid-col.-sidebar {
-        width: 1fr;
-    }
     .vis-card-header {
         height: 1;
         width: 1fr;
@@ -753,6 +743,16 @@ class VisualDashboardWidget(Widget):
         width: 1fr;
         margin-bottom: 0;
     }
+    .vis-grid-col {
+        width: 1fr;
+        height: 100%;
+    }
+    .vis-grid-col.-hero {
+        width: 2fr;
+    }
+    .vis-grid-col.-sidebar {
+        width: 1fr;
+    }
     """
 
     cards: reactive[list[dict[str, Any]]] = reactive(list)
@@ -1022,8 +1022,8 @@ class VisualDashboardWidget(Widget):
         ) -> bool:
             row = Horizontal(classes="vis-grid-row")
             row.styles.height = height
-            if self.gap_size:
-                row.styles.margin = (0, 0, self.gap_size, 0)
+            # Card margins own the gap on both axes; adding row margins here
+            # would double the vertical gap and shrink every rendered card.
             if not await mount_children(parent, row):
                 return False
             return await mount_children(
