@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -65,3 +66,50 @@ async def test_setup_modal_when_all_cached():
         btn_download = modal.query_one("#btn-download", Button)
         assert btn_download.label == "Enter OmniRip"
         await pilot.click("#btn-download")
+
+
+@pytest.mark.asyncio
+async def test_setup_modal_downloads_in_parallel_batch():
+    mock_mm = MagicMock(spec=ModelManager)
+    mock_mm.is_cached.return_value = False
+    mock_mm.download_many.return_value = {
+        "hdemucs": Path("/tmp/hdemucs"),
+        "flashsr": Path("/tmp/flashsr"),
+    }
+
+    modal = ModelSetupModal(model_manager=mock_mm, models=["hdemucs", "flashsr"])
+    app = DummySetupApp(modal)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        modal.query_one("#btn-download", Button).press()
+        await pilot.pause()
+        await pilot.pause()
+
+        mock_mm.download_many.assert_called_once()
+        names = list(mock_mm.download_many.call_args.args[0])
+        assert names == ["hdemucs", "flashsr"]
+        btn_download = modal.query_one("#btn-download", Button)
+        assert btn_download.label == "Enter OmniRip"
+
+
+@pytest.mark.asyncio
+async def test_setup_modal_reports_failed_batch_for_retry():
+    mock_mm = MagicMock(spec=ModelManager)
+    mock_mm.is_cached.return_value = False
+    mock_mm.download_many.return_value = {"hdemucs": None, "flashsr": Path("/tmp/x")}
+
+    modal = ModelSetupModal(model_manager=mock_mm, models=["hdemucs", "flashsr"])
+    app = DummySetupApp(modal)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        modal.query_one("#btn-download", Button).press()
+        await pilot.pause()
+        await pilot.pause()
+
+        status = modal.query_one("#model-status", Label)
+        assert "Failed" in str(status.render())
+        btn_download = modal.query_one("#btn-download", Button)
+        assert btn_download.label == "Retry Download"
+        assert btn_download.disabled is False

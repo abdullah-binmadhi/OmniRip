@@ -4,13 +4,66 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 import platformdirs
 
 logger = logging.getLogger(__name__)
+
+# In-progress Hugging Face downloads older than this are abandoned leftovers
+# from an interrupted run; they are pruned before the next download starts.
+STALE_INCOMPLETE_MAX_AGE_S = 6 * 3600
+
+
+def _throttled_progress(
+    callback: Callable[[float], None] | None,
+) -> Callable[[float], None] | None:
+    """Wrap a progress callback so it only fires on whole-percent changes."""
+    if callback is None:
+        return None
+    last_pct = [-1]
+
+    def report(progress: float) -> None:
+        pct = int(max(0.0, min(1.0, progress)) * 100)
+        if pct != last_pct[0]:
+            last_pct[0] = pct
+            callback(pct / 100.0)
+
+    return report
+
+
+def _progress_tqdm_class(
+    callback: Callable[[float], None] | None,
+) -> type | None:
+    """Build a tqdm subclass that forwards hf_hub_download progress to us.
+
+    huggingface_hub drives its byte-level progress bar via ``tqdm_class``; the
+    default class reports nothing, which left the setup UI at its initial 10 %
+    for the whole (multi-gigabyte) download.
+    """
+    if callback is None:
+        return None
+    try:
+        from tqdm.auto import tqdm
+    except Exception:
+        return None
+
+    class _ReportingTqdm(tqdm):
+        def update(self, n: int = 1):  # type: ignore[override]
+            result = super().update(n)
+            total = self.total or 0
+            if total > 0:
+                try:
+                    callback(min(0.99, max(0.0, self.n / total)))
+                except Exception:
+                    pass
+            return result
+
+    return _ReportingTqdm
 
 
 @dataclass(frozen=True)
@@ -153,6 +206,30 @@ class ModelManager:
                 h.update(chunk)
         return h.hexdigest().lower() == expected_sha256.lower()
 
+    def _prune_stale_incomplete(self, max_age_s: float = STALE_INCOMPLETE_MAX_AGE_S) -> int:
+        """Delete abandoned Hugging Face partial downloads older than ``max_age_s``.
+
+        An interrupted ``hf_hub_download`` leaves a multi-hundred-megabyte
+        ``.incomplete`` file under the local download cache. Files still being
+        written (recent mtime) are never touched, so a concurrent download in
+        another process is safe.
+        """
+        download_root = self.cache_dir / ".cache" / "huggingface" / "download"
+        if not download_root.exists():
+            return 0
+        cutoff = time.time() - max_age_s
+        removed = 0
+        for partial in download_root.rglob("*.incomplete"):
+            try:
+                if partial.is_file() and partial.stat().st_mtime < cutoff:
+                    partial.unlink()
+                    removed += 1
+            except OSError:
+                continue
+        if removed:
+            logger.info("Pruned %d stale partial model download(s)", removed)
+        return removed
+
     def download_model(
         self,
         model_name: str,
@@ -225,13 +302,27 @@ class ModelManager:
             from huggingface_hub import hf_hub_download
 
             logger.info("Downloading %s using huggingface_hub (%s)...", spec.name, spec.repo_id)
-            if progress_callback:
-                progress_callback(0.1)
-            downloaded = hf_hub_download(
-                repo_id=spec.repo_id,
-                filename=spec.filename,
-                local_dir=str(self.cache_dir),
-            )
+            self._prune_stale_incomplete()
+            report = _throttled_progress(progress_callback)
+            if report:
+                report(0.0)
+            kwargs: dict[str, object] = {"local_dir": str(self.cache_dir)}
+            tqdm_class = _progress_tqdm_class(report)
+            if tqdm_class is not None:
+                kwargs["tqdm_class"] = tqdm_class
+            try:
+                downloaded = hf_hub_download(
+                    repo_id=spec.repo_id,
+                    filename=spec.filename,
+                    **kwargs,
+                )
+            except TypeError:
+                # Older huggingface_hub without tqdm_class support.
+                downloaded = hf_hub_download(
+                    repo_id=spec.repo_id,
+                    filename=spec.filename,
+                    local_dir=str(self.cache_dir),
+                )
             downloaded_path = Path(downloaded)
             if spec.expected_sha256:
                 if not self.verify_checksum(downloaded_path, spec.expected_sha256):
@@ -246,6 +337,51 @@ class ModelManager:
         except Exception as e:
             logger.error("Failed to download model %s: %s", spec.name, e)
             raise RuntimeError(f"Failed to download model '{spec.name}': {e}") from e
+
+    def download_many(
+        self,
+        model_names: list[str],
+        progress_callback: Callable[[str, float], None] | None = None,
+        max_workers: int = 4,
+        force_download: bool = False,
+    ) -> dict[str, Path | None]:
+        """Download several models concurrently.
+
+        Hugging Face throttles throughput per connection (~2.5 MB/s measured),
+        while several parallel files aggregate far higher, so the setup bundle
+        finishes several times sooner when fetched in parallel. Per-model
+        failures are collected as ``None`` instead of aborting the batch, and
+        each model reports progress as ``(name, fraction)``.
+        """
+        names = list(model_names)
+        if not names:
+            return {}
+        results: dict[str, Path | None] = {}
+
+        def _download_one(name: str) -> tuple[str, Path | None]:
+            def _report(fraction: float) -> None:
+                if progress_callback is not None:
+                    try:
+                        progress_callback(name, fraction)
+                    except Exception:
+                        pass
+
+            try:
+                path = self.download_model(
+                    name,
+                    progress_callback=_report,
+                    force_download=force_download,
+                )
+                return name, path
+            except Exception as exc:
+                logger.warning("Failed to download model %s: %s", name, exc)
+                return name, None
+
+        workers = max(1, min(max_workers, len(names)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="model-dl") as pool:
+            for name, path in pool.map(_download_one, names):
+                results[name] = path
+        return results
 
     def _download_direct_http(
         self,

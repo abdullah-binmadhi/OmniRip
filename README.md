@@ -453,6 +453,8 @@ uv run omnirip
 
 > [!TIP]
 > The `--extra restore` and `--extra flashsr` flags install PyTorch, Demucs, TorchAudio, Transformers, and FlashSR dependencies for on-device Neural Stem Separation and AI Super-Resolution. For lightweight installations without neural models, omit the flags to run in instant Eco DSP mode.
+>
+> First-run model provisioning downloads the four default checkpoints in parallel — Hugging Face throttles throughput per connection (~2.5 MB/s measured), so batching the files several times over beats a sequential loop — with live byte-level progress and retry-on-failure, and abandoned partial downloads are pruned automatically.
 
 ---
 

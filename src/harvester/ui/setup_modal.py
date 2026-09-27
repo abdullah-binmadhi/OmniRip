@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
 
 from textual.app import ComposeResult
 from textual.containers import Center, Horizontal, Vertical
@@ -84,6 +83,7 @@ class ModelSetupModal(ModalScreen[bool]):
         self.models_to_check = models or list(DEFAULT_SETUP_MODELS)
         self._is_downloading = False
         self._missing_models: list[str] = []
+        self._fractions: dict[str, float] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical(id="setup-card"):
@@ -141,34 +141,34 @@ class ModelSetupModal(ModalScreen[bool]):
         btn_download = self.query_one("#btn-download", Button)
         skip_btn = self.query_one("#btn-skip", Button)
 
-        total_models = len(self._missing_models)
+        missing = list(self._missing_models)
+        self._fractions = {name: 0.0 for name in missing}
 
-        for index, model_name in enumerate(self._missing_models, start=1):
-            status_label.update(
-                f"[cyan]Downloading model ({index}/{total_models}):[/cyan] [bold]{model_name}[/bold]..."
-            )
-            progress_bar.update(progress=0.0, total=100.0)
-
-            def make_progress(name: str, current_idx: int) -> Callable[[float], None]:
-                def on_progress(p: float) -> None:
-                    pct = round(p * 100.0, 1)
-                    self.app.call_from_thread(
-                        self._update_progress_ui, name, pct, current_idx, total_models
-                    )
-                return on_progress
-
+        def on_progress(name: str, fraction: float) -> None:
+            self._fractions[name] = max(0.0, min(1.0, fraction))
             try:
-                await asyncio.to_thread(
-                    self.model_manager.download_model,
-                    model_name,
-                    progress_callback=make_progress(model_name, index),
-                )
-            except Exception as exc:
-                logger.warning("Failed to download model %s: %s", model_name, exc)
-                status_label.update(
-                    f"[red]✗ Failed to download {model_name}: {exc}[/red]"
-                )
-                await asyncio.sleep(1.5)
+                self.app.call_from_thread(self._render_progress)
+            except Exception:
+                pass
+
+        # Parallel downloads: Hugging Face throttles per connection, so the
+        # setup bundle finishes several times sooner than one file at a time.
+        results = await asyncio.to_thread(
+            self.model_manager.download_many,
+            missing,
+            progress_callback=on_progress,
+        )
+
+        failed = [name for name, path in results.items() if path is None]
+        if failed:
+            logger.warning("Model download failures: %s", ", ".join(failed))
+            self._check_missing_models()
+            status_label.update(f"[red]✗ Failed to download:[/red] {', '.join(failed)}")
+            btn_download.label = "Retry Download"
+            btn_download.disabled = False
+            skip_btn.disabled = False
+            self._is_downloading = False
+            return
 
         status_label.update("[green]✓ Setup complete! All models verified.[/green]")
         progress_bar.update(progress=100.0, total=100.0)
@@ -178,15 +178,20 @@ class ModelSetupModal(ModalScreen[bool]):
         self._missing_models.clear()
         self._is_downloading = False
 
-    def _update_progress_ui(
-        self, model_name: str, pct: float, index: int, total_models: int
-    ) -> None:
+    def _render_progress(self) -> None:
         try:
             bar = self.query_one("#progress-bar", ProgressBar)
-            bar.update(progress=pct, total=100.0)
             status = self.query_one("#model-status", Label)
-            status.update(
-                f"[cyan]Downloading ({index}/{total_models}) [bold]{model_name}[/bold]:[/cyan] {pct}%"
-            )
         except Exception:
-            pass
+            return
+        missing = self._missing_models
+        total = max(1, len(missing))
+        overall = sum(self._fractions.get(name, 0.0) for name in missing) / total
+        bar.update(progress=overall * 100.0, total=100.0)
+        active = [
+            f"{name} {self._fractions.get(name, 0.0) * 100:.0f}%"
+            for name in missing
+            if 0.0 < self._fractions.get(name, 0.0) < 1.0
+        ]
+        if active:
+            status.update("[cyan]Downloading[/cyan] " + " · ".join(active))

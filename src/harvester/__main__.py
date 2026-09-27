@@ -117,21 +117,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("OmniRip: Verifying and downloading default AI model weights...")
         mm = ModelManager()
         models_to_download = ["hdemucs", "flashsr", "flashsr_ldm", "flashsr_vae"]
-        for name in models_to_download:
-            if mm.is_cached(name):
-                print(f"  ✓ {name}: cached locally")
-            else:
-                print(f"  ↓ {name}: downloading...", end="", flush=True)
-                try:
-                    mm.download_model(
-                        name,
-                        progress_callback=lambda p, n=name: print(
-                            f"\r  ↓ {n}: {int(p * 100)}%", end="", flush=True
-                        ),
-                    )
-                    print(f"\r  ✓ {name}: downloaded and verified")
-                except Exception as err:
-                    print(f"\r  ✗ {name}: download skipped or failed ({err})")
+        cached = [name for name in models_to_download if mm.is_cached(name)]
+        missing = [name for name in models_to_download if name not in cached]
+        for name in cached:
+            print(f"  ✓ {name}: cached locally")
+        if missing:
+            fractions = {name: 0.0 for name in missing}
+
+            def _report(name: str, fraction: float) -> None:
+                fractions[name] = fraction
+                overall = sum(fractions.values()) / len(fractions)
+                print(
+                    f"\r  ↓ downloading {len(missing)} model(s): {overall * 100:3.0f}%   ",
+                    end="",
+                    flush=True,
+                )
+
+            # Parallel downloads: HF throttles per connection, so batching is
+            # several times faster than a sequential file-by-file loop.
+            results = mm.download_many(missing, progress_callback=_report)
+            print()
+            for name, path in results.items():
+                if path is not None:
+                    print(f"  ✓ {name}: downloaded and verified")
+                else:
+                    print(f"  ✗ {name}: download skipped or failed")
         print("OmniRip: Model provisioning check complete.")
         return 0
 

@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import os
+import sys
+import threading
+import time
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -164,4 +170,85 @@ def test_model_manager_download_hdemucs_direct_url(tmp_path: Path):
         out = mm.download_model("hdemucs", force_download=True)
         assert out.exists()
         assert out.read_bytes() == b"hdemucs_data"
+
+
+def test_download_model_reports_real_hf_progress(tmp_path: Path):
+    """hf_hub_download's tqdm_class must forward byte-level progress to us."""
+    mm = ModelManager(cache_dir=tmp_path)
+    # Deliberately not the cache target path: this test exercises the download
+    # branch, not the cached short-circuit.
+    fake_file = tmp_path / "downloads" / "sr_vocoder.pth"
+
+    def fake_hf_hub_download(repo_id, filename, local_dir=None, tqdm_class=None):
+        assert tqdm_class is not None, "progress-capable tqdm_class not passed"
+        bar = tqdm_class(total=4, disable=False, file=io.StringIO())
+        for _ in range(4):
+            bar.update(1)
+        return str(fake_file)
+
+    module = types.ModuleType("huggingface_hub")
+    module.hf_hub_download = fake_hf_hub_download
+    progress: list[float] = []
+    with patch.dict(sys.modules, {"huggingface_hub": module}):
+        mm.download_model("flashsr", progress_callback=progress.append)
+
+    assert 1.0 in progress
+    assert any(0.0 < value < 1.0 for value in progress)
+
+
+def test_download_many_downloads_concurrently(tmp_path: Path):
+    """Three models must be in flight at once, not one after another."""
+    mm = ModelManager(cache_dir=tmp_path)
+    barrier = threading.Barrier(3, timeout=10)
+
+    def fake_download(name, progress_callback=None, force_download=False):
+        barrier.wait()
+        if progress_callback:
+            progress_callback(1.0)
+        return tmp_path / f"{name}.bin"
+
+    mm.download_model = fake_download  # type: ignore[method-assign]
+    seen: list[tuple[str, float]] = []
+    results = mm.download_many(
+        ["a", "b", "c"],
+        progress_callback=lambda name, fraction: seen.append((name, fraction)),
+        max_workers=3,
+    )
+
+    assert set(results) == {"a", "b", "c"}
+    assert all(path is not None for path in results.values())
+    assert ("a", 1.0) in seen
+
+
+def test_download_many_collects_failures(tmp_path: Path):
+    mm = ModelManager(cache_dir=tmp_path)
+
+    def fake_download(name, progress_callback=None, force_download=False):
+        if name == "bad":
+            raise RuntimeError("boom")
+        return tmp_path / f"{name}.bin"
+
+    mm.download_model = fake_download  # type: ignore[method-assign]
+    results = mm.download_many(["good", "bad"], max_workers=2)
+
+    assert results["good"] is not None
+    assert results["bad"] is None
+
+
+def test_prune_stale_incomplete_removes_only_old_files(tmp_path: Path):
+    mm = ModelManager(cache_dir=tmp_path)
+    download_dir = tmp_path / ".cache" / "huggingface" / "download" / "weights"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    stale = download_dir / "deadbeef.1111.incomplete"
+    fresh = download_dir / "deadbeef.2222.incomplete"
+    stale.write_bytes(b"stale")
+    fresh.write_bytes(b"fresh")
+    old = time.time() - 7 * 3600
+    os.utime(stale, (old, old))
+
+    removed = mm._prune_stale_incomplete()
+
+    assert removed == 1
+    assert not stale.exists()
+    assert fresh.exists()
 
