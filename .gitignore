@@ -8,6 +8,7 @@ build/
 dist/
 wheels/
 *.so
+target/
 
 # Environments & dependencies
 .venv/
