@@ -3,6 +3,7 @@
 pub mod biquad;
 pub mod enhancer;
 pub mod limiter;
+pub mod restoration;
 pub mod servo;
 pub mod streamer;
 pub mod telemetry;
