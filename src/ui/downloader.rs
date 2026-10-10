@@ -1,5 +1,8 @@
 use crate::harvest::spectral::analyze_file;
-use crate::harvest::yt_dlp::{download_audio, AudioFormat};
+use crate::harvest::yt_dlp::{
+    download_audio, download_audio_to_path, expand_album_tracks, get_album_track_path,
+    is_playlist_or_album, AudioFormat,
+};
 use crate::ui::theme::ThemePalette;
 use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -9,12 +12,15 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
 pub enum Mp3Quality {
     Mp3_320k,
+    Mp3_V0,
     Mp3_256k,
-    Mp3_192k,
     Mp3_128k,
+    Aac_256k,
     FlacLossless,
+    Wav24,
     Opus160k,
 }
 
@@ -22,17 +28,21 @@ impl Mp3Quality {
     pub fn label(&self) -> &'static str {
         match self {
             Mp3Quality::Mp3_320k => "MP3 320k (CBR)",
+            Mp3Quality::Mp3_V0 => "MP3 V0 (VBR)",
             Mp3Quality::Mp3_256k => "MP3 256k (CBR)",
-            Mp3Quality::Mp3_192k => "MP3 192k (CBR)",
             Mp3Quality::Mp3_128k => "MP3 128k (CBR)",
+            Mp3Quality::Aac_256k => "AAC 256k (M4A)",
             Mp3Quality::FlacLossless => "FLAC Lossless",
+            Mp3Quality::Wav24 => "WAV (24-bit)",
             Mp3Quality::Opus160k => "OPUS 160k",
         }
     }
 
     pub fn to_audio_format(&self) -> AudioFormat {
         match self {
+            Mp3Quality::Aac_256k => AudioFormat::Aac,
             Mp3Quality::FlacLossless => AudioFormat::Flac,
+            Mp3Quality::Wav24 => AudioFormat::Wav,
             Mp3Quality::Opus160k => AudioFormat::Opus,
             _ => AudioFormat::Mp3,
         }
@@ -40,11 +50,13 @@ impl Mp3Quality {
 
     pub fn next(&self) -> Self {
         match self {
-            Mp3Quality::Mp3_320k => Mp3Quality::Mp3_256k,
-            Mp3Quality::Mp3_256k => Mp3Quality::Mp3_192k,
-            Mp3Quality::Mp3_192k => Mp3Quality::Mp3_128k,
-            Mp3Quality::Mp3_128k => Mp3Quality::FlacLossless,
-            Mp3Quality::FlacLossless => Mp3Quality::Opus160k,
+            Mp3Quality::Mp3_320k => Mp3Quality::Mp3_V0,
+            Mp3Quality::Mp3_V0 => Mp3Quality::Mp3_256k,
+            Mp3Quality::Mp3_256k => Mp3Quality::Mp3_128k,
+            Mp3Quality::Mp3_128k => Mp3Quality::Aac_256k,
+            Mp3Quality::Aac_256k => Mp3Quality::FlacLossless,
+            Mp3Quality::FlacLossless => Mp3Quality::Wav24,
+            Mp3Quality::Wav24 => Mp3Quality::Opus160k,
             Mp3Quality::Opus160k => Mp3Quality::Mp3_320k,
         }
     }
@@ -54,7 +66,7 @@ impl Mp3Quality {
 pub enum AcquisitionPolicy {
     Mp3Only,
     BestAvailable,
-    SoulseekFlacPreferred,
+    NicotineFlacPreferred,
     FastWebFallback,
 }
 
@@ -63,7 +75,7 @@ impl AcquisitionPolicy {
         match self {
             AcquisitionPolicy::Mp3Only => "MP3 Only",
             AcquisitionPolicy::BestAvailable => "Best Available",
-            AcquisitionPolicy::SoulseekFlacPreferred => "Soulseek FLAC",
+            AcquisitionPolicy::NicotineFlacPreferred => "Nicotine+ FLAC",
             AcquisitionPolicy::FastWebFallback => "Fast Web Fallback",
         }
     }
@@ -71,8 +83,8 @@ impl AcquisitionPolicy {
     pub fn next(&self) -> Self {
         match self {
             AcquisitionPolicy::Mp3Only => AcquisitionPolicy::BestAvailable,
-            AcquisitionPolicy::BestAvailable => AcquisitionPolicy::SoulseekFlacPreferred,
-            AcquisitionPolicy::SoulseekFlacPreferred => AcquisitionPolicy::FastWebFallback,
+            AcquisitionPolicy::BestAvailable => AcquisitionPolicy::NicotineFlacPreferred,
+            AcquisitionPolicy::NicotineFlacPreferred => AcquisitionPolicy::FastWebFallback,
             AcquisitionPolicy::FastWebFallback => AcquisitionPolicy::Mp3Only,
         }
     }
@@ -181,7 +193,7 @@ impl DownloaderState {
         let job = DownloadJob {
             id,
             source: text.to_string(),
-            display_name,
+            display_name: display_name.clone(),
             quality: self.selected_quality,
             policy: self.selected_policy,
             phase: JobPhase::Queued,
@@ -200,16 +212,121 @@ impl DownloaderState {
         self.input_text.clear();
         self.status_message = format!("Queued job #{}: {}", id, url);
 
-        // Spawn background tokio download worker
+        if is_playlist_or_album(&url) {
+            if let Some(j) = self.jobs.last_mut() {
+                j.display_name = format!("[ALBUM] {}", display_name);
+            }
+            tokio::spawn(async move {
+                let _ = tx
+                    .send((
+                        id,
+                        JobPhase::Downloading,
+                        5.0,
+                        "Resolving".into(),
+                        "Album".into(),
+                        None,
+                    ))
+                    .await;
+
+                match expand_album_tracks(&url).await {
+                    Ok(album_info) => {
+                        let total = album_info.track_count;
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Downloading,
+                                10.0,
+                                format!("Found {} tracks", total),
+                                "Queued".into(),
+                                Some(format!("Album: {} by {}", album_info.title, album_info.artist)),
+                            ))
+                            .await;
+
+                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                        let music_dir = std::path::PathBuf::from(home).join("Music");
+
+                        for (idx, track) in album_info.tracks.iter().enumerate() {
+                            let prog = 10.0 + ((idx as f32) / (total as f32)) * 85.0;
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Downloading,
+                                    prog,
+                                    format!("Track {}/{}: {}", idx + 1, total, track.title),
+                                    "--:--".into(),
+                                    None,
+                                ))
+                                .await;
+
+                            let target_path = get_album_track_path(
+                                &music_dir,
+                                &track.artist,
+                                &album_info.title,
+                                track.index,
+                                &track.title,
+                                format,
+                            );
+
+                            let _ = download_audio_to_path(&track.url, &target_path, format).await;
+                        }
+
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Completed,
+                                100.0,
+                                format!("Saved to ~/Music/{}/{}", album_info.artist, album_info.title),
+                                "00:00".into(),
+                                Some(format!("Complete: {} tracks", total)),
+                            ))
+                            .await;
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Failed(e),
+                                0.0,
+                                "Failed".into(),
+                                "--:--".into(),
+                                None,
+                            ))
+                            .await;
+                    }
+                }
+            });
+            return;
+        }
+
+        // Spawn background tokio download worker for single track
         tokio::spawn(async move {
-            let _ = tx.send((id, JobPhase::Downloading, 10.0, "Connecting".into(), "--:--".into(), None)).await;
+            let _ = tx
+                .send((
+                    id,
+                    JobPhase::Downloading,
+                    10.0,
+                    "Connecting".into(),
+                    "--:--".into(),
+                    None,
+                ))
+                .await;
 
-            let download_dir = "./downloads";
-            let _ = std::fs::create_dir_all(download_dir);
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let music_dir = std::path::PathBuf::from(home).join("Music");
+            let _ = std::fs::create_dir_all(&music_dir);
 
-            match download_audio(&url, download_dir, format).await {
+            match download_audio(&url, &music_dir, format).await {
                 Ok(path_str) => {
-                    let _ = tx.send((id, JobPhase::Auditing, 80.0, "Analyzing".into(), "00:01".into(), None)).await;
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Auditing,
+                            80.0,
+                            "Analyzing".into(),
+                            "00:01".into(),
+                            None,
+                        ))
+                        .await;
 
                     // Run forensic spectral cutoff auditor
                     let verdict_str = if let Ok(res) = analyze_file(&path_str) {
@@ -218,10 +335,28 @@ impl DownloaderState {
                         Some("Spectral audit completed".to_string())
                     };
 
-                    let _ = tx.send((id, JobPhase::Completed, 100.0, "Done".into(), "00:00".into(), verdict_str)).await;
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Completed,
+                            100.0,
+                            "Done".into(),
+                            "00:00".into(),
+                            verdict_str,
+                        ))
+                        .await;
                 }
                 Err(e) => {
-                    let _ = tx.send((id, JobPhase::Failed(e), 0.0, "Failed".into(), "--:--".into(), None)).await;
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Failed(e),
+                            0.0,
+                            "Failed".into(),
+                            "--:--".into(),
+                            None,
+                        ))
+                        .await;
                 }
             }
         });
