@@ -15,6 +15,7 @@ pub enum SyncMode {
     Extreme,  // 256 frames (~5.3ms cushion)
     Ultra,    // 512 frames (~10.6ms cushion)
     Balanced, // 1024 frames (~21.3ms cushion)
+    Stable,   // 2048 frames (~42.7ms cushion)
 }
 
 impl SyncMode {
@@ -23,6 +24,7 @@ impl SyncMode {
             SyncMode::Extreme => 256,
             SyncMode::Ultra => 512,
             SyncMode::Balanced => 1024,
+            SyncMode::Stable => 2048,
         }
     }
 }
