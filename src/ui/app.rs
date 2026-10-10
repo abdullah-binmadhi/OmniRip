@@ -1,10 +1,16 @@
 //! Main Interactive Terminal User Interface in pure Rust using `ratatui` and `crossterm`.
+//! Integrates the interactive MP3 Downloader, Startup Mode Selection popup,
+//! Multi-Palette Theme Engine (7 themes), and Real-Time Visual Graph Dashboard.
 
 use crate::autoeq::{get_bundled_profiles, ParametricProfile};
 use crate::dsp::biquad::{BiquadFilter, BiquadFilterType};
 use crate::dsp::enhancer::CrossfeedMode;
 use crate::dsp::streamer::{AudioStreamer, SyncMode};
 use crate::dsp::AudioPipeline;
+use crate::ui::downloader::DownloaderState;
+use crate::ui::mode_modal::{ModeModal, WorkstationMode};
+use crate::ui::theme::ThemePalette;
+use crate::ui::visuals::VisualsDashboard;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -33,6 +39,11 @@ pub struct App {
     pub status_message: String,
     pub status_time: Instant,
     profile_list_state: ListState,
+    pub theme: ThemePalette,
+    pub mode_modal: ModeModal,
+    pub downloader: DownloaderState,
+    pub visuals: VisualsDashboard,
+    pub active_mode: WorkstationMode,
 }
 
 impl App {
@@ -76,6 +87,11 @@ impl App {
             status_message: status,
             status_time: Instant::now(),
             profile_list_state: list_state,
+            theme: ThemePalette::default(),
+            mode_modal: ModeModal::new(), // Starts open with startup popup question
+            downloader: DownloaderState::new(),
+            visuals: VisualsDashboard::new(),
+            active_mode: WorkstationMode::Downloader,
         }
     }
 
@@ -112,46 +128,63 @@ impl App {
         let mut last_tick = Instant::now();
 
         loop {
+            // Poll any background downloader worker updates
+            self.downloader.poll_updates();
+
             terminal.draw(|f| self.render(f))?;
 
             let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
+                        // 1. If Startup Mode Modal is open, intercept selection keys
+                        if self.mode_modal.is_open {
+                            match key.code {
+                                KeyCode::Char('1') => {
+                                    self.active_mode = WorkstationMode::Downloader;
+                                    self.mode_modal.is_open = false;
+                                    self.set_status("Workspace: MP3 Downloader & Media Harvester");
+                                }
+                                KeyCode::Char('2') => {
+                                    self.active_mode = WorkstationMode::SystemEq;
+                                    self.mode_modal.is_open = false;
+                                    self.set_status("Workspace: System EQ & Audiophile Mastering");
+                                }
+                                KeyCode::Up | KeyCode::Down => {
+                                    self.mode_modal.selected_index = 1 - self.mode_modal.selected_index;
+                                }
+                                KeyCode::Enter => {
+                                    self.active_mode = self.mode_modal.current_mode();
+                                    self.mode_modal.is_open = false;
+                                    self.set_status(&format!("Workspace: {:?}", self.active_mode));
+                                }
+                                KeyCode::Esc => {
+                                    self.mode_modal.is_open = false;
+                                }
+                                KeyCode::Char('q') | KeyCode::Char('Q') => break,
+                                _ => {}
+                            }
+                            continue;
+                        }
+
+                        // 2. Global Hotkeys
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                            KeyCode::Char('1') => self.active_tab = 0,
-                            KeyCode::Char('2') => self.active_tab = 1,
-                            KeyCode::Char('3') => self.active_tab = 2,
-                            KeyCode::Char('4') => self.active_tab = 3,
-                            KeyCode::Char('5') => self.active_tab = 4,
-                            KeyCode::Tab => {
-                                self.active_tab = (self.active_tab + 1) % 5;
+                            KeyCode::Char('m') | KeyCode::Char('M') => {
+                                self.mode_modal.toggle();
+                                continue;
                             }
-                            KeyCode::Char(' ') => {
-                                if self.streamer.is_running.load(Ordering::SeqCst) {
-                                    self.streamer.stop();
-                                    self.set_status("Audio stream stopped.");
-                                } else {
-                                    match self.streamer.start() {
-                                        Ok(()) => self.set_status("Audio stream started."),
-                                        Err(e) => self.set_status(&format!("Start error: {}", e)),
-                                    }
-                                }
+                            KeyCode::Char('t') | KeyCode::Char('T') => {
+                                self.theme.cycle();
+                                self.set_status(&format!("Theme: {}", self.theme.name));
+                                continue;
                             }
-                            KeyCode::Char('b') | KeyCode::Char('B') => {
-                                let new_state = if let Ok(mut pipe) = self.streamer.pipeline.lock() {
-                                    pipe.bypass = !pipe.bypass;
-                                    Some(pipe.bypass)
-                                } else {
-                                    None
-                                };
-                                if let Some(bp) = new_state {
-                                    let state = if bp { "ON" } else { "OFF" };
-                                    self.set_status(&format!("Bypass mode: {}", state));
-                                }
+                            KeyCode::Char('v') | KeyCode::Char('V') => {
+                                self.visuals.cycle_mode();
+                                self.set_status(&format!("Visual Graph: {}", self.visuals.mode.label()));
+                                continue;
                             }
-                            KeyCode::Char('s') | KeyCode::Char('S') => {
+                            KeyCode::Char('s') | KeyCode::Char('S') if self.active_mode == WorkstationMode::SystemEq => {
                                 let next_mode = match self.streamer.sync_mode {
                                     SyncMode::Extreme => SyncMode::Ultra,
                                     SyncMode::Ultra => SyncMode::Balanced,
@@ -164,8 +197,54 @@ impl App {
                                     SyncMode::Balanced => "BALANCED (1024 frames, ~51ms)",
                                 };
                                 self.set_status(&format!("Sync mode: {}", desc));
+                                continue;
                             }
-                            _ => self.handle_tab_key(key.code),
+                            KeyCode::Char('b') | KeyCode::Char('B') if self.active_mode == WorkstationMode::SystemEq => {
+                                let new_state = if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+                                    pipe.bypass = !pipe.bypass;
+                                    Some(pipe.bypass)
+                                } else {
+                                    None
+                                };
+                                if let Some(bp) = new_state {
+                                    let state = if bp { "ON" } else { "OFF" };
+                                    self.set_status(&format!("Bypass mode: {}", state));
+                                }
+                                continue;
+                            }
+                            KeyCode::Char(' ') if self.active_mode == WorkstationMode::SystemEq => {
+                                if self.streamer.is_running.load(Ordering::SeqCst) {
+                                    self.streamer.stop();
+                                    self.set_status("Audio stream stopped.");
+                                } else {
+                                    match self.streamer.start() {
+                                        Ok(()) => self.set_status("Audio stream started."),
+                                        Err(e) => self.set_status(&format!("Start error: {}", e)),
+                                    }
+                                }
+                                continue;
+                            }
+                            _ => {}
+                        }
+
+                        // 3. Mode-Specific Key Handlers
+                        match self.active_mode {
+                            WorkstationMode::Downloader => {
+                                self.downloader.handle_key(key.code);
+                            }
+                            WorkstationMode::SystemEq => {
+                                match key.code {
+                                    KeyCode::Char('1') => self.active_tab = 0,
+                                    KeyCode::Char('2') => self.active_tab = 1,
+                                    KeyCode::Char('3') => self.active_tab = 2,
+                                    KeyCode::Char('4') => self.active_tab = 3,
+                                    KeyCode::Char('5') => self.active_tab = 4,
+                                    KeyCode::Tab => {
+                                        self.active_tab = (self.active_tab + 1) % 5;
+                                    }
+                                    _ => self.handle_tab_key(key.code),
+                                }
+                            }
                         }
                     }
                 }
@@ -253,7 +332,7 @@ impl App {
                         pipe.preamp_db = prof.preamp_db;
                         pipe.crossfader.update_filters(&prof.filters, 48000.0);
                     }
-                    self.set_status(&format!("Applied profile: {}", prof.name));
+                    self.set_status(&format!("Applied AutoEQ preset: {}", prof.name));
                 }
                 _ => {}
             },
@@ -265,68 +344,40 @@ impl App {
         if let Ok(mut pipe) = self.streamer.pipeline.lock() {
             match self.selected_mastering_idx {
                 0 => {
-                    // 3D Spatial Width
-                    let w = pipe.enhancer.spatial_width;
-                    let next = if forward {
-                        if w < 1.2 { 1.25 } else if w < 1.4 { 1.50 } else { 1.00 }
-                    } else {
-                        if w > 1.4 { 1.25 } else if w > 1.1 { 1.00 } else { 1.50 }
-                    };
-                    pipe.enhancer.spatial_width = next;
+                    // 3D Soundstage Width: 100% -> 125% -> 150% -> 75%
+                    let delta = if forward { 0.25 } else { -0.25 };
+                    pipe.enhancer.spatial_width = (pipe.enhancer.spatial_width + delta).clamp(0.5, 2.0);
                 }
                 1 => {
-                    // Class-A Tube Warmth
-                    let t = pipe.enhancer.tube_warmth;
-                    let next = if forward {
-                        if t < 0.1 { 0.15 } else if t < 0.25 { 0.30 } else { 0.00 }
-                    } else {
-                        if t > 0.25 { 0.15 } else if t > 0.05 { 0.00 } else { 0.30 }
-                    };
-                    pipe.enhancer.tube_warmth = next;
+                    // Class-A Tube Warmth: 0.0 -> 0.15 -> 0.30 -> 0.0
+                    let step = if forward { 0.15 } else { -0.15 };
+                    pipe.enhancer.tube_warmth = (pipe.enhancer.tube_warmth + step).clamp(0.0, 0.6);
                 }
                 2 => {
-                    // Aural Air
-                    let a = pipe.enhancer.air_clarity_db;
-                    let next = if forward {
-                        if a < 1.0 { 2.0 } else if a < 3.0 { 4.0 } else { 0.0 }
-                    } else {
-                        if a > 3.0 { 2.0 } else if a > 1.0 { 0.0 } else { 4.0 }
-                    };
-                    pipe.enhancer.air_clarity_db = next;
-                    pipe.enhancer.rebuild_filters();
+                    // Aural Air: 0.0 -> +1.5 -> +3.0 -> 0.0 dB
+                    let step = if forward { 1.5 } else { -1.5 };
+                    pipe.enhancer.air_clarity_db = (pipe.enhancer.air_clarity_db + step).clamp(0.0, 6.0);
                 }
                 3 => {
-                    // Sub-Bass Punch
-                    let b = pipe.enhancer.bass_punch_db;
-                    let next = if forward {
-                        if b < 1.0 { 2.0 } else if b < 3.0 { 4.0 } else { 0.0 }
-                    } else {
-                        if b > 3.0 { 2.0 } else if b > 1.0 { 0.0 } else { 4.0 }
-                    };
-                    pipe.enhancer.bass_punch_db = next;
-                    pipe.enhancer.rebuild_filters();
+                    // Sub-Bass Punch: 0.0 -> +1.5 -> +3.0 -> 0.0 dB
+                    let step = if forward { 1.5 } else { -1.5 };
+                    pipe.enhancer.bass_punch_db = (pipe.enhancer.bass_punch_db + step).clamp(0.0, 6.0);
                 }
                 4 => {
-                    // Meier Crossfeed
-                    let next = match pipe.enhancer.crossfeed {
+                    // Meier Natural Crossfeed
+                    pipe.enhancer.crossfeed = match pipe.enhancer.crossfeed {
                         CrossfeedMode::Off => CrossfeedMode::Subtle,
                         CrossfeedMode::Subtle => CrossfeedMode::Standard,
                         CrossfeedMode::Standard => CrossfeedMode::Off,
                     };
-                    pipe.enhancer.crossfeed = next;
-                    pipe.enhancer.rebuild_filters();
                 }
                 5 => {
                     // Dynamic De-Esser
                     pipe.enhancer.deesser_enabled = !pipe.enhancer.deesser_enabled;
-                    pipe.enhancer.rebuild_filters();
                 }
                 6 => {
                     // Boundary Guard Filters
-                    let cur = pipe.enhancer.subsonic_filter;
-                    pipe.enhancer.subsonic_filter = !cur;
-                    pipe.enhancer.ultrasonic_filter = !cur;
-                    pipe.enhancer.rebuild_filters();
+                    pipe.enhancer.subsonic_filter = !pipe.enhancer.subsonic_filter;
                 }
                 7 => {
                     // Brickwall Limiter
@@ -338,36 +389,71 @@ impl App {
     }
 
     fn render(&mut self, f: &mut ratatui::Frame) {
+        let (spectrum, peak_l, peak_r, phase) = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            (
+                pipe.telemetry.spectrum_32,
+                pipe.telemetry.peak_left_db,
+                pipe.telemetry.peak_right_db,
+                pipe.telemetry.phase_correlation,
+            )
+        } else {
+            ([-60.0; 32], -60.0, -60.0, 1.0)
+        };
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Header & Live Telemetry
-                Constraint::Length(3), // Tabs
-                Constraint::Min(12),   // Active Tab Body
+                Constraint::Length(3), // Top Masthead
+                Constraint::Min(12),   // Workspace body
                 Constraint::Length(2), // Status bar
-                Constraint::Length(1), // Footer keybindings
+                Constraint::Length(1), // Footer hotkeys
             ])
             .split(f.area());
 
         self.render_header(f, chunks[0]);
-        self.render_tabs(f, chunks[1]);
 
-        match self.active_tab {
-            0 => self.render_graphic_eq(f, chunks[2]),
-            1 => self.render_mastering(f, chunks[2]),
-            2 => self.render_routing(f, chunks[2]),
-            3 => self.render_autoeq_browser(f, chunks[2]),
-            4 => self.render_harvester(f, chunks[2]),
-            _ => {}
+        match self.active_mode {
+            WorkstationMode::Downloader => {
+                self.downloader.render(f, chunks[1], &self.theme);
+            }
+            WorkstationMode::SystemEq => {
+                let eq_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(3), // Tabs
+                        Constraint::Min(9),    // Tab contents
+                    ])
+                    .split(chunks[1]);
+
+                self.render_tabs(f, eq_chunks[0]);
+
+                match self.active_tab {
+                    0 => self.render_graphic_eq(f, eq_chunks[1]),
+                    1 => self.render_mastering(f, eq_chunks[1]),
+                    2 => self.render_routing(f, eq_chunks[1]),
+                    3 => self.render_autoeq_browser(f, eq_chunks[1]),
+                    4 => {
+                        let gains = self.band_gains;
+                        self.visuals.render(f, eq_chunks[1], &self.theme, &spectrum, peak_l, peak_r, phase, &gains);
+                    }
+                    _ => {}
+                }
+            }
         }
 
-        self.render_status(f, chunks[3]);
-        self.render_footer(f, chunks[4]);
+        self.render_status(f, chunks[2]);
+        self.render_footer(f, chunks[3]);
+
+        // Render Mode Modal on top if open
+        if self.mode_modal.is_open {
+            self.mode_modal.render(f, f.area(), &self.theme);
+        }
     }
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
         let (peak_l, peak_r, phase, lufs_m, lufs_s, crest, clipping, bypass) =
             if let Ok(pipe) = self.streamer.pipeline.lock() {
+                let clip = pipe.telemetry.peak_left_db >= -0.01 || pipe.telemetry.peak_right_db >= -0.01;
                 (
                     pipe.telemetry.peak_left_db,
                     pipe.telemetry.peak_right_db,
@@ -375,77 +461,74 @@ impl App {
                     pipe.telemetry.lufs_momentary,
                     pipe.telemetry.lufs_short_term,
                     pipe.telemetry.crest_factor_db,
-                    pipe.limiter.is_clipping,
+                    clip,
                     pipe.bypass,
                 )
             } else {
-                (-96.0, -96.0, 1.0, -96.0, -96.0, 0.0, false, false)
+                (-60.0, -60.0, 1.0, -70.0, -70.0, 0.0, false, false)
             };
 
-        let sync_badge = match self.streamer.sync_mode {
-            SyncMode::Extreme => Span::styled(" SYNC: EXTREME (256) ", Style::default().bg(Color::Red).fg(Color::Black).add_modifier(Modifier::BOLD)),
-            SyncMode::Ultra => Span::styled(" SYNC: ULTRA (512) ", Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD)),
-            SyncMode::Balanced => Span::styled(" SYNC: BALANCED (1024) ", Style::default().bg(Color::Green).fg(Color::Black).add_modifier(Modifier::BOLD)),
+        let mode_badge = match self.active_mode {
+            WorkstationMode::Downloader => Span::styled(" [MODE: MP3 DOWNLOADER] ", Style::default().fg(Color::Black).bg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+            WorkstationMode::SystemEq => Span::styled(" [MODE: SYSTEM EQ & MASTERING] ", Style::default().fg(Color::Black).bg(self.theme.primary).add_modifier(Modifier::BOLD)),
         };
 
+        let theme_badge = Span::styled(format!(" [THEME: {}] ", self.theme.name), Style::default().fg(self.theme.accent));
+        let sync_badge = Span::styled(format!(" [{:?}] ", self.streamer.sync_mode), Style::default().fg(Color::White));
         let bypass_badge = if bypass {
-            Span::styled(" [BYPASS: ON] ", Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD))
+            Span::styled(" [BYPASS] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
         } else {
-            Span::styled(" [DSP ACTIVE] ", Style::default().fg(Color::Green))
+            Span::styled(" [DSP ACTIVE] ", Style::default().fg(self.theme.success))
         };
-
         let clip_badge = if clipping {
-            Span::styled(" [CLIP] ", Style::default().bg(Color::Red).fg(Color::White).add_modifier(Modifier::BOLD))
+            Span::styled(" [CLIP!] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
         } else {
-            Span::styled(" [SAFE] ", Style::default().fg(Color::DarkGray))
+            Span::styled(" [0 CLIPS] ", Style::default().fg(Color::DarkGray))
         };
 
+        let peak_str = format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r);
         let phase_str = format!("Phase: {:+.2}", phase);
-        let lufs_str = if lufs_s <= -70.0 {
-            "LUFS: -∞".to_string()
-        } else {
-            format!("LUFS: {:.1} (Mom: {:.1})", lufs_s, lufs_m)
-        };
-        let peak_str = format!("L: {:+.1}dB | R: {:+.1}dB", peak_l, peak_r);
+        let lufs_str = format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s });
         let crest_str = format!("Crest: {:.1}dB", crest);
 
         let title_line = Line::from(vec![
-            Span::styled("OMNIRIP ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Studio Engine v0.2.0  "),
+            Span::styled("OMNIRIP ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+            mode_badge,
+            theme_badge,
             sync_badge,
             bypass_badge,
             clip_badge,
             Span::raw(" | "),
-            Span::styled(peak_str, Style::default().fg(Color::White)),
+            Span::styled(peak_str, Style::default().fg(self.theme.text)),
             Span::raw(" | "),
-            Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { Color::Green } else { Color::Yellow })),
+            Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { self.theme.success } else { self.theme.warning })),
             Span::raw(" | "),
-            Span::styled(lufs_str, Style::default().fg(Color::Magenta)),
+            Span::styled(lufs_str, Style::default().fg(self.theme.secondary)),
             Span::raw(" | "),
-            Span::styled(crest_str, Style::default().fg(Color::Blue)),
+            Span::styled(crest_str, Style::default().fg(self.theme.accent)),
         ]);
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(self.theme.border));
         let p = Paragraph::new(title_line).block(block).alignment(Alignment::Left);
         f.render_widget(p, area);
     }
 
     fn render_tabs(&self, f: &mut ratatui::Frame, area: Rect) {
         let titles = vec![
-            Line::from("[1] 10-Band Graphic EQ"),
-            Line::from("[2] Mastering Suite"),
-            Line::from("[3] Audio Routing"),
-            Line::from("[4] AutoEQ Presets"),
-            Line::from("[5] Harvester"),
+            Line::from("[1] 10-Band EQ"),
+            Line::from("[2] Mastering"),
+            Line::from("[3] Routing"),
+            Line::from("[4] AutoEQ"),
+            Line::from("[5] Visual Graphs"),
         ];
 
         let tabs = Tabs::new(titles)
             .block(Block::default().borders(Borders::ALL))
             .select(self.active_tab)
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            .style(Style::default().fg(self.theme.text))
+            .highlight_style(Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD));
 
         f.render_widget(tabs, area);
     }
@@ -454,40 +537,43 @@ impl App {
         let block = Block::default()
             .title(" 10-BAND GRAPHIC EQ (Peaking Biquads, 1.414 Q) ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        let cols = Layout::default()
+        let col_width = inner.width / 10;
+        if col_width < 4 {
+            return;
+        }
+
+        let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Ratio(1, 10); 10])
+            .constraints(vec![Constraint::Length(col_width); 10])
             .split(inner);
 
-        let labels = [
-            "31 Hz", "63 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz",
-        ];
+        let labels = ["31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"];
 
         for i in 0..10 {
-            let gain = self.band_gains[i];
             let is_selected = i == self.selected_band;
+            let gain = self.band_gains[i];
 
             let col_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(2), // Gain readout
-                    Constraint::Min(6),    // Vertical meter
-                    Constraint::Length(2), // Freq label
+                    Constraint::Length(1), // Top dB label
+                    Constraint::Min(4),    // Meter bar gauge
+                    Constraint::Length(1), // Bottom freq label
                 ])
-                .split(cols[i]);
+                .split(chunks[i]);
 
-            // Top readout
-            let gain_str = format!("{:+.1}dB", gain);
+            // Top gain label
+            let gain_str = format!("{:+.1}", gain);
             let gain_color = if gain > 0.01 {
-                Color::Green
+                self.theme.success
             } else if gain < -0.01 {
-                Color::Yellow
+                self.theme.warning
             } else {
-                Color::DarkGray
+                self.theme.text_dim
             };
             let p_gain = Paragraph::new(gain_str)
                 .style(Style::default().fg(gain_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() }))
@@ -496,16 +582,16 @@ impl App {
 
             // Meter gauge: map [-12, +12] dB to [0, 100]%
             let pct = (((gain + 12.0) / 24.0) * 100.0).clamp(0.0, 100.0) as u16;
-            let gauge_color = if is_selected { Color::Cyan } else { Color::Blue };
+            let gauge_color = if is_selected { self.theme.accent } else { self.theme.secondary };
             let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(gauge_color).bg(Color::Rgb(30, 30, 30)))
+                .gauge_style(Style::default().fg(gauge_color).bg(self.theme.surface))
                 .percent(pct)
                 .label("");
             f.render_widget(gauge, col_chunks[1]);
 
             // Bottom label
             let p_lbl = Paragraph::new(labels[i])
-                .style(Style::default().fg(if is_selected { Color::White } else { Color::DarkGray }))
+                .style(Style::default().fg(if is_selected { self.theme.text } else { self.theme.text_dim }))
                 .alignment(Alignment::Center);
             f.render_widget(p_lbl, col_chunks[2]);
         }
@@ -515,7 +601,7 @@ impl App {
         let block = Block::default()
             .title(" STUDIO AUDIOPHILE MASTERING SUITE ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -549,9 +635,9 @@ impl App {
         for (i, item) in items.iter().enumerate() {
             let is_selected = i == self.selected_mastering_idx;
             let style = if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(self.theme.text)
             };
             let prefix = if is_selected { " > " } else { "   " };
             lines.push(Line::from(vec![Span::styled(format!("{}{}", prefix, item), style)]));
@@ -565,32 +651,32 @@ impl App {
         let block = Block::default()
             .title(" AUDIO ROUTING & SYSTEM STREAM ENGINE ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
         let is_running = self.streamer.is_running.load(Ordering::SeqCst);
         let status_str = if is_running {
-            "[ACTIVE] Low-Latency CoreAudio Loopback Running (Native Threads)"
+            "[ACTIVE] Low-Latency CoreAudio Loopback Running (Native Real-Time Threads)"
         } else {
             "[STOPPED] Audio Stream Inactive (Press Space to Start)"
         };
         let status_style = if is_running {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(self.theme.warning)
         };
 
         let lines = vec![
-            Line::from(vec![Span::styled("Engine Status:    ", Style::default().fg(Color::DarkGray)), Span::styled(status_str, status_style)]),
+            Line::from(vec![Span::styled("Engine Status:    ", Style::default().fg(self.theme.text_dim)), Span::styled(status_str, status_style)]),
             Line::from(""),
-            Line::from(vec![Span::styled("Input Device:     ", Style::default().fg(Color::DarkGray)), Span::styled("BlackHole 2ch (Virtual Loopback Driver)", Style::default().fg(Color::White))]),
-            Line::from(vec![Span::styled("Output Device:    ", Style::default().fg(Color::DarkGray)), Span::styled("OmniRip Stream / iBasso-DC03-Pro (High-Resolution DAC)", Style::default().fg(Color::White))]),
-            Line::from(vec![Span::styled("Routing Path:     ", Style::default().fg(Color::DarkGray)), Span::styled("macOS Sound -> BlackHole 2ch -> OmniRip (Rust DSP) -> DAC", Style::default().fg(Color::Cyan))]),
+            Line::from(vec![Span::styled("Input Device:     ", Style::default().fg(self.theme.text_dim)), Span::styled("BlackHole 2ch (Virtual Loopback Driver)", Style::default().fg(self.theme.text))]),
+            Line::from(vec![Span::styled("Output Device:    ", Style::default().fg(self.theme.text_dim)), Span::styled("OmniRip Stream / iBasso-DC03-Pro (High-Resolution DAC)", Style::default().fg(self.theme.text))]),
+            Line::from(vec![Span::styled("Routing Path:     ", Style::default().fg(self.theme.text_dim)), Span::styled("macOS Sound -> BlackHole 2ch -> OmniRip (Rust DSP) -> DAC", Style::default().fg(self.theme.secondary))]),
             Line::from(""),
-            Line::from(vec![Span::styled("Sync Mode:        ", Style::default().fg(Color::DarkGray)), Span::styled(format!("{:?}", self.streamer.sync_mode), Style::default().fg(Color::White))]),
-            Line::from(vec![Span::styled("Buffer Target:    ", Style::default().fg(Color::DarkGray)), Span::styled(format!("{} frames (~{:.1} ms cushion)", self.streamer.sync_mode.target_frames(), (self.streamer.sync_mode.target_frames() as f32 / 48.0)), Style::default().fg(Color::White))]),
-            Line::from(vec![Span::styled("Clock Drift:      ", Style::default().fg(Color::DarkGray)), Span::styled("Lock-Free PI Clock Servo Active (0 Underflows / Drops)", Style::default().fg(Color::Green))]),
+            Line::from(vec![Span::styled("Sync Mode:        ", Style::default().fg(self.theme.text_dim)), Span::styled(format!("{:?}", self.streamer.sync_mode), Style::default().fg(self.theme.text))]),
+            Line::from(vec![Span::styled("Buffer Target:    ", Style::default().fg(self.theme.text_dim)), Span::styled(format!("{} frames (~{:.1} ms cushion)", self.streamer.sync_mode.target_frames(), (self.streamer.sync_mode.target_frames() as f32 / 48.0)), Style::default().fg(self.theme.text))]),
+            Line::from(vec![Span::styled("Clock Drift:      ", Style::default().fg(self.theme.text_dim)), Span::styled("Lock-Free PI Clock Servo Active (0 Underflows / Drops)", Style::default().fg(self.theme.success))]),
         ];
 
         let p = Paragraph::new(lines);
@@ -601,7 +687,7 @@ impl App {
         let block = Block::default()
             .title(" AUTOEQ & SQUIGLINK DATABASE (Press Enter to Apply) ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -613,85 +699,37 @@ impl App {
                 let is_sel = i == self.selected_profile_idx;
                 let text = format!("{}. {} (Preamp: {:+.1}dB, {} Filters)", i + 1, p.name, p.preamp_db, p.filters.len());
                 let style = if is_sel {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default().fg(self.theme.primary).bg(self.theme.surface).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(self.theme.text)
                 };
                 ListItem::new(text).style(style)
             })
             .collect();
 
         let list = List::new(items)
-            .highlight_style(Style::default().bg(Color::Rgb(30, 60, 90)).add_modifier(Modifier::BOLD))
+            .highlight_style(Style::default().bg(self.theme.surface).add_modifier(Modifier::BOLD))
             .highlight_symbol("> ");
 
         f.render_stateful_widget(list, inner, &mut self.profile_list_state);
     }
 
-    fn render_harvester(&self, f: &mut ratatui::Frame, area: Rect) {
-        let block = Block::default()
-            .title(" HARVESTER AUDIO LIBRARY & QUALITY ENGINE ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        let lines = vec![
-            Line::from(vec![
-                Span::styled("Soulseek / Slskd Network:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[READY] API Endpoint: http://localhost:5030 (Lossless FLAC/WAV Search)", Style::default().fg(Color::Green)),
-            ]),
-            Line::from(vec![
-                Span::styled("yt-dlp Audio Ripper:       ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[AVAILABLE] Direct CLI Subprocess Runner (FLAC 24-bit / OPUS 160kbps)", Style::default().fg(Color::Green)),
-            ]),
-            Line::from(vec![
-                Span::styled("Universal Metadata Tagger: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[ACTIVE] Lofty Engine (ID3v2.4 / Vorbis Comments / MP4 Atoms)", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Spectral Cutoff Auditor:   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[ACTIVE] RustFFT 2048-pt STFT + Symphonia Decoder (Fake Lossless Detector)", Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Quality Verdict Hierarchy: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("  * True Lossless Hi-Res:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Bandwidth extends beyond 22.5 kHz (24-bit/96kHz+ masters)", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("  * True Lossless CD:      ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Full uncompressed bandwidth up to ~21.0 kHz (16-bit/44.1kHz)", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("  * Near-Lossless MP3:     ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Sharp brickwall filter at ~20.0 kHz (~320 kbps MP3/AAC)", Style::default().fg(Color::Yellow)),
-            ]),
-            Line::from(vec![
-                Span::styled("  * Compressed Lossy:      ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Lowpass filter cutoff at <= 16.0 kHz (~128-192 kbps lossy)", Style::default().fg(Color::Red)),
-            ]),
-            Line::from(vec![
-                Span::styled("  * Fake Lossless Alert:   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("Lossless container (FLAC) containing upsampled lossy stream", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            ]),
-        ];
-
-        let p = Paragraph::new(lines);
-        f.render_widget(p, inner);
-    }
-
     fn render_status(&self, f: &mut ratatui::Frame, area: Rect) {
         let p = Paragraph::new(format!(" Status: {}", self.status_message))
-            .style(Style::default().fg(Color::Yellow));
+            .style(Style::default().fg(self.theme.accent));
         f.render_widget(p, area);
     }
 
     fn render_footer(&self, f: &mut ratatui::Frame, area: Rect) {
-        let help = " [Tab / 1-5] Switch Tab  [Arrows] Adjust  [Space] Stream Toggle  [B] Bypass  [S] Sync Mode  [Q] Quit";
-        let p = Paragraph::new(help).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+        let help = match self.active_mode {
+            WorkstationMode::Downloader => {
+                " [M] Mode Select  [T] Theme  [Enter] Download/Convert  [Tab] Inputs  [Arrows] Quality/Policy  [Q] Quit"
+            }
+            WorkstationMode::SystemEq => {
+                " [M] Mode Select  [T] Theme  [V] Visuals  [Tab/1-5] Tabs  [Arrows] Adjust  [Space] Stream  [Q] Quit"
+            }
+        };
+        let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
         f.render_widget(p, area);
     }
 }
