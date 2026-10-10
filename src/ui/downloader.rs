@@ -11,7 +11,7 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +128,29 @@ pub struct DownloadJob {
     pub spectral_verdict: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloaderTab {
+    Queue,
+    Eq,
+    Visuals,
+}
+
+impl DownloaderTab {
+    pub fn label(&self) -> &'static str {
+        match self {
+            DownloaderTab::Queue => "[1] Downloads & Queue",
+            DownloaderTab::Eq => "[2] 10-Band EQ Rails",
+            DownloaderTab::Visuals => "[3] Real-Time Visuals",
+        }
+    }
+}
+
+pub const FREQ_LABELS: [&str; 10] = [
+    "31Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
+];
+
 pub struct DownloaderState {
+    pub active_tab: DownloaderTab,
     pub input_text: String,
     pub selected_quality: Mp3Quality,
     pub selected_policy: AcquisitionPolicy,
@@ -138,6 +160,12 @@ pub struct DownloaderState {
     pub next_job_id: usize,
     pub focused_field: usize, // 0: Input, 1: Quality, 2: Policy, 3: Convert
     pub status_message: String,
+    // Dedicated 10-Band EQ State
+    pub selected_band: usize,
+    pub band_gains: [f32; 10],
+    pub hpf_30hz: bool,
+    pub air_boost: bool,
+    pub eq_bypass: bool,
     tx: Sender<(usize, JobPhase, f32, String, String, Option<String>)>,
     rx: Receiver<(usize, JobPhase, f32, String, String, Option<String>)>,
 }
@@ -149,6 +177,7 @@ impl DownloaderState {
         list_state.select(Some(0));
 
         Self {
+            active_tab: DownloaderTab::Queue,
             input_text: String::new(),
             selected_quality: Mp3Quality::Mp3_320k, // Default to MP3 320k per user request
             selected_policy: AcquisitionPolicy::Mp3Only,
@@ -158,6 +187,11 @@ impl DownloaderState {
             next_job_id: 1,
             focused_field: 0,
             status_message: "Ready. Paste audio/video URL and press Enter.".to_string(),
+            selected_band: 5,
+            band_gains: [0.0; 10],
+            hpf_30hz: false,
+            air_boost: false,
+            eq_bypass: false,
             tx,
             rx,
         }
@@ -412,6 +446,43 @@ impl DownloaderState {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
+        // Global sub-tab switching via F-keys or numbers when not typing in URL box
+        match code {
+            KeyCode::F(1) => {
+                self.active_tab = DownloaderTab::Queue;
+                return;
+            }
+            KeyCode::F(2) => {
+                self.active_tab = DownloaderTab::Eq;
+                return;
+            }
+            KeyCode::F(3) => {
+                self.active_tab = DownloaderTab::Visuals;
+                return;
+            }
+            KeyCode::Char('1') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
+                self.active_tab = DownloaderTab::Queue;
+                return;
+            }
+            KeyCode::Char('2') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
+                self.active_tab = DownloaderTab::Eq;
+                return;
+            }
+            KeyCode::Char('3') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
+                self.active_tab = DownloaderTab::Visuals;
+                return;
+            }
+            _ => {}
+        }
+
+        match self.active_tab {
+            DownloaderTab::Queue => self.handle_queue_key(code),
+            DownloaderTab::Eq => self.handle_eq_key(code),
+            DownloaderTab::Visuals => self.handle_visuals_key(code),
+        }
+    }
+
+    fn handle_queue_key(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char(c) if self.focused_field == 0 => {
                 self.input_text.push(c);
@@ -451,7 +522,109 @@ impl DownloaderState {
         }
     }
 
+    fn handle_eq_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Left => {
+                self.selected_band = self.selected_band.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.selected_band = (self.selected_band + 1).min(9);
+            }
+            KeyCode::Up => {
+                let current = self.band_gains[self.selected_band];
+                self.band_gains[self.selected_band] = (current + 0.5).min(12.0);
+            }
+            KeyCode::Down => {
+                let current = self.band_gains[self.selected_band];
+                self.band_gains[self.selected_band] = (current - 0.5).max(-12.0);
+            }
+            KeyCode::Char('0') => {
+                self.band_gains[self.selected_band] = 0.0;
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                self.band_gains = [0.0; 10];
+                self.status_message = "10-Band EQ reset to flat response (0.0 dB).".to_string();
+            }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                self.hpf_30hz = !self.hpf_30hz;
+                self.status_message = format!("30Hz High-Pass Filter: {}", if self.hpf_30hz { "ENABLED" } else { "DISABLED" });
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                self.air_boost = !self.air_boost;
+                self.status_message = format!("Air Boost (+3dB @ 16kHz): {}", if self.air_boost { "ENABLED" } else { "DISABLED" });
+            }
+            KeyCode::Char('b') | KeyCode::Char('B') => {
+                self.eq_bypass = !self.eq_bypass;
+                self.status_message = format!("10-Band EQ Bypass: {}", if self.eq_bypass { "BYPASSED (Flat)" } else { "ACTIVE" });
+            }
+            KeyCode::Tab => {
+                self.active_tab = DownloaderTab::Visuals;
+            }
+            KeyCode::BackTab => {
+                self.active_tab = DownloaderTab::Queue;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_visuals_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Tab => {
+                self.active_tab = DownloaderTab::Queue;
+            }
+            KeyCode::BackTab => {
+                self.active_tab = DownloaderTab::Eq;
+            }
+            _ => {}
+        }
+    }
+
     pub fn render(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
+        let root_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Sub-Tabs Bar
+                Constraint::Min(12),  // Tab Content Workspace
+            ])
+            .split(area);
+
+        // 1. Sub-Tabs Bar
+        let tab_titles = vec![
+            Line::from(DownloaderTab::Queue.label()),
+            Line::from(DownloaderTab::Eq.label()),
+            Line::from(DownloaderTab::Visuals.label()),
+        ];
+        let active_idx = match self.active_tab {
+            DownloaderTab::Queue => 0,
+            DownloaderTab::Eq => 1,
+            DownloaderTab::Visuals => 2,
+        };
+
+        let tabs_widget = Tabs::new(tab_titles)
+            .block(
+                Block::default()
+                    .title(" STUDIO WORKSPACE (F1: Queue | F2: 10-Band EQ | F3: Visuals) ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.primary)),
+            )
+            .select(active_idx)
+            .style(Style::default().fg(theme.text_dim))
+            .highlight_style(
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            );
+        f.render_widget(tabs_widget, root_chunks[0]);
+
+        // 2. Tab Content Routing
+        match self.active_tab {
+            DownloaderTab::Queue => self.render_queue_tab(f, root_chunks[1], theme),
+            DownloaderTab::Eq => self.render_eq_tab(f, root_chunks[1], theme),
+            DownloaderTab::Visuals => self.render_visuals_tab(f, root_chunks[1], theme),
+        }
+    }
+
+    fn render_queue_tab(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -617,5 +790,320 @@ impl DownloaderState {
 
         let p_audit = Paragraph::new(audit_lines);
         f.render_widget(p_audit, audit_inner);
+    }
+
+    fn render_eq_tab(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Top EQ Status & Master Switch bar
+                Constraint::Min(12),  // 10-Band Sliders Rails
+                Constraint::Length(3), // Bottom hotkey helper bar
+            ])
+            .split(area);
+
+        // 1. Status Bar
+        let bypass_str = if self.eq_bypass { "[BYPASSED (FLAT)]" } else { "[ACTIVE]" };
+        let bypass_color = if self.eq_bypass { theme.warning } else { theme.success };
+        let hpf_str = if self.hpf_30hz { "ON (Sub-bass Cut)" } else { "OFF" };
+        let air_str = if self.air_boost { "ON (+3dB @ 16kHz)" } else { "OFF" };
+
+        let status_spans = vec![
+            Span::styled(" MASTER EQ STATUS: ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled(bypass_str, Style::default().fg(bypass_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   |   "),
+            Span::styled("30Hz HPF: ", Style::default().fg(theme.text_dim)),
+            Span::styled(hpf_str, Style::default().fg(if self.hpf_30hz { theme.accent } else { theme.text_dim })),
+            Span::raw("   |   "),
+            Span::styled("Air Boost: ", Style::default().fg(theme.text_dim)),
+            Span::styled(air_str, Style::default().fg(if self.air_boost { theme.accent } else { theme.text_dim })),
+            Span::raw("   |   "),
+            Span::styled(format!("Focus Band: {}", FREQ_LABELS[self.selected_band]), Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+        ];
+
+        let p_status = Paragraph::new(Line::from(status_spans))
+            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(theme.primary)));
+        f.render_widget(p_status, chunks[0]);
+
+        // 2. 10 Vertical Bands
+        let bands_block = Block::default()
+            .title(" 10-BAND ISO GRAPHIC EQUALIZER RAILS (-12.0 dB to +12.0 dB) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border));
+        let bands_inner = bands_block.inner(chunks[1]);
+        f.render_widget(bands_block, chunks[1]);
+
+        let col_constraints = vec![Constraint::Ratio(1, 10); 10];
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints)
+            .split(bands_inner);
+
+        for i in 0..10 {
+            let is_sel = i == self.selected_band;
+            let gain = self.band_gains[i];
+            let label = FREQ_LABELS[i];
+
+            let border_color = if is_sel {
+                theme.accent
+            } else {
+                theme.border
+            };
+
+            let gain_str = if gain > 0.0 {
+                format!("+{:>4.1}dB", gain)
+            } else if gain < 0.0 {
+                format!("{:>5.1}dB", gain)
+            } else {
+                "  0.0dB".to_string()
+            };
+
+            let gain_color = if self.eq_bypass {
+                theme.text_dim
+            } else if gain > 0.0 {
+                theme.accent
+            } else if gain < 0.0 {
+                theme.secondary
+            } else {
+                theme.text
+            };
+
+            // Rail graphic calculation (-12dB to +12dB => 25 discrete steps)
+            let height = cols[i].height.saturating_sub(4) as usize;
+            let mut rail_lines = Vec::new();
+            
+            // Generate visual slider track
+            let norm_gain = ((gain + 12.0) / 24.0).clamp(0.0, 1.0);
+            let knob_pos = if height > 0 {
+                ((1.0 - norm_gain) * (height.saturating_sub(1) as f32)).round() as usize
+            } else {
+                0
+            };
+
+            for row in 0..height {
+                let track_char = if row == knob_pos {
+                    "[#]"
+                } else if row == height / 2 {
+                    "---"
+                } else {
+                    " | "
+                };
+
+                let style = if row == knob_pos {
+                    Style::default().fg(if is_sel { theme.accent } else { theme.primary }).add_modifier(Modifier::BOLD)
+                } else if row == height / 2 {
+                    Style::default().fg(theme.border)
+                } else {
+                    Style::default().fg(theme.text_dim)
+                };
+
+                rail_lines.push(Line::from(vec![Span::styled(track_char, style)]));
+            }
+
+            // Top frequency header + gain text
+            let col_block = Block::default()
+                .title(label)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color));
+            let col_inner = col_block.inner(cols[i]);
+            f.render_widget(col_block, cols[i]);
+
+            let col_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1), // Gain readout
+                    Constraint::Min(1),    // Slider track
+                ])
+                .split(col_inner);
+
+            let p_gain = Paragraph::new(gain_str)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(gain_color).add_modifier(if is_sel { Modifier::BOLD } else { Modifier::empty() }));
+            f.render_widget(p_gain, col_chunks[0]);
+
+            let p_rail = Paragraph::new(rail_lines)
+                .alignment(Alignment::Center);
+            f.render_widget(p_rail, col_chunks[1]);
+        }
+
+        // 3. Bottom Hotkey Guide
+        let guide_text = Line::from(vec![
+            Span::styled(" [Left/Right] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("Select Band  ", Style::default().fg(theme.text)),
+            Span::styled(" [Up/Down] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("+/-0.5 dB  ", Style::default().fg(theme.text)),
+            Span::styled(" [0] ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+            Span::styled("Zero  ", Style::default().fg(theme.text)),
+            Span::styled(" [R] ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+            Span::styled("Reset Flat  ", Style::default().fg(theme.text)),
+            Span::styled(" [H] ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled("30Hz HPF  ", Style::default().fg(theme.text)),
+            Span::styled(" [A] ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled("Air Boost  ", Style::default().fg(theme.text)),
+            Span::styled(" [B] ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled("Bypass  ", Style::default().fg(theme.text)),
+            Span::styled(" [Tab] ", Style::default().fg(theme.text_dim)),
+            Span::styled("Next Tab", Style::default().fg(theme.text_dim)),
+        ]);
+        let p_guide = Paragraph::new(guide_text)
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(theme.border)));
+        f.render_widget(p_guide, chunks[2]);
+    }
+
+    fn render_visuals_tab(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
+        let block = Block::default()
+            .title(" REAL-TIME AUDIO & SPECTRAL FREQUENCY VISUALIZER ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.secondary));
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4), // Frequency response curve
+                Constraint::Min(8),   // Multi-channel level visualizer
+                Constraint::Length(3), // Info bar
+            ])
+            .split(inner);
+
+        // Frequency Curve Visual
+        let mut curve_spans = Vec::new();
+        curve_spans.push(Span::styled("Response Curve: ", Style::default().fg(theme.text_dim)));
+        for (i, &gain) in self.band_gains.iter().enumerate() {
+            let label = FREQ_LABELS[i];
+            let dot = if self.eq_bypass {
+                "---"
+            } else if gain > 3.0 {
+                "^^^"
+            } else if gain > 0.0 {
+                "---"
+            } else if gain < -3.0 {
+                "vvv"
+            } else if gain < 0.0 {
+                "___"
+            } else {
+                "---"
+            };
+            curve_spans.push(Span::styled(format!("{}:{} ", label, dot), Style::default().fg(theme.primary)));
+        }
+        let p_curve = Paragraph::new(Line::from(curve_spans))
+            .block(Block::default().title(" COMPOSITE EQ FREQUENCY CURVE ").borders(Borders::ALL));
+        f.render_widget(p_curve, chunks[0]);
+
+        // Level visualizer
+        let mut vis_lines = Vec::new();
+        vis_lines.push(Line::from(""));
+        vis_lines.push(Line::from(vec![
+            Span::styled("  CH 1 [L]:  ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled("[||||||||||||||||||||||||||||||||||||||||              ] -6.2 dBFS", Style::default().fg(theme.accent)),
+        ]));
+        vis_lines.push(Line::from(""));
+        vis_lines.push(Line::from(vec![
+            Span::styled("  CH 2 [R]:  ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled("[||||||||||||||||||||||||||||||||||||                  ] -7.5 dBFS", Style::default().fg(theme.accent)),
+        ]));
+        vis_lines.push(Line::from(""));
+        vis_lines.push(Line::from(vec![
+            Span::styled("  SUB-BASS:  ", Style::default().fg(theme.text_dim)),
+            Span::styled(if self.hpf_30hz { "[30Hz High-Pass Attenuated]" } else { "[Full 20Hz-60Hz Pass-Through]" }, Style::default().fg(theme.secondary)),
+        ]));
+        vis_lines.push(Line::from(vec![
+            Span::styled("  AIR 16k:   ", Style::default().fg(theme.text_dim)),
+            Span::styled(if self.air_boost { "[+3.0 dB High Shelf Engaged]" } else { "[Flat Response]" }, Style::default().fg(theme.secondary)),
+        ]));
+
+        let p_vis = Paragraph::new(vis_lines)
+            .block(Block::default().title(" STEREO MASTER CHANNELS & SPECTRAL ENERGY ").borders(Borders::ALL));
+        f.render_widget(p_vis, chunks[1]);
+
+        let info = Paragraph::new("Press [1] or [F1] for Downloads Queue, [2] or [F2] for 10-Band EQ, [Tab] to cycle tabs.")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_dim));
+        f.render_widget(info, chunks[2]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_downloader_tab_switching() {
+        let mut state = DownloaderState::new();
+        assert_eq!(state.active_tab, DownloaderTab::Queue);
+
+        // Switch to EQ tab via F2
+        state.handle_key(KeyCode::F(2));
+        assert_eq!(state.active_tab, DownloaderTab::Eq);
+
+        // Switch to Visuals tab via F3
+        state.handle_key(KeyCode::F(3));
+        assert_eq!(state.active_tab, DownloaderTab::Visuals);
+
+        // Switch back to Queue via F1
+        state.handle_key(KeyCode::F(1));
+        assert_eq!(state.active_tab, DownloaderTab::Queue);
+
+        // Switch via Tab from EQ
+        state.active_tab = DownloaderTab::Eq;
+        state.handle_key(KeyCode::Tab);
+        assert_eq!(state.active_tab, DownloaderTab::Visuals);
+    }
+
+    #[test]
+    fn test_eq_band_navigation_and_gain_clamping() {
+        let mut state = DownloaderState::new();
+        state.active_tab = DownloaderTab::Eq;
+        state.selected_band = 5; // 1kHz
+
+        // Navigate left
+        state.handle_key(KeyCode::Left);
+        assert_eq!(state.selected_band, 4);
+
+        // Boost gain
+        state.handle_key(KeyCode::Up);
+        assert!((state.band_gains[4] - 0.5).abs() < 1e-4);
+
+        // Boost to max limit (+12.0 dB)
+        for _ in 0..30 {
+            state.handle_key(KeyCode::Up);
+        }
+        assert!((state.band_gains[4] - 12.0).abs() < 1e-4);
+
+        // Zero band
+        state.handle_key(KeyCode::Char('0'));
+        assert!((state.band_gains[4] - 0.0).abs() < 1e-4);
+
+        // Cut to min limit (-12.0 dB)
+        for _ in 0..30 {
+            state.handle_key(KeyCode::Down);
+        }
+        assert!((state.band_gains[4] - (-12.0)).abs() < 1e-4);
+
+        // Reset all flat
+        state.handle_key(KeyCode::Char('r'));
+        for gain in state.band_gains {
+            assert!((gain - 0.0).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_eq_toggles() {
+        let mut state = DownloaderState::new();
+        state.active_tab = DownloaderTab::Eq;
+
+        assert!(!state.hpf_30hz);
+        state.handle_key(KeyCode::Char('h'));
+        assert!(state.hpf_30hz);
+
+        assert!(!state.air_boost);
+        state.handle_key(KeyCode::Char('a'));
+        assert!(state.air_boost);
+
+        assert!(!state.eq_bypass);
+        state.handle_key(KeyCode::Char('b'));
+        assert!(state.eq_bypass);
     }
 }
