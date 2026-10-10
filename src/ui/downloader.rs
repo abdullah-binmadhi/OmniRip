@@ -159,6 +159,7 @@ pub struct DownloaderState {
     pub job_list_state: ListState,
     pub next_job_id: usize,
     pub focused_field: usize, // 0: Input, 1: Quality, 2: Policy, 3: Convert
+    pub is_editing_url: bool,
     pub status_message: String,
     // Dedicated 10-Band EQ State
     pub selected_band: usize,
@@ -186,7 +187,8 @@ impl DownloaderState {
             job_list_state: list_state,
             next_job_id: 1,
             focused_field: 0,
-            status_message: "Ready. Paste audio/video URL and press Enter.".to_string(),
+            is_editing_url: false,
+            status_message: "Ready. Press Enter to paste/edit URL, or [1-3] to switch tabs.".to_string(),
             selected_band: 5,
             band_gains: [0.0; 10],
             hpf_30hz: false,
@@ -555,33 +557,26 @@ impl DownloaderState {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
-        // Global sub-tab switching via F-keys or numbers when not typing in URL box
-        match code {
-            KeyCode::F(1) => {
-                self.active_tab = DownloaderTab::Queue;
-                return;
+        // When not actively editing URL text, numbers 1, 2, 3 and F1-F3 switch workspace sub-tabs
+        if !self.is_editing_url {
+            match code {
+                KeyCode::Char('1') | KeyCode::F(1) => {
+                    self.active_tab = DownloaderTab::Queue;
+                    self.status_message = "Tab: Downloads & Queue".to_string();
+                    return;
+                }
+                KeyCode::Char('2') | KeyCode::F(2) => {
+                    self.active_tab = DownloaderTab::Eq;
+                    self.status_message = "Tab: 10-Band EQ Rails".to_string();
+                    return;
+                }
+                KeyCode::Char('3') | KeyCode::F(3) => {
+                    self.active_tab = DownloaderTab::Visuals;
+                    self.status_message = "Tab: Real-Time Audio Visualizer".to_string();
+                    return;
+                }
+                _ => {}
             }
-            KeyCode::F(2) => {
-                self.active_tab = DownloaderTab::Eq;
-                return;
-            }
-            KeyCode::F(3) => {
-                self.active_tab = DownloaderTab::Visuals;
-                return;
-            }
-            KeyCode::Char('1') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
-                self.active_tab = DownloaderTab::Queue;
-                return;
-            }
-            KeyCode::Char('2') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
-                self.active_tab = DownloaderTab::Eq;
-                return;
-            }
-            KeyCode::Char('3') if self.active_tab != DownloaderTab::Queue || self.focused_field != 0 => {
-                self.active_tab = DownloaderTab::Visuals;
-                return;
-            }
-            _ => {}
         }
 
         match self.active_tab {
@@ -592,14 +587,38 @@ impl DownloaderState {
     }
 
     fn handle_queue_key(&mut self, code: KeyCode) {
+        if self.is_editing_url {
+            match code {
+                KeyCode::Esc => {
+                    self.is_editing_url = false;
+                    self.status_message = "URL edit mode closed. Press 1-3 to switch tabs, Enter to edit.".to_string();
+                }
+                KeyCode::Enter => {
+                    self.is_editing_url = false;
+                    self.submit_current();
+                }
+                KeyCode::Backspace => {
+                    self.input_text.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.input_text.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Navigation mode (not editing URL)
         match code {
-            KeyCode::Char(c) if self.focused_field == 0 => {
-                self.input_text.push(c);
+            KeyCode::Enter | KeyCode::Char('/') | KeyCode::Char('i') if self.focused_field == 0 => {
+                if self.input_text.is_empty() {
+                    self.is_editing_url = true;
+                    self.status_message = "Editing URL: Type/paste link, press Enter to convert, Esc to exit.".to_string();
+                } else {
+                    self.submit_current();
+                }
             }
-            KeyCode::Backspace if self.focused_field == 0 => {
-                self.input_text.pop();
-            }
-            KeyCode::Enter => {
+            KeyCode::Enter if self.focused_field == 3 => {
                 self.submit_current();
             }
             KeyCode::Tab => {
@@ -627,8 +646,14 @@ impl DownloaderState {
                     self.job_list_state.select(Some(self.selected_job_idx));
                 }
             }
-            KeyCode::Char('e') | KeyCode::Char('E') if self.focused_field != 0 => {
+            KeyCode::Char('e') | KeyCode::Char('E') => {
                 self.trigger_enhancement();
+            }
+            // If user types text while URL box is focused, enter editing mode automatically
+            KeyCode::Char(c) if self.focused_field == 0 => {
+                self.is_editing_url = true;
+                self.input_text.push(c);
+                self.status_message = "Editing URL: Type/paste link, press Enter to convert, Esc to exit.".to_string();
             }
             _ => {}
         }
@@ -718,7 +743,7 @@ impl DownloaderState {
         let tabs_widget = Tabs::new(tab_titles)
             .block(
                 Block::default()
-                    .title(" STUDIO WORKSPACE (F1: Queue | F2: 10-Band EQ | F3: Visuals) ")
+                    .title(" STUDIO WORKSPACE (Press 1: Queue | 2: 10-Band EQ | 3: Visuals) ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(theme.primary)),
             )
@@ -769,17 +794,34 @@ impl DownloaderState {
 
         // URL Input
         let input_style = if self.focused_field == 0 {
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+            if self.is_editing_url {
+                Style::default().fg(theme.accent).bg(theme.surface).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+            }
         } else {
             Style::default().fg(theme.text)
         };
-        let input_prefix = if self.focused_field == 0 { "> " } else { "  " };
-        let input_text = if self.input_text.is_empty() {
-            "[Paste URL / Search Query here...]"
+        let input_prefix = if self.focused_field == 0 {
+            if self.is_editing_url {
+                "[EDIT] > "
+            } else {
+                "> "
+            }
+        } else {
+            "  "
+        };
+        let input_placeholder = if self.is_editing_url {
+            "[Type/paste link, Enter: convert, Esc: exit]"
+        } else {
+            "[Enter: edit URL | 1-3: switch tabs]"
+        };
+        let input_display = if self.input_text.is_empty() {
+            input_placeholder
         } else {
             &self.input_text
         };
-        let p_input = Paragraph::new(format!("{}URL: {}", input_prefix, input_text))
+        let p_input = Paragraph::new(format!("{}URL: {}", input_prefix, input_display))
             .style(input_style);
         f.render_widget(p_input, input_chunks[0]);
 
@@ -1247,5 +1289,48 @@ mod tests {
 
         state.handle_key(KeyCode::Char('e'));
         assert!(state.status_message.contains("Enhancing track #1"));
+    }
+
+    #[test]
+    fn test_number_keys_switch_tabs_directly() {
+        let mut state = DownloaderState::new();
+        // User starts at Queue with focused_field == 0
+        assert_eq!(state.active_tab, DownloaderTab::Queue);
+        assert!(!state.is_editing_url);
+
+        // Pressing '2' switches directly to EQ tab!
+        state.handle_key(KeyCode::Char('2'));
+        assert_eq!(state.active_tab, DownloaderTab::Eq);
+
+        // Pressing '3' switches to Visuals tab!
+        state.handle_key(KeyCode::Char('3'));
+        assert_eq!(state.active_tab, DownloaderTab::Visuals);
+
+        // Pressing '1' switches back to Queue!
+        state.handle_key(KeyCode::Char('1'));
+        assert_eq!(state.active_tab, DownloaderTab::Queue);
+    }
+
+    #[test]
+    fn test_url_edit_mode_and_escape() {
+        let mut state = DownloaderState::new();
+        assert!(!state.is_editing_url);
+
+        // Press Enter to start editing URL
+        state.handle_key(KeyCode::Enter);
+        assert!(state.is_editing_url);
+
+        // While editing, numbers type into URL
+        state.handle_key(KeyCode::Char('2'));
+        assert_eq!(state.input_text, "2");
+        assert_eq!(state.active_tab, DownloaderTab::Queue); // Did not switch tabs!
+
+        // Press Esc to exit edit mode
+        state.handle_key(KeyCode::Esc);
+        assert!(!state.is_editing_url);
+
+        // Now pressing '2' switches to EQ tab
+        state.handle_key(KeyCode::Char('2'));
+        assert_eq!(state.active_tab, DownloaderTab::Eq);
     }
 }

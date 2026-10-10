@@ -193,7 +193,7 @@ impl App {
                                 self.mode_modal.toggle();
                                 continue;
                             }
-                            KeyCode::F(2) => {
+                            KeyCode::F(4) => {
                                 self.nicotine_modal.is_open = !self.nicotine_modal.is_open;
                                 self.set_status("Toggled Nicotine+ Lossless Candidate Browser.");
                                 continue;
