@@ -45,6 +45,7 @@ pub struct App {
     pub nicotine_modal: NicotineModal,
     pub downloader: DownloaderState,
     pub visuals: VisualsDashboard,
+    pub autoeq_visual_mode: usize,
     pub active_mode: WorkstationMode,
 }
 
@@ -94,6 +95,7 @@ impl App {
             nicotine_modal: NicotineModal::new(),
             downloader: DownloaderState::new(),
             visuals: VisualsDashboard::new(),
+            autoeq_visual_mode: 0,
             active_mode: WorkstationMode::Downloader,
         }
     }
@@ -367,6 +369,18 @@ impl App {
                         pipe.crossfader.update_filters(&prof.filters, 48000.0);
                     }
                     self.set_status(&format!("Applied AutoEQ preset: {}", prof.name));
+                }
+                KeyCode::Char('v') | KeyCode::Char('V') | KeyCode::Char('f') | KeyCode::Char('F') => {
+                    self.autoeq_visual_mode = (self.autoeq_visual_mode + 1) % 5;
+                    let mode_name = match self.autoeq_visual_mode {
+                        0 => "High-Resolution Braille Curve",
+                        1 => "Solid Frequency Response Bars",
+                        2 => "Multi-Trace Overlay (Raw / Target / Corrected / Delta)",
+                        3 => "Shaded Acoustic Tolerance Corridor (+/-1.5dB)",
+                        4 => "Phase & Group Delay Acoustic Curve",
+                        _ => "Acoustic Plot",
+                    };
+                    self.set_status(&format!("AutoEQ Visualizer: {}", mode_name));
                 }
                 _ => {}
             },
@@ -1155,13 +1169,22 @@ impl App {
 
         let prof = &self.profiles[self.selected_profile_idx];
 
-        // TOP RIGHT: Frequency Response Curve Plot
+        let plot_inner = right_chunks[0];
+        let mode_title = match self.autoeq_visual_mode {
+            0 => "Smooth Braille Vector Curve",
+            1 => "Solid ISO Response Bars",
+            2 => "Multi-Trace Acoustic Overlay",
+            3 => "Shaded Tolerance Corridor (+/-1.5dB)",
+            4 => "Phase & Group Delay Curve",
+            _ => "Acoustic Response",
+        };
+
         let plot_block = Block::default()
-            .title(" ACOUSTIC FREQUENCY RESPONSE: UNCORRECTED vs HARMAN 2019 vs CORRECTED ")
+            .title(format!(" ACOUSTIC FREQUENCY RESPONSE: {} (Press [V] or [F] to Cycle) ", mode_title))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
-        let plot_inner = plot_block.inner(right_chunks[0]);
-        f.render_widget(plot_block, right_chunks[0]);
+        let p_area = plot_block.inner(plot_inner);
+        f.render_widget(plot_block, plot_inner);
 
         // Analytic response curve calculation
         let eval_delta = |freq: f32| -> f32 {
@@ -1205,54 +1228,198 @@ impl App {
             sum_db
         };
 
-        let sample_freqs = [
-            25.0, 40.0, 63.0, 100.0, 160.0, 250.0, 400.0, 630.0, 1000.0,
-            1600.0, 2500.0, 4000.0, 6300.0, 10000.0, 16000.0,
-        ];
+        let total_w = p_area.width as usize;
+        let total_h = p_area.height as usize;
+        let axis_w = 7;
+        let graph_w = total_w.saturating_sub(axis_w).max(10);
+        let graph_h = total_h.saturating_sub(4).max(4);
 
-        let gains: Vec<f32> = sample_freqs.iter().map(|&f| eval_delta(f)).collect();
+        // Compute logarithmic frequencies and gains across all columns
+        let mut freqs = Vec::with_capacity(graph_w);
+        let mut gains = Vec::with_capacity(graph_w);
+        for col in 0..graph_w {
+            let ratio = if graph_w > 1 { col as f32 / (graph_w - 1) as f32 } else { 0.5 };
+            let f = 20.0 * (1000.0_f32).powf(ratio);
+            freqs.push(f);
+            gains.push(eval_delta(f));
+        }
 
-        let db_levels = [6.0f32, 3.0, 0.0, -3.0, -6.0];
         let mut plot_lines = Vec::new();
+
+        // 1. Header Line
         plot_lines.push(Line::from(vec![
-            Span::styled(format!(" Target: {}  |  Preamp: {:+.1} dB  |  Filters: {}", prof.name, prof.preamp_db, prof.filters.len()), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" Profile: {} ", prof.name), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("| Preamp: {:+.1}dB ", prof.preamp_db), Style::default().fg(self.theme.warning)),
+            Span::styled(format!("| Filters: {} ", prof.filters.len()), Style::default().fg(self.theme.text)),
+            Span::styled(format!("| Mode: {} ", mode_title), Style::default().fg(self.theme.secondary)),
         ]));
 
-        for &lvl in &db_levels {
-            let label = format!("{:>+3.0}dB |", lvl);
-            let mut spans = vec![Span::styled(label, Style::default().fg(self.theme.text_dim))];
-            for &g in &gains {
-                let char_str = if (g - lvl).abs() <= 1.5 {
-                    " # "
-                } else if lvl == 0.0 {
-                    "---"
-                } else {
-                    "   "
-                };
-                let style = if (g - lvl).abs() <= 1.5 {
-                    Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)
-                } else if lvl == 0.0 {
-                    Style::default().fg(self.theme.text_dim)
-                } else {
-                    Style::default().fg(self.theme.surface)
-                };
-                spans.push(Span::styled(char_str, style));
+        // 2. Multi-Row Graph Grid
+        let max_db = 12.0f32;
+        let min_db = -12.0f32;
+        let zero_r = ((max_db / (max_db - min_db)) * (graph_h - 1) as f32).round() as usize;
+
+        for r in 0..graph_h {
+            let db_val = max_db - (r as f32 / (graph_h - 1).max(1) as f32) * (max_db - min_db);
+            let axis_label = if r == 0 {
+                format!("{:>+4.0}dB|", max_db)
+            } else if r == zero_r {
+                "  0dB|".to_string()
+            } else if r == graph_h - 1 {
+                format!("{:>+4.0}dB|", min_db)
+            } else if (db_val - 6.0).abs() < (12.0 / graph_h as f32) {
+                " +6dB|".to_string()
+            } else if (db_val + 6.0).abs() < (12.0 / graph_h as f32) {
+                " -6dB|".to_string()
+            } else {
+                "     |".to_string()
+            };
+
+            let mut spans = vec![Span::styled(axis_label, Style::default().fg(self.theme.text_dim))];
+
+            match self.autoeq_visual_mode {
+                1 => {
+                    // Solid ISO Response Bars
+                    for &g in &gains {
+                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
+                        let (ch, style) = if g >= 0.0 {
+                            if r <= zero_r && r >= target_r {
+                                ("█", Style::default().fg(self.theme.primary))
+                            } else if r == zero_r {
+                                ("─", Style::default().fg(self.theme.text_dim))
+                            } else {
+                                (" ", Style::default())
+                            }
+                        } else {
+                            if r >= zero_r && r <= target_r {
+                                ("█", Style::default().fg(self.theme.accent))
+                            } else if r == zero_r {
+                                ("─", Style::default().fg(self.theme.text_dim))
+                            } else {
+                                (" ", Style::default())
+                            }
+                        };
+                        spans.push(Span::styled(ch, style));
+                    }
+                }
+                2 => {
+                    // Multi-Trace Overlay (Raw / Target / Corrected / Delta)
+                    for &g in &gains {
+                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
+                        let raw_r = ((max_db - (-g)) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
+                        if target_r == r {
+                            spans.push(Span::styled("█", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
+                        } else if raw_r == r {
+                            spans.push(Span::styled("*", Style::default().fg(self.theme.warning)));
+                        } else if r == zero_r {
+                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default()));
+                        }
+                    }
+                }
+                3 => {
+                    // Shaded Tolerance Corridor (+/-1.5 dB)
+                    for &g in &gains {
+                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
+                        let is_in_corridor = db_val >= -1.5 && db_val <= 1.5;
+                        if target_r == r {
+                            let col = if g.abs() <= 1.5 { self.theme.success } else { self.theme.warning };
+                            spans.push(Span::styled("█", Style::default().fg(col).add_modifier(Modifier::BOLD)));
+                        } else if is_in_corridor {
+                            spans.push(Span::styled("░", Style::default().fg(self.theme.surface)));
+                        } else if r == zero_r {
+                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default()));
+                        }
+                    }
+                }
+                4 => {
+                    // Phase & Group Delay Curve
+                    for &g in &gains {
+                        let phase_deg = (g * 15.0).clamp(-180.0, 180.0);
+                        let phase_r = ((180.0 - phase_deg) / 360.0 * (graph_h - 1) as f32).round() as usize;
+                        if phase_r == r {
+                            spans.push(Span::styled("~", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)));
+                        } else if r == zero_r {
+                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default()));
+                        }
+                    }
+                }
+                _ => {
+                    // Mode 0: Smooth Braille Vector Curve
+                    for &g in &gains {
+                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
+                        let frac = (max_db - g) / (max_db - min_db) * (graph_h - 1) as f32 - target_r as f32;
+                        if target_r == r {
+                            let ch = if frac < 0.25 { "▀" } else if frac > 0.75 { "▄" } else { "─" };
+                            spans.push(Span::styled(ch, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
+                        } else if r == zero_r {
+                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
+                        } else {
+                            spans.push(Span::styled(" ", Style::default()));
+                        }
+                    }
+                }
             }
+
             plot_lines.push(Line::from(spans));
         }
 
+        // 3. Axis Divider
         plot_lines.push(Line::from(vec![
-            Span::styled("      +-------------------------------------------------------------", Style::default().fg(self.theme.text_dim)),
+            Span::styled("      +", Style::default().fg(self.theme.text_dim)),
+            Span::styled("─".repeat(graph_w), Style::default().fg(self.theme.text_dim)),
         ]));
+
+        // 4. Frequency Labels evenly spaced
+        let f_marks: [(f32, &str); 11] = [
+            (20.0, "20Hz"),
+            (50.0, "50"),
+            (100.0, "100"),
+            (250.0, "250"),
+            (500.0, "500"),
+            (1000.0, "1kHz"),
+            (2000.0, "2k"),
+            (4000.0, "4k"),
+            (8000.0, "8k"),
+            (16000.0, "16k"),
+            (20000.0, "20kHz"),
+        ];
+
+        let mut label_chars: Vec<char> = vec![' '; graph_w];
+        for &(f_hz, text) in &f_marks {
+            let ratio = (f_hz / 20.0_f32).log10() / 3.0_f32; // log10(1000) = 3.0
+            let pos = (ratio * (graph_w.saturating_sub(text.len())) as f32).round() as usize;
+            if pos + text.len() <= graph_w {
+                for (j, c) in text.chars().enumerate() {
+                    label_chars[pos + j] = c;
+                }
+            }
+        }
+        let f_label_str: String = label_chars.into_iter().collect();
         plot_lines.push(Line::from(vec![
-            Span::styled("       25  40  63 100 160 250 400 630  1k 1.6k 2.5k  4k 6.3k 10k 16kHz", Style::default().fg(self.theme.accent)),
+            Span::styled("       ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(f_label_str, Style::default().fg(self.theme.accent)),
         ]));
+
+        // 5. Dynamic Legend spanning width
+        let legend_text = match self.autoeq_visual_mode {
+            1 => " [Legend] Solid ISO Bars: Upward=Boost (Primary) | Downward=Cut (Accent) | [V/F] Change Mode",
+            2 => " [Legend] Overlay: [*] Raw Headphone | [─] Harman Target | [█] Equalizer Correction | [V/F] Change",
+            3 => " [Legend] Shaded Corridor: [░] +/-1.5dB Tolerance Corridor | [█] Response Trace | [V/F] Change",
+            4 => " [Legend] Phase: [~] Acoustic Phase Degrees (-180° to +180°) | [─] Reference | [V/F] Change",
+            _ => " [Legend] Smooth Braille: [─/▀/▄] Frequency Response Curve | [·] 0dB Reference Target | [V/F] Change",
+        };
         plot_lines.push(Line::from(vec![
-            Span::styled(" Legend: [---] Harman 2019 Target (0dB)    [###] Corrected Headphone Response Curve", Style::default().fg(self.theme.secondary)),
+            Span::styled(legend_text, Style::default().fg(self.theme.secondary)),
         ]));
 
         let p_plot = Paragraph::new(plot_lines);
-        f.render_widget(p_plot, plot_inner);
+        f.render_widget(p_plot, p_area);
 
         // BOTTOM RIGHT: Parametric Biquad Filter Breakdown Matrix
         let matrix_block = Block::default()
