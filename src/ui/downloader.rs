@@ -1,4 +1,7 @@
+use crate::harvest::musicbrainz::lookup_metadata;
 use crate::harvest::spectral::analyze_file;
+use crate::harvest::tagger::{write_tags, AudioTrackInfo};
+use crate::harvest::title_cleaner::clean_title;
 use crate::harvest::yt_dlp::{
     download_audio, download_audio_to_path, expand_album_tracks, get_album_track_path,
     is_playlist_or_album, AudioFormat,
@@ -268,6 +271,15 @@ impl DownloaderState {
                             );
 
                             let _ = download_audio_to_path(&track.url, &target_path, format).await;
+
+                            let tag_info = AudioTrackInfo {
+                                title: Some(track.title.clone()),
+                                artist: Some(track.artist.clone()),
+                                album: Some(album_info.title.clone()),
+                                track_number: Some(track.index as u32),
+                                ..Default::default()
+                            };
+                            let _ = write_tags(&target_path, &tag_info);
                         }
 
                         let _ = tx
@@ -298,6 +310,8 @@ impl DownloaderState {
             return;
         }
 
+        let display_for_tag = display_name.clone();
+
         // Spawn background tokio download worker for single track
         tokio::spawn(async move {
             let _ = tx
@@ -321,8 +335,43 @@ impl DownloaderState {
                         .send((
                             id,
                             JobPhase::Auditing,
-                            80.0,
-                            "Analyzing".into(),
+                            70.0,
+                            "Identifying".into(),
+                            "00:02".into(),
+                            None,
+                        ))
+                        .await;
+
+                    // Clean raw title and query MusicBrainz for canonical metadata
+                    let file_path = std::path::Path::new(&path_str);
+                    let raw_stem = file_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&display_for_tag);
+                    let cleaned = clean_title(raw_stem);
+
+                    let mut tag_info = AudioTrackInfo {
+                        title: Some(cleaned.title.clone()),
+                        artist: cleaned.artist.clone(),
+                        ..Default::default()
+                    };
+
+                    if let Ok(mb) = lookup_metadata(cleaned.artist.as_deref(), &cleaned.title).await {
+                        tag_info.title = Some(mb.title);
+                        tag_info.artist = Some(mb.artist);
+                        tag_info.album = mb.album;
+                        tag_info.year = mb.year;
+                        tag_info.track_number = mb.track_number;
+                    }
+
+                    let _ = write_tags(&path_str, &tag_info);
+
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Auditing,
+                            85.0,
+                            "Auditing".into(),
                             "00:01".into(),
                             None,
                         ))

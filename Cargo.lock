@@ -1151,6 +1151,7 @@ dependencies = [
  "crossterm",
  "lofty",
  "ratatui",
+ "regex",
  "reqwest",
  "rtrb",
  "rustfft",

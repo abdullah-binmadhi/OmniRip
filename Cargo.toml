@@ -17,6 +17,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 lofty = "0.21"
 symphonia = { version = "0.5", features = ["all"] }
+regex = "1.10"
 
 [profile.release]
 opt-level = 3
