@@ -9,6 +9,7 @@ use crate::dsp::streamer::{AudioStreamer, SyncMode};
 use crate::dsp::AudioPipeline;
 use crate::ui::downloader::DownloaderState;
 use crate::ui::mode_modal::{ModeModal, WorkstationMode};
+use crate::ui::nicotine_modal::{NicotineModal, NicotineModalAction};
 use crate::ui::theme::ThemePalette;
 use crate::ui::visuals::VisualsDashboard;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -41,6 +42,7 @@ pub struct App {
     profile_list_state: ListState,
     pub theme: ThemePalette,
     pub mode_modal: ModeModal,
+    pub nicotine_modal: NicotineModal,
     pub downloader: DownloaderState,
     pub visuals: VisualsDashboard,
     pub active_mode: WorkstationMode,
@@ -89,6 +91,7 @@ impl App {
             profile_list_state: list_state,
             theme: ThemePalette::default(),
             mode_modal: ModeModal::new(), // Starts open with startup popup question
+            nicotine_modal: NicotineModal::new(),
             downloader: DownloaderState::new(),
             visuals: VisualsDashboard::new(),
             active_mode: WorkstationMode::Downloader,
@@ -137,7 +140,23 @@ impl App {
             if event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        // 1. If Startup Mode Modal is open, intercept selection keys
+                        // 1. If Nicotine Modal is open, intercept candidate browser keys
+                        if self.nicotine_modal.is_open {
+                            if let Some(action) = self.nicotine_modal.handle_key(key.code) {
+                                match action {
+                                    NicotineModalAction::Close => {}
+                                    NicotineModalAction::SubmitSearch(q) => {
+                                        self.set_status(&format!("Nicotine+ query dispatched: {}", q));
+                                    }
+                                    NicotineModalAction::SelectCandidate(c) => {
+                                        self.set_status(&format!("Selected lossless candidate: {}", c.filename));
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+
+                        // 2. If Startup Mode Modal is open, intercept selection keys
                         if self.mode_modal.is_open {
                             match key.code {
                                 KeyCode::Char('1') => {
@@ -167,11 +186,24 @@ impl App {
                             continue;
                         }
 
-                        // 2. Global Hotkeys
+                        // 3. Global Hotkeys
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Char('Q') => break,
                             KeyCode::Char('m') | KeyCode::Char('M') => {
                                 self.mode_modal.toggle();
+                                continue;
+                            }
+                            KeyCode::F(2) => {
+                                self.nicotine_modal.is_open = !self.nicotine_modal.is_open;
+                                self.set_status("Toggled Nicotine+ Lossless Candidate Browser.");
+                                continue;
+                            }
+                            KeyCode::Char('n') | KeyCode::Char('N')
+                                if self.active_mode == WorkstationMode::SystemEq
+                                    || self.downloader.focused_field != 0 =>
+                            {
+                                self.nicotine_modal.is_open = true;
+                                self.set_status("Opened Nicotine+ Lossless Candidate Browser.");
                                 continue;
                             }
                             KeyCode::Char('t') | KeyCode::Char('T') => {
@@ -448,6 +480,11 @@ impl App {
         if self.mode_modal.is_open {
             self.mode_modal.render(f, f.area(), &self.theme);
         }
+
+        // Render Nicotine Modal on top if open
+        if self.nicotine_modal.is_open {
+            self.nicotine_modal.render(f, f.area(), &self.theme);
+        }
     }
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -723,7 +760,7 @@ impl App {
     fn render_footer(&self, f: &mut ratatui::Frame, area: Rect) {
         let help = match self.active_mode {
             WorkstationMode::Downloader => {
-                " [M] Mode Select  [T] Theme  [Enter] Download/Convert  [Tab] Inputs  [Arrows] Quality/Policy  [Q] Quit"
+                " [M] Mode Select  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download/Convert  [Tab] Inputs  [Arrows] Select  [Q] Quit"
             }
             WorkstationMode::SystemEq => {
                 " [M] Mode Select  [T] Theme  [V] Visuals  [Tab/1-5] Tabs  [Arrows] Adjust  [Space] Stream  [Q] Quit"
