@@ -19,7 +19,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
 use ratatui::Terminal;
 use std::io::stdout;
 use std::sync::atomic::Ordering;
@@ -368,6 +368,9 @@ impl App {
                 }
                 _ => {}
             },
+            4 => {
+                self.visuals.handle_key(code);
+            }
             _ => {}
         }
     }
@@ -572,65 +575,107 @@ impl App {
 
     fn render_graphic_eq(&self, f: &mut ratatui::Frame, area: Rect) {
         let block = Block::default()
-            .title(" 10-BAND GRAPHIC EQ (Peaking Biquads, 1.414 Q) ")
+            .title(" 10-BAND ISO GRAPHIC EQUALIZER RAILS (-12.0 dB to +12.0 dB) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        let col_width = inner.width / 10;
-        if col_width < 4 {
-            return;
-        }
+        let labels = [
+            "31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
+        ];
 
-        let chunks = Layout::default()
+        let col_constraints = vec![Constraint::Ratio(1, 10); 10];
+        let cols = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Length(col_width); 10])
+            .constraints(col_constraints)
             .split(inner);
 
-        let labels = ["31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"];
-
         for i in 0..10 {
-            let is_selected = i == self.selected_band;
+            let is_sel = i == self.selected_band;
             let gain = self.band_gains[i];
+            let label = labels[i];
+
+            let border_color = if is_sel {
+                self.theme.accent
+            } else {
+                self.theme.border
+            };
+
+            let gain_str = if gain > 0.0 {
+                format!("+{:>4.1}dB", gain)
+            } else if gain < 0.0 {
+                format!("{:>5.1}dB", gain)
+            } else {
+                "  0.0dB".to_string()
+            };
+
+            let gain_color = if gain > 0.0 {
+                self.theme.accent
+            } else if gain < 0.0 {
+                self.theme.secondary
+            } else {
+                self.theme.text
+            };
+
+            let height = cols[i].height.saturating_sub(4) as usize;
+            let mut rail_lines = Vec::new();
+
+            let norm_gain = ((gain + 12.0) / 24.0).clamp(0.0, 1.0);
+            let knob_pos = if height > 0 {
+                ((1.0 - norm_gain) * (height.saturating_sub(1) as f32)).round() as usize
+            } else {
+                0
+            };
+
+            for row in 0..height {
+                let track_char = if row == knob_pos {
+                    "[#]"
+                } else if row == height / 2 {
+                    "---"
+                } else {
+                    " | "
+                };
+
+                let style = if row == knob_pos {
+                    Style::default()
+                        .fg(if is_sel { self.theme.accent } else { self.theme.primary })
+                        .add_modifier(Modifier::BOLD)
+                } else if row == height / 2 {
+                    Style::default().fg(self.theme.border)
+                } else {
+                    Style::default().fg(self.theme.text_dim)
+                };
+
+                rail_lines.push(Line::from(vec![Span::styled(track_char, style)]));
+            }
+
+            let col_block = Block::default()
+                .title(label)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color));
+            let col_inner = col_block.inner(cols[i]);
+            f.render_widget(col_block, cols[i]);
 
             let col_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(1), // Top dB label
-                    Constraint::Min(4),    // Meter bar gauge
-                    Constraint::Length(1), // Bottom freq label
+                    Constraint::Length(1), // Gain readout
+                    Constraint::Min(1),    // Slider track
                 ])
-                .split(chunks[i]);
+                .split(col_inner);
 
-            // Top gain label
-            let gain_str = format!("{:+.1}", gain);
-            let gain_color = if gain > 0.01 {
-                self.theme.success
-            } else if gain < -0.01 {
-                self.theme.warning
-            } else {
-                self.theme.text_dim
-            };
             let p_gain = Paragraph::new(gain_str)
-                .style(Style::default().fg(gain_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() }))
-                .alignment(Alignment::Center);
+                .alignment(Alignment::Center)
+                .style(
+                    Style::default()
+                        .fg(gain_color)
+                        .add_modifier(if is_sel { Modifier::BOLD } else { Modifier::empty() }),
+                );
             f.render_widget(p_gain, col_chunks[0]);
 
-            // Meter gauge: map [-12, +12] dB to [0, 100]%
-            let pct = (((gain + 12.0) / 24.0) * 100.0).clamp(0.0, 100.0) as u16;
-            let gauge_color = if is_selected { self.theme.accent } else { self.theme.secondary };
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(gauge_color).bg(self.theme.surface))
-                .percent(pct)
-                .label("");
-            f.render_widget(gauge, col_chunks[1]);
-
-            // Bottom label
-            let p_lbl = Paragraph::new(labels[i])
-                .style(Style::default().fg(if is_selected { self.theme.text } else { self.theme.text_dim }))
-                .alignment(Alignment::Center);
-            f.render_widget(p_lbl, col_chunks[2]);
+            let p_rail = Paragraph::new(rail_lines).alignment(Alignment::Center);
+            f.render_widget(p_rail, col_chunks[1]);
         }
     }
 
