@@ -73,6 +73,32 @@ impl PresetModalState {
         }
     }
 
+    pub fn paste_text(&mut self, text: &str) {
+        match self {
+            PresetModalState::Hidden => {}
+            PresetModalState::SaveCurrent { name_input, error_msg } => {
+                name_input.push_str(text.trim());
+                *error_msg = None;
+            }
+            PresetModalState::ImportSquiglink { name_input, text_input, focus_index, error_msg } => {
+                if *focus_index == 0 {
+                    name_input.push_str(text.trim());
+                } else {
+                    text_input.push_str(text);
+                }
+                *error_msg = None;
+            }
+            PresetModalState::DownloadUrl { name_input, url_input, focus_index, status_msg, .. } => {
+                if *focus_index == 0 {
+                    name_input.push_str(text.trim());
+                } else {
+                    url_input.push_str(text.trim());
+                }
+                *status_msg = None;
+            }
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalKeyAction {
         match self {
             PresetModalState::Hidden => ModalKeyAction::None,

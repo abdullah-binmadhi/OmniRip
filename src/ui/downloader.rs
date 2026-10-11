@@ -586,6 +586,19 @@ impl DownloaderState {
         }
     }
 
+    /// Paste a URL or search text into the downloader input field.
+    pub fn paste(&mut self, text: &str) {
+        let clean = text.trim();
+        if clean.is_empty() {
+            return;
+        }
+        self.active_tab = DownloaderTab::Queue;
+        self.focused_field = 0;
+        self.is_editing_url = true;
+        self.input_text.push_str(clean);
+        self.status_message = format!("Pasted URL: {}", self.input_text);
+    }
+
     fn handle_queue_key(&mut self, code: KeyCode) {
         if self.is_editing_url {
             match code {
@@ -617,6 +630,11 @@ impl DownloaderState {
                 } else {
                     self.submit_current();
                 }
+            }
+            KeyCode::Char(c) if self.focused_field == 0 && c != '1' && c != '2' && c != '3' && c != 'q' && c != 'Q' => {
+                self.is_editing_url = true;
+                self.input_text.push(c);
+                self.status_message = "Editing URL: Press Enter to convert, Esc to exit.".to_string();
             }
             KeyCode::Enter if self.focused_field == 3 => {
                 self.submit_current();
@@ -1332,5 +1350,20 @@ mod tests {
         // Now pressing '2' switches to EQ tab
         state.handle_key(KeyCode::Char('2'));
         assert_eq!(state.active_tab, DownloaderTab::Eq);
+    }
+
+    #[test]
+    fn test_paste_url_with_m_and_other_characters() {
+        let mut state = DownloaderState::new();
+        state.paste("https://music.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert!(state.is_editing_url);
+        assert_eq!(state.input_text, "https://music.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert_eq!(state.active_tab, DownloaderTab::Queue);
+
+        // Typing characters while focused on URL also enters edit mode
+        let mut state2 = DownloaderState::new();
+        state2.handle_key(KeyCode::Char('h'));
+        assert!(state2.is_editing_url);
+        assert_eq!(state2.input_text, "h");
     }
 }

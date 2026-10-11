@@ -14,7 +14,7 @@ use crate::ui::nicotine_modal::{NicotineModal, NicotineModalAction};
 use crate::ui::preset_modal::{render_preset_modal, ModalKeyAction, PresetModalState};
 use crate::ui::theme::ThemePalette;
 use crate::ui::visuals::VisualsDashboard;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
@@ -331,7 +331,7 @@ impl App {
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         enable_raw_mode()?;
         let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -346,8 +346,20 @@ impl App {
 
             let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
+                match event::read()? {
+                    Event::Paste(text) => {
+                        if self.preset_modal.is_active() {
+                            self.preset_modal.paste_text(&text);
+                        } else if self.active_mode == WorkstationMode::Downloader {
+                            self.downloader.paste(&text);
+                        }
+                        continue;
+                    }
+                    Event::Key(key) => {
+                        if key.kind != KeyEventKind::Press {
+                            continue;
+                        }
+
                         // 1. If Preset Modal is active, intercept all modal keys
                         if self.preset_modal.is_active() {
                             let action = self.preset_modal.handle_key(key);
@@ -368,6 +380,16 @@ impl App {
                                     self.download_preset_from_url(&name, &url).await;
                                 }
                             }
+                            continue;
+                        }
+
+                        // 2. If Downloader is actively editing URL text, DO NOT intercept global character hotkeys
+                        if self.active_mode == WorkstationMode::Downloader && self.downloader.is_editing_url {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C')) {
+                                self.streamer.terminate();
+                                break;
+                            }
+                            self.downloader.handle_key(key.code);
                             continue;
                         }
 
@@ -590,6 +612,7 @@ impl App {
                             }
                         }
                     }
+                    _ => {}
                 }
             }
 
@@ -601,7 +624,7 @@ impl App {
         // Clean teardown
         self.streamer.stop();
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste)?;
         terminal.show_cursor()?;
 
         Ok(())
@@ -2010,5 +2033,24 @@ mod tests {
         assert_eq!(squig_prof.name, "Test Squiglink IEM");
         assert_eq!(squig_prof.preamp_db, -5.0);
         assert_eq!(squig_prof.filters.len(), 2);
+    }
+
+    #[test]
+    fn test_paste_in_downloader_does_not_open_mode_modal() {
+        let mut app = App::new_test();
+        app.active_mode = WorkstationMode::Downloader;
+        app.mode_modal.is_open = false;
+
+        // Paste a YouTube link containing 'm'
+        app.downloader.paste("https://music.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert!(app.downloader.is_editing_url);
+        assert!(!app.mode_modal.is_open);
+
+        // Typing 'm' while editing URL should type into input, NOT open mode modal
+        if app.downloader.is_editing_url {
+            app.downloader.handle_key(KeyCode::Char('m'));
+        }
+        assert!(!app.mode_modal.is_open);
+        assert!(app.downloader.input_text.ends_with('m'));
     }
 }
