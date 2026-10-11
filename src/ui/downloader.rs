@@ -1,4 +1,6 @@
-use crate::harvest::musicbrainz::lookup_metadata;
+use crate::harvest::musicbrainz::{build_nicotine_query, lookup_metadata};
+use crate::harvest::nicotine::{score_candidate, NicotineCandidate};
+use crate::harvest::slskd::SlskdClient;
 use crate::harvest::spectral::analyze_file;
 use crate::harvest::tagger::{write_tags, AudioTrackInfo};
 use crate::harvest::title_cleaner::clean_title;
@@ -63,6 +65,32 @@ impl Mp3Quality {
             Mp3Quality::Opus160k => Mp3Quality::Mp3_320k,
         }
     }
+
+    pub fn prev(&self) -> Self {
+        match self {
+            Mp3Quality::Mp3_320k => Mp3Quality::Opus160k,
+            Mp3Quality::Mp3_V0 => Mp3Quality::Mp3_320k,
+            Mp3Quality::Mp3_256k => Mp3Quality::Mp3_V0,
+            Mp3Quality::Mp3_128k => Mp3Quality::Mp3_256k,
+            Mp3Quality::Aac_256k => Mp3Quality::Mp3_128k,
+            Mp3Quality::FlacLossless => Mp3Quality::Aac_256k,
+            Mp3Quality::Wav24 => Mp3Quality::FlacLossless,
+            Mp3Quality::Opus160k => Mp3Quality::Wav24,
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Mp3Quality::Mp3_320k => "320kbps Constant Bitrate MP3 (Studio Master)",
+            Mp3Quality::Mp3_V0 => "Variable Bitrate Extreme (~245kbps VBR)",
+            Mp3Quality::Mp3_256k => "256kbps Constant Bitrate MP3",
+            Mp3Quality::Mp3_128k => "128kbps Standard Compact MP3",
+            Mp3Quality::Aac_256k => "256kbps Apple AAC / M4A Stream",
+            Mp3Quality::FlacLossless => "24-bit / 48kHz Authentic Lossless FLAC",
+            Mp3Quality::Wav24 => "24-bit Uncompressed PCM Broadcast WAV",
+            Mp3Quality::Opus160k => "160kbps Low-Latency Audiophile Opus",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +117,24 @@ impl AcquisitionPolicy {
             AcquisitionPolicy::BestAvailable => AcquisitionPolicy::NicotineFlacPreferred,
             AcquisitionPolicy::NicotineFlacPreferred => AcquisitionPolicy::FastWebFallback,
             AcquisitionPolicy::FastWebFallback => AcquisitionPolicy::Mp3Only,
+        }
+    }
+
+    pub fn prev(&self) -> Self {
+        match self {
+            AcquisitionPolicy::Mp3Only => AcquisitionPolicy::FastWebFallback,
+            AcquisitionPolicy::BestAvailable => AcquisitionPolicy::Mp3Only,
+            AcquisitionPolicy::NicotineFlacPreferred => AcquisitionPolicy::BestAvailable,
+            AcquisitionPolicy::FastWebFallback => AcquisitionPolicy::NicotineFlacPreferred,
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            AcquisitionPolicy::Mp3Only => "Direct MP3 rip via Web engine",
+            AcquisitionPolicy::BestAvailable => "Soulseek P2P FLAC hunt with auto Web fallback",
+            AcquisitionPolicy::NicotineFlacPreferred => "Strict Soulseek P2P swarm lossless FLAC hunt",
+            AcquisitionPolicy::FastWebFallback => "Fast audio stream extraction via Web engine",
         }
     }
 }
@@ -246,6 +292,7 @@ impl DownloaderState {
         self.job_list_state.select(Some(self.jobs.len().saturating_sub(1)));
         let url = text.to_string();
         let format = self.selected_quality.to_audio_format();
+        let policy = self.selected_policy;
         let tx = self.tx.clone();
 
         self.input_text.clear();
@@ -350,22 +397,120 @@ impl DownloaderState {
 
         // Spawn background tokio download worker for single track
         tokio::spawn(async move {
-            let _ = tx
-                .send((
-                    id,
-                    JobPhase::Downloading,
-                    10.0,
-                    "Connecting".into(),
-                    "--:--".into(),
-                    None,
-                ))
-                .await;
-
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
             let music_dir = std::path::PathBuf::from(home).join("Music");
             let _ = std::fs::create_dir_all(&music_dir);
 
-            match download_audio(&url, &music_dir, format).await {
+            // Check acquisition policy: hunt Soulseek swarm if NicotineFlacPreferred or BestAvailable
+            if matches!(policy, AcquisitionPolicy::NicotineFlacPreferred | AcquisitionPolicy::BestAvailable) {
+                let _ = tx
+                    .send((
+                        id,
+                        JobPhase::Downloading,
+                        10.0,
+                        "Soulseek Hunt".into(),
+                        "--:--".into(),
+                        Some("Resolving canonical metadata and hunting Soulseek swarm...".into()),
+                    ))
+                    .await;
+
+                let cleaned_meta = clean_title(&display_for_tag);
+                let mb_meta = lookup_metadata(cleaned_meta.artist.as_deref(), &cleaned_meta.title).await.ok();
+                let artist = mb_meta.as_ref().map(|m| m.artist.clone()).or(cleaned_meta.artist).unwrap_or_else(|| "Unknown".to_string());
+                let title = mb_meta.as_ref().map(|m| m.title.clone()).unwrap_or(cleaned_meta.title);
+                let query = build_nicotine_query(&artist, &title);
+
+                let slskd = SlskdClient::new("http://localhost:5030", None);
+
+                if let Ok(search_id) = slskd.start_search(&query).await {
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Downloading,
+                            20.0,
+                            "P2P Swarm".into(),
+                            "--:--".into(),
+                            Some(format!("Searching Soulseek: {}", query)),
+                        ))
+                        .await;
+
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+                    if let Ok(results) = slskd.get_search_results(&search_id).await {
+                        let mut candidates: Vec<NicotineCandidate> = results
+                            .into_iter()
+                            .map(|r| NicotineCandidate {
+                                username: r.username,
+                                filename: r.filename,
+                                size_bytes: r.size,
+                                bitrate_kbps: r.bitrate,
+                                sample_rate: r.sample_rate,
+                                bit_depth: r.bit_depth,
+                                speed_kbps: None,
+                                in_queue: 0,
+                                score: 0.0,
+                            })
+                            .collect();
+
+                        for c in &mut candidates {
+                            c.score = score_candidate(c);
+                        }
+                        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+                        if let Some(best) = candidates.first() {
+                            if best.is_flac() || best.score >= 40.0 {
+                                let _ = slskd.queue_download(&best.username, &best.filename, best.size_bytes).await;
+                                let _ = tx
+                                    .send((
+                                        id,
+                                        JobPhase::Completed,
+                                        100.0,
+                                        "P2P Queued".into(),
+                                        "00:00".into(),
+                                        Some(format!("Queued lossless FLAC from peer '{}' (Score: {:.0}): {}", best.username, best.score, best.filename)),
+                                    ))
+                                    .await;
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                let notice = if policy == AcquisitionPolicy::BestAvailable {
+                    "Soulseek peer not found. Seamlessly falling back to high-bitrate Web stream..."
+                } else {
+                    "Soulseek daemon offline or no FLAC seeds. Falling back to high-bitrate Web stream..."
+                };
+                let _ = tx
+                    .send((
+                        id,
+                        JobPhase::Downloading,
+                        25.0,
+                        "Web Fallback".into(),
+                        "--:--".into(),
+                        Some(notice.into()),
+                    ))
+                    .await;
+            } else {
+                let _ = tx
+                    .send((
+                        id,
+                        JobPhase::Downloading,
+                        10.0,
+                        "Connecting".into(),
+                        "--:--".into(),
+                        None,
+                    ))
+                    .await;
+            }
+
+            let download_source = if url.starts_with("http://") || url.starts_with("https://") {
+                url.clone()
+            } else {
+                format!("ytsearch1:{}", url)
+            };
+
+            match download_audio(&download_source, &music_dir, format).await {
                 Ok(path_str) => {
                     let _ = tx
                         .send((
@@ -602,9 +747,30 @@ impl DownloaderState {
     fn handle_queue_key(&mut self, code: KeyCode) {
         if self.is_editing_url {
             match code {
+                KeyCode::Tab => {
+                    self.is_editing_url = false;
+                    self.focused_field = 1;
+                    self.status_message = format!(
+                        "Focused Quality: < {} >. Press Left/Right to change format, Tab to Policy, Enter to download.",
+                        self.selected_quality.label()
+                    );
+                }
+                KeyCode::BackTab => {
+                    self.is_editing_url = false;
+                    self.focused_field = 3;
+                    self.status_message = "Focused [ CONVERT & DOWNLOAD ]. Press Enter to start download, Tab to URL.".to_string();
+                }
+                KeyCode::Down => {
+                    if !self.jobs.is_empty() {
+                        self.is_editing_url = false;
+                        self.selected_job_idx = 0;
+                        self.job_list_state.select(Some(0));
+                        self.status_message = "Selected download queue table. Use Up/Down to navigate.".to_string();
+                    }
+                }
                 KeyCode::Esc => {
                     self.is_editing_url = false;
-                    self.status_message = "URL edit mode closed. Press 1-3 to switch tabs, Enter to edit.".to_string();
+                    self.status_message = "URL edit mode closed. Press Tab to configure Quality/Policy, Enter to edit.".to_string();
                 }
                 KeyCode::Enter => {
                     self.is_editing_url = false;
@@ -626,30 +792,51 @@ impl DownloaderState {
             KeyCode::Enter | KeyCode::Char('/') | KeyCode::Char('i') if self.focused_field == 0 => {
                 if self.input_text.is_empty() {
                     self.is_editing_url = true;
-                    self.status_message = "Editing URL: Type/paste link, press Enter to convert, Esc to exit.".to_string();
+                    self.status_message = "Editing URL: Type/paste link, press Enter to convert, Tab to Quality, Esc to exit.".to_string();
                 } else {
                     self.submit_current();
                 }
             }
-            KeyCode::Char(c) if self.focused_field == 0 && c != '1' && c != '2' && c != '3' && c != 'q' && c != 'Q' => {
+            KeyCode::Char(c) if self.focused_field == 0 && c != '1' && c != '2' && c != '3' && c != 'q' && c != 'Q' && c != 'e' && c != 'E' => {
                 self.is_editing_url = true;
                 self.input_text.push(c);
-                self.status_message = "Editing URL: Press Enter to convert, Esc to exit.".to_string();
+                self.status_message = "Editing URL: Press Enter to convert, Tab to Quality, Esc to exit.".to_string();
             }
             KeyCode::Enter if self.focused_field == 3 => {
                 self.submit_current();
             }
+            KeyCode::Enter if self.focused_field == 1 || self.focused_field == 2 => {
+                if !self.input_text.trim().is_empty() {
+                    self.submit_current();
+                } else {
+                    self.focused_field = (self.focused_field + 1) % 4;
+                    self.update_focused_field_status();
+                }
+            }
             KeyCode::Tab => {
                 self.focused_field = (self.focused_field + 1) % 4;
+                self.update_focused_field_status();
             }
             KeyCode::BackTab => {
                 self.focused_field = if self.focused_field == 0 { 3 } else { self.focused_field - 1 };
+                self.update_focused_field_status();
             }
-            KeyCode::Left | KeyCode::Right => {
+            KeyCode::Right => {
                 if self.focused_field == 1 {
                     self.selected_quality = self.selected_quality.next();
+                    self.status_message = format!("Quality: [ {} ] - {}", self.selected_quality.label(), self.selected_quality.description());
                 } else if self.focused_field == 2 {
                     self.selected_policy = self.selected_policy.next();
+                    self.status_message = format!("Acquisition Policy: [ {} ] - {}", self.selected_policy.label(), self.selected_policy.description());
+                }
+            }
+            KeyCode::Left => {
+                if self.focused_field == 1 {
+                    self.selected_quality = self.selected_quality.prev();
+                    self.status_message = format!("Quality: [ {} ] - {}", self.selected_quality.label(), self.selected_quality.description());
+                } else if self.focused_field == 2 {
+                    self.selected_policy = self.selected_policy.prev();
+                    self.status_message = format!("Acquisition Policy: [ {} ] - {}", self.selected_policy.label(), self.selected_policy.description());
                 }
             }
             KeyCode::Up => {
@@ -667,11 +854,29 @@ impl DownloaderState {
             KeyCode::Char('e') | KeyCode::Char('E') => {
                 self.trigger_enhancement();
             }
-            // If user types text while URL box is focused, enter editing mode automatically
-            KeyCode::Char(c) if self.focused_field == 0 => {
-                self.is_editing_url = true;
-                self.input_text.push(c);
-                self.status_message = "Editing URL: Type/paste link, press Enter to convert, Esc to exit.".to_string();
+            _ => {}
+        }
+    }
+
+    fn update_focused_field_status(&mut self) {
+        match self.focused_field {
+            0 => {
+                self.status_message = "Focused URL field: Press Enter or type to edit, Tab to Quality.".to_string();
+            }
+            1 => {
+                self.status_message = format!(
+                    "Focused Quality: < {} >. Press Left/Right to change, Tab to Policy, Enter to download.",
+                    self.selected_quality.label()
+                );
+            }
+            2 => {
+                self.status_message = format!(
+                    "Focused Policy: < {} >. Press Left/Right to change, Tab to Convert, Enter to download.",
+                    self.selected_policy.label()
+                );
+            }
+            3 => {
+                self.status_message = "Focused [ CONVERT & DOWNLOAD ]. Press Enter to start download, Tab to URL.".to_string();
             }
             _ => {}
         }
@@ -803,10 +1008,10 @@ impl DownloaderState {
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Min(25),    // URL Input
-                Constraint::Length(22), // Quality select
-                Constraint::Length(22), // Policy select
-                Constraint::Length(14), // Convert Button
+                Constraint::Min(24),    // URL Input
+                Constraint::Length(27), // Quality select
+                Constraint::Length(27), // Policy select
+                Constraint::Length(16), // Convert Button
             ])
             .split(bar_inner);
 
@@ -824,15 +1029,15 @@ impl DownloaderState {
             if self.is_editing_url {
                 "[EDIT] > "
             } else {
-                "> "
+                "[►] > "
             }
         } else {
-            "  "
+            "  > "
         };
         let input_placeholder = if self.is_editing_url {
-            "[Type/paste link, Enter: convert, Esc: exit]"
+            "[Type/paste link, Enter: convert, Tab: Quality]"
         } else {
-            "[Enter: edit URL | 1-3: switch tabs]"
+            "[Enter: edit URL | Tab: Quality | 1-3: tabs]"
         };
         let input_display = if self.input_text.is_empty() {
             input_placeholder
@@ -844,32 +1049,48 @@ impl DownloaderState {
         f.render_widget(p_input, input_chunks[0]);
 
         // Quality Select
-        let q_style = if self.focused_field == 1 {
-            Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)
+        let (q_text, q_style) = if self.focused_field == 1 {
+            (
+                format!("[► Quality: {} ◄]", self.selected_quality.label()),
+                Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD),
+            )
         } else {
-            Style::default().fg(theme.text_dim)
+            (
+                format!("  Quality: < {} >  ", self.selected_quality.label()),
+                Style::default().fg(theme.text_dim),
+            )
         };
-        let p_q = Paragraph::new(format!("Quality: < {} >", self.selected_quality.label()))
-            .style(q_style);
+        let p_q = Paragraph::new(q_text).style(q_style);
         f.render_widget(p_q, input_chunks[1]);
 
         // Policy Select
-        let pol_style = if self.focused_field == 2 {
-            Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)
+        let (pol_text, pol_style) = if self.focused_field == 2 {
+            (
+                format!("[► Policy: {} ◄]", self.selected_policy.label()),
+                Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD),
+            )
         } else {
-            Style::default().fg(theme.text_dim)
+            (
+                format!("  Policy: < {} >  ", self.selected_policy.label()),
+                Style::default().fg(theme.text_dim),
+            )
         };
-        let p_pol = Paragraph::new(format!("Source: < {} >", self.selected_policy.label()))
-            .style(pol_style);
+        let p_pol = Paragraph::new(pol_text).style(pol_style);
         f.render_widget(p_pol, input_chunks[2]);
 
         // Convert Button
-        let btn_style = if self.focused_field == 3 {
-            Style::default().fg(Color::Black).bg(theme.primary).add_modifier(Modifier::BOLD)
+        let (btn_text, btn_style) = if self.focused_field == 3 {
+            (
+                "[► CONVERT ◄]",
+                Style::default().fg(Color::Black).bg(theme.primary).add_modifier(Modifier::BOLD),
+            )
         } else {
-            Style::default().fg(theme.primary).bg(theme.surface)
+            (
+                "[ CONVERT ]",
+                Style::default().fg(theme.primary).bg(theme.surface),
+            )
         };
-        let p_btn = Paragraph::new("[ CONVERT ]")
+        let p_btn = Paragraph::new(btn_text)
             .style(btn_style)
             .alignment(Alignment::Center);
         f.render_widget(p_btn, input_chunks[3]);
@@ -1365,5 +1586,75 @@ mod tests {
         state2.handle_key(KeyCode::Char('h'));
         assert!(state2.is_editing_url);
         assert_eq!(state2.input_text, "h");
+    }
+
+    #[tokio::test]
+    async fn test_tab_navigation_out_of_url_editing() {
+        let mut state = DownloaderState::new();
+        state.paste("https://youtube.com/watch?v=example");
+        assert!(state.is_editing_url);
+        assert_eq!(state.focused_field, 0);
+
+        // Pressing Tab while editing URL must exit edit mode and focus Quality (Field 1)
+        state.handle_key(KeyCode::Tab);
+        assert!(!state.is_editing_url);
+        assert_eq!(state.focused_field, 1);
+
+        // Right arrow changes Quality forward
+        state.handle_key(KeyCode::Right);
+        assert_eq!(state.selected_quality, Mp3Quality::Mp3_V0);
+
+        // Left arrow changes Quality backward
+        state.handle_key(KeyCode::Left);
+        assert_eq!(state.selected_quality, Mp3Quality::Mp3_320k);
+
+        // Left arrow again wraps backward to Opus160k
+        state.handle_key(KeyCode::Left);
+        assert_eq!(state.selected_quality, Mp3Quality::Opus160k);
+
+        // Pressing Tab advances to Policy (Field 2)
+        state.handle_key(KeyCode::Tab);
+        assert_eq!(state.focused_field, 2);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::Mp3Only);
+
+        // Right arrow cycles Policy to BestAvailable
+        state.handle_key(KeyCode::Right);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::BestAvailable);
+
+        // Right arrow cycles to NicotineFlacPreferred
+        state.handle_key(KeyCode::Right);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::NicotineFlacPreferred);
+
+        // Pressing Enter while on Policy with non-empty URL submits the job!
+        state.handle_key(KeyCode::Enter);
+        assert_eq!(state.jobs.len(), 1);
+        let queued = &state.jobs[0];
+        assert_eq!(queued.quality, Mp3Quality::Opus160k);
+        assert_eq!(queued.policy, AcquisitionPolicy::NicotineFlacPreferred);
+    }
+
+    #[test]
+    fn test_backtab_navigation_from_editing() {
+        let mut state = DownloaderState::new();
+        state.paste("https://soundcloud.com/test/track");
+        assert!(state.is_editing_url);
+
+        // BackTab exits edit mode and shifts focus to Convert button (Field 3)
+        state.handle_key(KeyCode::BackTab);
+        assert!(!state.is_editing_url);
+        assert_eq!(state.focused_field, 3);
+    }
+
+    #[test]
+    fn test_bidirectional_cycling() {
+        let q = Mp3Quality::Mp3_320k;
+        assert_eq!(q.next(), Mp3Quality::Mp3_V0);
+        assert_eq!(q.prev(), Mp3Quality::Opus160k);
+        assert_eq!(Mp3Quality::FlacLossless.prev(), Mp3Quality::Aac_256k);
+
+        let p = AcquisitionPolicy::Mp3Only;
+        assert_eq!(p.next(), AcquisitionPolicy::BestAvailable);
+        assert_eq!(p.prev(), AcquisitionPolicy::FastWebFallback);
+        assert_eq!(AcquisitionPolicy::NicotineFlacPreferred.prev(), AcquisitionPolicy::BestAvailable);
     }
 }
