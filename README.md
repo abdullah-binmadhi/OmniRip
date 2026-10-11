@@ -110,24 +110,49 @@ graph TD
 
 ## Quick Start
 
-### Prerequisites
+### macOS Installation
 
-- macOS 12+ (Apple Silicon or Intel)
-- [Rust toolchain](https://rustup.rs/) (1.75+)
+OmniRip runs on Apple Silicon and Intel Macs without requiring an Apple Developer Certificate:
 
-### Installation
+- **Automated One-Line Install**:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.sh | bash
+  ```
 
-Install OmniRip globally into your system path:
+- **Or Install via Cargo**:
+  ```bash
+  cargo install --path .
+  omnirip driver install
+  ```
 
-```bash
-cargo install --path .
-```
+- **Manual Release Archive**:
+  Download `omnirip-macos-arm64.tar.gz` from GitHub Releases. If macOS displays a verification prompt, clear the quarantine attribute:
+  ```bash
+  xattr -cr /path/to/omnirip
+  ```
 
-To install the optional native CoreAudio driver for automatic, zero-configuration system capture:
+---
 
-```bash
-omnirip driver install
-```
+### Windows Installation
+
+On Windows, OmniRip captures audio natively via WASAPI Loopback (`AUDCLNT_STREAMFLAGS_LOOPBACK`). No virtual audio driver or kernel extension is needed.
+
+- **Automated PowerShell Install**:
+  ```powershell
+  irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.ps1 | iex
+  ```
+
+- **Or Install via Cargo**:
+  ```powershell
+  cargo install --path .
+  ```
+
+- **Standalone Executable**:
+  Download `omnirip-windows-x64.zip` from GitHub Releases, extract `omnirip.exe`, and launch it from Windows Terminal or PowerShell.
+
+---
+
+### Launching OmniRip
 
 Start OmniRip from any terminal window:
 

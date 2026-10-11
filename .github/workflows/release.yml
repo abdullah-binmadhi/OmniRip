@@ -10,47 +10,61 @@ permissions:
 
 jobs:
   build-release:
-    name: Build Standalone (${{ matrix.os }})
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-14
-            artifact_name: omnirip-macos-arm64
-            binary_name: dist/omnirip
-          - os: ubuntu-latest
-            artifact_name: omnirip-linux-x86_64
-            binary_name: dist/omnirip
+            target: aarch64-apple-darwin
+            artifact_name: omnirip-macos-arm64.tar.gz
+            use_zip: false
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: omnirip-macos-x86_64.tar.gz
+            use_zip: false
           - os: windows-latest
-            artifact_name: omnirip-windows-x64.exe
-            binary_name: dist/omnirip.exe
+            target: x86_64-pc-windows-msvc
+            artifact_name: omnirip-windows-x64.zip
+            use_zip: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: omnirip-linux-x86_64.tar.gz
+            use_zip: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Install ALSA dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          version: "latest"
-          enable-cache: true
+          targets: ${{ matrix.target }}
 
-      - name: Set up Python
-        run: uv python install 3.12
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Install project and PyInstaller
-        run: |
-          uv sync --all-extras
-          uv pip install pyinstaller
-
-      - name: Build standalone binary with PyInstaller
-        run: |
-          uv run pyinstaller packaging/omnirip.spec
-
-      - name: Rename binary for distribution
+      - name: Package artifacts (Unix)
+        if: matrix.use_zip == false
         shell: bash
         run: |
-          mv ${{ matrix.binary_name }} dist/${{ matrix.artifact_name }}
+          mkdir -p dist
+          BIN_PATH="target/${{ matrix.target }}/release/omnirip"
+          tar -czf "dist/${{ matrix.artifact_name }}" -C "target/${{ matrix.target }}/release" omnirip
+
+      - name: Package artifacts (Windows)
+        if: matrix.use_zip == true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force
+          Compress-Archive -Path "target/${{ matrix.target }}/release/omnirip.exe", "scripts/install.ps1" -DestinationPath "dist/${{ matrix.artifact_name }}"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

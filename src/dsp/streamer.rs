@@ -223,6 +223,21 @@ pub fn set_macos_system_output_to_hardware() -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "macos"))]
+pub fn get_macos_default_output_id() -> Option<u32> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn get_macos_device_id_by_keyword(_keyword: &str) -> Option<u32> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_macos_system_output_to_device_id(_target_id: u32) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn set_macos_system_output_to_blackhole() -> Result<String, String> {
     Ok("Non-macOS platform".to_string())
 }

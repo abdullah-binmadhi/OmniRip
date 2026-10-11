@@ -87,10 +87,18 @@ impl OmniRipPreset {
     }
 }
 
-/// Retrieve the canonical directory for storing user presets (~/.config/omnirip/presets/).
+/// Retrieve the canonical directory for storing user presets (~/.config/omnirip/presets/ on Unix, %APPDATA%\omnirip\presets on Windows).
 pub fn get_presets_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
         let dir = PathBuf::from(home).join(".config").join("omnirip").join("presets");
+        let _ = fs::create_dir_all(&dir);
+        dir
+    } else if let Ok(appdata) = std::env::var("APPDATA") {
+        let dir = PathBuf::from(appdata).join("omnirip").join("presets");
+        let _ = fs::create_dir_all(&dir);
+        dir
+    } else if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        let dir = PathBuf::from(userprofile).join(".config").join("omnirip").join("presets");
         let _ = fs::create_dir_all(&dir);
         dir
     } else {
