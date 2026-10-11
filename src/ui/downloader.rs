@@ -6,8 +6,8 @@ use crate::harvest::spectral::analyze_file;
 use crate::harvest::tagger::{write_tags, AudioTrackInfo};
 use crate::harvest::title_cleaner::clean_title;
 use crate::harvest::yt_dlp::{
-    download_audio, download_audio_to_path, expand_album_tracks, get_album_track_path,
-    is_playlist_or_album, AudioFormat,
+    download_audio, download_audio_to_path, expand_album_tracks, fetch_video_title,
+    get_album_track_path, is_playlist_or_album, AudioFormat,
 };
 use crate::ui::theme::ThemePalette;
 use crossterm::event::KeyCode;
@@ -208,6 +208,7 @@ pub struct DownloaderState {
     pub focused_field: usize, // 0: Input, 1: Quality, 2: Policy, 3: Lyrics, 4: Convert
     pub is_editing_url: bool,
     pub download_lyrics: bool,
+    pub active_soulseek_user: Option<String>,
     pub status_message: String,
     // Dedicated 10-Band EQ State
     pub selected_band: usize,
@@ -224,6 +225,7 @@ impl DownloaderState {
         let (tx, rx) = channel(64);
         let mut list_state = ListState::default();
         list_state.select(Some(0));
+        let active_soulseek_user = crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username);
 
         Self {
             active_tab: DownloaderTab::Queue,
@@ -237,6 +239,7 @@ impl DownloaderState {
             focused_field: 0,
             is_editing_url: false,
             download_lyrics: true,
+            active_soulseek_user,
             status_message: "Ready. Press Enter to paste/edit URL, or [1-3] to switch tabs.".to_string(),
             selected_band: 5,
             band_gains: [0.0; 10],
@@ -418,7 +421,15 @@ impl DownloaderState {
                     ))
                     .await;
 
-                let cleaned_meta = clean_title(&display_for_tag);
+                // Pre-resolve YouTube title if a web URL was passed
+                let mut search_query_title = display_for_tag.clone();
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    if let Ok(real_title) = fetch_video_title(&url).await {
+                        search_query_title = real_title;
+                    }
+                }
+
+                let cleaned_meta = clean_title(&search_query_title);
                 let mb_meta = lookup_metadata(cleaned_meta.artist.as_deref(), &cleaned_meta.title).await.ok();
                 let artist = mb_meta.as_ref().map(|m| m.artist.clone()).or(cleaned_meta.artist).unwrap_or_else(|| "Unknown".to_string());
                 let title = mb_meta.as_ref().map(|m| m.title.clone()).unwrap_or(cleaned_meta.title);
@@ -576,6 +587,19 @@ impl DownloaderState {
                     }
 
                     let _ = write_tags(&path_str, &tag_info);
+
+                    // Write companion <track_stem>.jpg file for macOS Finder / Windows Explorer thumbnail preview
+                    let companion_art_path = file_path.with_extension("jpg");
+                    if let Some(ref art_bytes) = tag_info.cover_art {
+                        let _ = std::fs::write(&companion_art_path, art_bytes);
+                    } else {
+                        // Extract attached thumbnail to companion .jpg so Finder shows the artwork
+                        let _ = tokio::process::Command::new("ffmpeg")
+                            .args(["-hide_banner", "-loglevel", "error", "-y", "-i", &path_str, "-an", "-vcodec", "copy"])
+                            .arg(&companion_art_path)
+                            .output()
+                            .await;
+                    }
 
                     let _ = tx
                         .send((
@@ -1048,8 +1072,13 @@ impl DownloaderState {
             .split(area);
 
         // 1. Top Controls Bar
+        let soulseek_tag = if let Some(ref u) = self.active_soulseek_user {
+            format!(" [Soulseek: {} | 'A' Accounts] ", u)
+        } else {
+            " [Soulseek: Not Connected | 'A' Accounts] ".to_string()
+        };
         let bar_block = Block::default()
-            .title(" MP3 DOWNLOADER & CONVERSION CONTROLS ")
+            .title(format!(" MP3 DOWNLOADER & CONVERSION CONTROLS {} ", soulseek_tag))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.primary));
         let bar_inner = bar_block.inner(chunks[0]);

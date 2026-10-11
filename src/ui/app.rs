@@ -404,6 +404,10 @@ impl App {
                                     NicotineModalAction::SelectCandidate(c) => {
                                         self.set_status(&format!("Selected lossless candidate: {}", c.filename));
                                     }
+                                    NicotineModalAction::SelectAccount(acc) => {
+                                        self.downloader.active_soulseek_user = Some(acc.username.clone());
+                                        self.set_status(&format!("Activated Soulseek account: {} ({})", acc.username, acc.source));
+                                    }
                                 }
                             }
                             continue;
@@ -491,6 +495,14 @@ impl App {
                             {
                                 self.nicotine_modal.is_open = true;
                                 self.set_status("Opened Nicotine+ Lossless Candidate Browser.");
+                                continue;
+                            }
+                            KeyCode::Char('a') | KeyCode::Char('A')
+                                if self.active_mode == WorkstationMode::SystemEq
+                                    || !self.downloader.is_editing_url =>
+                            {
+                                self.nicotine_modal.open_accounts();
+                                self.set_status("Opened Soulseek Account Discovery & Manager.");
                                 continue;
                             }
                             KeyCode::Char('t') | KeyCode::Char('T') => {

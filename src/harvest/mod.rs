@@ -11,12 +11,12 @@ pub mod yt_dlp;
 
 pub use lyrics::{fetch_lyrics_lrclib, resolve_and_save_lyrics, LyricsData};
 pub use musicbrainz::{build_nicotine_query, fetch_cover_art_archive, lookup_metadata, MusicBrainzMetadata};
-pub use nicotine::{score_candidate, NicotineCandidate, NicotineConfig};
+pub use nicotine::{score_candidate, DiscoveredAccount, NicotineCandidate, NicotineConfig};
 pub use slskd::{SlskdClient, SlskdDownloadStatus, SlskdFileResult};
 pub use spectral::{analyze_file, analyze_samples, QualityVerdict, SpectralAnalysisResult};
 pub use tagger::{read_tags, write_tags, AudioTrackInfo};
 pub use title_cleaner::{clean_title, CleanedTrackMeta};
-pub use yt_dlp::{check_installed, download_audio, parse_progress_line, AudioFormat, YtDlpProgress};
+pub use yt_dlp::{check_installed, download_audio, fetch_video_title, parse_progress_line, AudioFormat, YtDlpProgress};
 
 #[derive(Debug, Clone)]
 pub struct HarvesterManager {

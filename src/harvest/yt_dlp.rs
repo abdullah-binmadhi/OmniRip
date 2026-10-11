@@ -278,6 +278,27 @@ pub async fn expand_album_tracks(url: &str) -> Result<AlbumInfo, String> {
     })
 }
 
+/// Fetches the raw title of a video or audio stream using yt-dlp.
+pub async fn fetch_video_title(url: &str) -> Result<String, String> {
+    let bin = get_yt_dlp_bin()?;
+    let output = Command::new(&bin)
+        .arg("--print")
+        .arg("%(title)s")
+        .arg("--no-warnings")
+        .arg(url)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    if output.status.success() {
+        let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !title.is_empty() {
+            return Ok(title);
+        }
+    }
+    Err("Failed to resolve video title".to_string())
+}
+
 /// Downloads audio from `url` into `output_dir` using the chosen `format`.
 pub async fn download_audio<P: AsRef<Path>>(
     url: &str,

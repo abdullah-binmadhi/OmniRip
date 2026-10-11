@@ -14,7 +14,111 @@ pub struct NicotineConfig {
     pub is_logged_in: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveredAccount {
+    pub username: String,
+    pub password: Option<String>,
+    pub source: String,
+    pub config_path: Option<PathBuf>,
+    pub is_active: bool,
+}
+
 impl NicotineConfig {
+    /// Discovers all Soulseek/Nicotine+ accounts configured on the system across all supported locations.
+    pub fn discover_all_accounts() -> Vec<DiscoveredAccount> {
+        let mut accounts = Vec::new();
+        let mut seen_usernames = std::collections::HashSet::new();
+        let active_opt = Self::detect_local();
+
+        // 1. Check environment variables
+        if let Ok(env_user) = std::env::var("SOULSEEK_USERNAME").or_else(|_| std::env::var("SOULSEEK_LOGIN")) {
+            let u = env_user.trim().to_string();
+            if !u.is_empty() {
+                let pass = std::env::var("SOULSEEK_PASSWORD").or_else(|_| std::env::var("SOULSEEK_PASS")).ok();
+                let is_active = active_opt.as_ref().map(|a| a.username == u).unwrap_or(false);
+                accounts.push(DiscoveredAccount {
+                    username: u.clone(),
+                    password: pass,
+                    source: "Environment Variable".to_string(),
+                    config_path: None,
+                    is_active,
+                });
+                seen_usernames.insert(u);
+            }
+        }
+
+        // 2. Candidate paths with friendly labels
+        let mut paths: Vec<(PathBuf, &str)> = Vec::new();
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            let h = PathBuf::from(&home);
+            paths.push((h.join(".config/omnirip/soulseek.ini"), "OmniRip Config"));
+            paths.push((h.join(".config/nicotine/config"), "Nicotine+ (Config)"));
+            paths.push((h.join("Library/Application Support/Nicotine/config"), "Nicotine+ (macOS AppSupport)"));
+            paths.push((h.join("Library/Application Support/Nicotine+/config"), "Nicotine+ (macOS AppSupport)"));
+            paths.push((h.join(".nicotine/config"), "Nicotine+ (Legacy)"));
+            paths.push((h.join(".SoulseekQt/soulseek.ini"), "SoulseekQt"));
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let a = PathBuf::from(&appdata);
+            paths.push((a.join("omnirip/soulseek.ini"), "OmniRip Config (Windows)"));
+            paths.push((a.join("nicotine/config"), "Nicotine+ (Windows)"));
+            paths.push((a.join("SoulseekQt/soulseek.ini"), "SoulseekQt (Windows)"));
+        }
+
+        for (path, label) in paths {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Some(cfg) = Self::parse_ini_content(&content) {
+                        if !seen_usernames.contains(&cfg.username) {
+                            let is_active = active_opt.as_ref().map(|a| a.username == cfg.username).unwrap_or(false)
+                                || (accounts.is_empty() && seen_usernames.is_empty());
+                            seen_usernames.insert(cfg.username.clone());
+                            accounts.push(DiscoveredAccount {
+                                username: cfg.username,
+                                password: cfg.password,
+                                source: label.to_string(),
+                                config_path: Some(path),
+                                is_active,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        accounts
+    }
+
+    /// Saves the selected account as the active default in ~/.config/omnirip/soulseek.ini (or %APPDATA%/omnirip/soulseek.ini).
+    pub fn save_active_account(username: &str, password: Option<&str>) -> Result<PathBuf, String> {
+        let config_dir = if let Ok(appdata) = std::env::var("APPDATA") {
+            PathBuf::from(appdata).join("omnirip")
+        } else if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            PathBuf::from(home).join(".config/omnirip")
+        } else {
+            PathBuf::from(".config/omnirip")
+        };
+
+        std::fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create omnirip config directory: {}", e))?;
+
+        let file_path = config_dir.join("soulseek.ini");
+        let pass_line = match password {
+            Some(p) => format!("passw = {}\n", p),
+            None => String::new(),
+        };
+
+        let ini_content = format!(
+            "[server]\nlogin = {}\n{}server = server.slsknet.org\nport = 2242\n",
+            username, pass_line
+        );
+
+        std::fs::write(&file_path, ini_content)
+            .map_err(|e| format!("Failed to write soulseek.ini: {}", e))?;
+
+        Ok(file_path)
+    }
+
     /// Detects and reads the user's local active Soulseek session from environment variables or standard config locations.
     pub fn detect_local() -> Option<Self> {
         // 1. Check environment variables (SOULSEEK_USERNAME / SOULSEEK_LOGIN)
@@ -318,5 +422,20 @@ downloaddir = /Users/test/Music/NicotineDownloads
 
         std::env::remove_var("SOULSEEK_USERNAME");
         std::env::remove_var("SOULSEEK_PASSWORD");
+    }
+
+    #[test]
+    fn test_discover_accounts_and_save() {
+        let temp_dir = std::env::temp_dir().join("omnirip_test_acc");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let ini_file = temp_dir.join("soulseek.ini");
+        let _ = std::fs::write(&ini_file, "[server]\nlogin = test_save_user\npassw = test_pass\n");
+
+        let content = std::fs::read_to_string(&ini_file).unwrap();
+        let parsed = NicotineConfig::parse_ini_content(&content).unwrap();
+        assert_eq!(parsed.username, "test_save_user");
+        assert_eq!(parsed.password.as_deref(), Some("test_pass"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
