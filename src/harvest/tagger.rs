@@ -2,9 +2,10 @@
 //! Supports FLAC, MP3, OPUS, OGG, M4A, WAV, and AIFF.
 
 use lofty::config::WriteOptions;
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::probe::Probe;
-use lofty::tag::Tag;
+use lofty::tag::{ItemKey, Tag};
 use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -19,6 +20,8 @@ pub struct AudioTrackInfo {
     pub bitrate_kbps: Option<u32>,
     pub sample_rate: Option<u32>,
     pub channels: Option<u8>,
+    pub lyrics: Option<String>,
+    pub cover_art: Option<Vec<u8>>,
 }
 
 /// Reads metadata and audio stream properties from the given file path.
@@ -47,6 +50,7 @@ pub fn read_tags<P: AsRef<Path>>(path: P) -> Result<AudioTrackInfo, String> {
         info.year = t.year();
         info.track_number = t.track();
         info.genre = t.genre().map(|s| s.to_string());
+        info.lyrics = t.get_string(&ItemKey::Lyrics).map(|s| s.to_string());
     }
 
     Ok(info)
@@ -87,6 +91,18 @@ pub fn write_tags<P: AsRef<Path>>(path: P, info: &AudioTrackInfo) -> Result<(), 
     if let Some(ref g) = info.genre {
         tag.set_genre(g.clone());
     }
+    if let Some(ref lyr) = info.lyrics {
+        tag.insert_text(ItemKey::Lyrics, lyr.clone());
+    }
+    if let Some(ref art) = info.cover_art {
+        let pic = Picture::new_unchecked(
+            PictureType::CoverFront,
+            Some(MimeType::Jpeg),
+            None,
+            art.clone(),
+        );
+        tag.push_picture(pic);
+    }
 
     tag.save_to_path(path_ref, WriteOptions::default())
         .map_err(|e| format!("Failed to save tags: {}", e))?;
@@ -119,10 +135,13 @@ mod tests {
             bitrate_kbps: Some(1411),
             sample_rate: Some(44100),
             channels: Some(2),
+            lyrics: Some("End of passion play...".into()),
+            cover_art: None,
         };
 
         assert_eq!(info.title.as_deref(), Some("Master of Puppets"));
         assert_eq!(info.track_number, Some(2));
         assert_eq!(info.year, Some(1986));
+        assert_eq!(info.lyrics.as_deref(), Some("End of passion play..."));
     }
 }

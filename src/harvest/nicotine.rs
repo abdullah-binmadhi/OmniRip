@@ -65,7 +65,7 @@ impl NicotineConfig {
                 match current_section {
                     "server" => match k {
                         "login" => username = v.to_string(),
-                        "pass" | "password" => {
+                        "pass" | "password" | "passw" => {
                             if !v.is_empty() {
                                 password = Some(v.to_string());
                             }
@@ -233,6 +233,15 @@ downloaddir = /Users/test/Music/NicotineDownloads
     fn test_parse_nicotine_ini_no_login() {
         let ini = "[server]\nport = 2242\n";
         assert!(NicotineConfig::parse_ini_content(ini).is_none());
+    }
+
+    #[test]
+    fn test_parse_nicotine_ini_passw_key() {
+        let ini = "[server]\nlogin = weiharnsu\npassw = lekkia01\n";
+        let cfg = NicotineConfig::parse_ini_content(ini).expect("Should parse passw key");
+        assert_eq!(cfg.username, "weiharnsu");
+        assert_eq!(cfg.password.as_deref(), Some("lekkia01"));
+        assert!(cfg.is_logged_in);
     }
 
     #[test]

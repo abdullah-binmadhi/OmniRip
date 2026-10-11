@@ -11,6 +11,7 @@ pub struct MusicBrainzMetadata {
     pub album: Option<String>,
     pub year: Option<u32>,
     pub track_number: Option<u32>,
+    pub release_mbid: Option<String>,
     pub nicotine_query: String,
 }
 
@@ -93,10 +94,12 @@ pub fn parse_recording_json(json: &serde_json::Value) -> Result<MusicBrainzMetad
     let mut album = None;
     let mut year = None;
     let mut track_number = None;
+    let mut release_mbid = None;
 
     if let Some(releases) = top.get("releases").and_then(|r| r.as_array()) {
         if let Some(rel) = releases.first() {
             album = rel.get("title").and_then(|t| t.as_str()).map(|s| s.to_string());
+            release_mbid = rel.get("id").and_then(|id| id.as_str()).map(|s| s.to_string());
 
             if let Some(date_str) = rel.get("date").and_then(|d| d.as_str()) {
                 if date_str.len() >= 4 {
@@ -127,8 +130,31 @@ pub fn parse_recording_json(json: &serde_json::Value) -> Result<MusicBrainzMetad
         album,
         year,
         track_number,
+        release_mbid,
         nicotine_query,
     })
+}
+
+/// Fetches cover art image bytes from the Cover Art Archive using release MBID.
+pub async fn fetch_cover_art_archive(release_mbid: &str) -> Option<Vec<u8>> {
+    let url = format!("https://coverartarchive.org/release/{}/front-500", release_mbid.trim());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .ok()?;
+
+    let resp = client
+        .get(&url)
+        .header(USER_AGENT, "OmniRip/0.2.0 ( https://github.com/abdullah-binmadhi/OmniRip )")
+        .send()
+        .await
+        .ok()?;
+
+    if resp.status().is_success() {
+        resp.bytes().await.ok().map(|b| b.to_vec())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

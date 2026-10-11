@@ -1,4 +1,5 @@
-use crate::harvest::musicbrainz::{build_nicotine_query, lookup_metadata};
+use crate::harvest::lyrics::resolve_and_save_lyrics;
+use crate::harvest::musicbrainz::{build_nicotine_query, fetch_cover_art_archive, lookup_metadata};
 use crate::harvest::nicotine::{score_candidate, NicotineCandidate};
 use crate::harvest::slskd::SlskdClient;
 use crate::harvest::spectral::analyze_file;
@@ -204,8 +205,9 @@ pub struct DownloaderState {
     pub selected_job_idx: usize,
     pub job_list_state: ListState,
     pub next_job_id: usize,
-    pub focused_field: usize, // 0: Input, 1: Quality, 2: Policy, 3: Convert
+    pub focused_field: usize, // 0: Input, 1: Quality, 2: Policy, 3: Lyrics, 4: Convert
     pub is_editing_url: bool,
+    pub download_lyrics: bool,
     pub status_message: String,
     // Dedicated 10-Band EQ State
     pub selected_band: usize,
@@ -234,6 +236,7 @@ impl DownloaderState {
             next_job_id: 1,
             focused_field: 0,
             is_editing_url: false,
+            download_lyrics: true,
             status_message: "Ready. Press Enter to paste/edit URL, or [1-3] to switch tabs.".to_string(),
             selected_band: 5,
             band_gains: [0.0; 10],
@@ -293,6 +296,7 @@ impl DownloaderState {
         let url = text.to_string();
         let format = self.selected_quality.to_audio_format();
         let policy = self.selected_policy;
+        let download_lyrics = self.download_lyrics;
         let tx = self.tx.clone();
 
         self.input_text.clear();
@@ -537,12 +541,38 @@ impl DownloaderState {
                         ..Default::default()
                     };
 
+                    let mut release_mbid_opt = None;
                     if let Ok(mb) = lookup_metadata(cleaned.artist.as_deref(), &cleaned.title).await {
                         tag_info.title = Some(mb.title);
                         tag_info.artist = Some(mb.artist);
                         tag_info.album = mb.album;
                         tag_info.year = mb.year;
                         tag_info.track_number = mb.track_number;
+                        release_mbid_opt = mb.release_mbid;
+                    }
+
+                    // 1. Fetch high-res Cover Art Archive front cover if MBID is available
+                    if let Some(ref mbid) = release_mbid_opt {
+                        if let Some(art_bytes) = fetch_cover_art_archive(mbid).await {
+                            tag_info.cover_art = Some(art_bytes);
+                        }
+                    }
+
+                    // 2. Fetch synchronized and plain lyrics if enabled
+                    if download_lyrics {
+                        let artist_ref = tag_info.artist.as_deref().unwrap_or("Unknown");
+                        let title_ref = tag_info.title.as_deref().unwrap_or("Unknown");
+                        let album_ref = tag_info.album.as_deref();
+
+                        if let Ok(lyrics_data) = resolve_and_save_lyrics(
+                            artist_ref,
+                            title_ref,
+                            album_ref,
+                            None,
+                            &path_str,
+                        ).await {
+                            tag_info.lyrics = lyrics_data.plain_lyrics;
+                        }
                     }
 
                     let _ = write_tags(&path_str, &tag_info);
@@ -757,7 +787,7 @@ impl DownloaderState {
                 }
                 KeyCode::BackTab => {
                     self.is_editing_url = false;
-                    self.focused_field = 3;
+                    self.focused_field = 4;
                     self.status_message = "Focused [ CONVERT & DOWNLOAD ]. Press Enter to start download, Tab to URL.".to_string();
                 }
                 KeyCode::Down => {
@@ -802,23 +832,23 @@ impl DownloaderState {
                 self.input_text.push(c);
                 self.status_message = "Editing URL: Press Enter to convert, Tab to Quality, Esc to exit.".to_string();
             }
-            KeyCode::Enter if self.focused_field == 3 => {
+            KeyCode::Enter if self.focused_field == 4 => {
                 self.submit_current();
             }
-            KeyCode::Enter if self.focused_field == 1 || self.focused_field == 2 => {
+            KeyCode::Enter if self.focused_field >= 1 && self.focused_field <= 3 => {
                 if !self.input_text.trim().is_empty() {
                     self.submit_current();
                 } else {
-                    self.focused_field = (self.focused_field + 1) % 4;
+                    self.focused_field = (self.focused_field + 1) % 5;
                     self.update_focused_field_status();
                 }
             }
             KeyCode::Tab => {
-                self.focused_field = (self.focused_field + 1) % 4;
+                self.focused_field = (self.focused_field + 1) % 5;
                 self.update_focused_field_status();
             }
             KeyCode::BackTab => {
-                self.focused_field = if self.focused_field == 0 { 3 } else { self.focused_field - 1 };
+                self.focused_field = if self.focused_field == 0 { 4 } else { self.focused_field - 1 };
                 self.update_focused_field_status();
             }
             KeyCode::Right => {
@@ -828,6 +858,9 @@ impl DownloaderState {
                 } else if self.focused_field == 2 {
                     self.selected_policy = self.selected_policy.next();
                     self.status_message = format!("Acquisition Policy: [ {} ] - {}", self.selected_policy.label(), self.selected_policy.description());
+                } else if self.focused_field == 3 {
+                    self.download_lyrics = !self.download_lyrics;
+                    self.status_message = format!("Lyrics Download: [ {} ] (Synced .lrc file & embedded tag)", if self.download_lyrics { "ENABLED" } else { "DISABLED" });
                 }
             }
             KeyCode::Left => {
@@ -837,7 +870,18 @@ impl DownloaderState {
                 } else if self.focused_field == 2 {
                     self.selected_policy = self.selected_policy.prev();
                     self.status_message = format!("Acquisition Policy: [ {} ] - {}", self.selected_policy.label(), self.selected_policy.description());
+                } else if self.focused_field == 3 {
+                    self.download_lyrics = !self.download_lyrics;
+                    self.status_message = format!("Lyrics Download: [ {} ] (Synced .lrc file & embedded tag)", if self.download_lyrics { "ENABLED" } else { "DISABLED" });
                 }
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                self.download_lyrics = !self.download_lyrics;
+                self.status_message = format!("Lyrics Download: [ {} ] (Synced .lrc file & embedded tag)", if self.download_lyrics { "ENABLED" } else { "DISABLED" });
+            }
+            KeyCode::Char(' ') if self.focused_field == 3 => {
+                self.download_lyrics = !self.download_lyrics;
+                self.status_message = format!("Lyrics Download: [ {} ] (Synced .lrc file & embedded tag)", if self.download_lyrics { "ENABLED" } else { "DISABLED" });
             }
             KeyCode::Up => {
                 if !self.jobs.is_empty() && self.selected_job_idx > 0 {
@@ -871,11 +915,17 @@ impl DownloaderState {
             }
             2 => {
                 self.status_message = format!(
-                    "Focused Policy: < {} >. Press Left/Right to change, Tab to Convert, Enter to download.",
+                    "Focused Policy: < {} >. Press Left/Right to change, Tab to Lyrics, Enter to download.",
                     self.selected_policy.label()
                 );
             }
             3 => {
+                self.status_message = format!(
+                    "Focused Lyrics: [ {} ]. Press Left/Right/Space to toggle, Tab to Convert, Enter to download.",
+                    if self.download_lyrics { "ENABLED" } else { "DISABLED" }
+                );
+            }
+            4 => {
                 self.status_message = "Focused [ CONVERT & DOWNLOAD ]. Press Enter to start download, Tab to URL.".to_string();
             }
             _ => {}
@@ -1008,10 +1058,11 @@ impl DownloaderState {
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Min(24),    // URL Input
-                Constraint::Length(27), // Quality select
-                Constraint::Length(27), // Policy select
-                Constraint::Length(16), // Convert Button
+                Constraint::Min(20),    // 0: URL Input
+                Constraint::Length(25), // 1: Quality select
+                Constraint::Length(25), // 2: Policy select
+                Constraint::Length(17), // 3: Lyrics toggle
+                Constraint::Length(15), // 4: Convert Button
             ])
             .split(bar_inner);
 
@@ -1078,8 +1129,23 @@ impl DownloaderState {
         let p_pol = Paragraph::new(pol_text).style(pol_style);
         f.render_widget(p_pol, input_chunks[2]);
 
+        // Lyrics Toggle
+        let (lyr_text, lyr_style) = if self.focused_field == 3 {
+            (
+                format!("[► Lyrics: {} ◄]", if self.download_lyrics { "ON" } else { "OFF" }),
+                Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (
+                format!("  Lyrics: {}  ", if self.download_lyrics { "ON" } else { "OFF" }),
+                Style::default().fg(theme.text_dim),
+            )
+        };
+        let p_lyr = Paragraph::new(lyr_text).style(lyr_style);
+        f.render_widget(p_lyr, input_chunks[3]);
+
         // Convert Button
-        let (btn_text, btn_style) = if self.focused_field == 3 {
+        let (btn_text, btn_style) = if self.focused_field == 4 {
             (
                 "[► CONVERT ◄]",
                 Style::default().fg(Color::Black).bg(theme.primary).add_modifier(Modifier::BOLD),
@@ -1093,7 +1159,7 @@ impl DownloaderState {
         let p_btn = Paragraph::new(btn_text)
             .style(btn_style)
             .alignment(Alignment::Center);
-        f.render_widget(p_btn, input_chunks[3]);
+        f.render_widget(p_btn, input_chunks[4]);
 
         // 2. Active Job Table
         let table_block = Block::default()
@@ -1639,10 +1705,32 @@ mod tests {
         state.paste("https://soundcloud.com/test/track");
         assert!(state.is_editing_url);
 
-        // BackTab exits edit mode and shifts focus to Convert button (Field 3)
+        // BackTab exits edit mode and shifts focus to Convert button (Field 4)
         state.handle_key(KeyCode::BackTab);
         assert!(!state.is_editing_url);
-        assert_eq!(state.focused_field, 3);
+        assert_eq!(state.focused_field, 4);
+    }
+
+    #[test]
+    fn test_lyrics_toggle_and_navigation() {
+        let mut state = DownloaderState::new();
+        assert!(state.download_lyrics);
+
+        // Focus Lyrics (Field 3)
+        state.focused_field = 3;
+        state.is_editing_url = false;
+
+        // Toggle with Space
+        state.handle_key(KeyCode::Char(' '));
+        assert!(!state.download_lyrics);
+
+        // Toggle with Right arrow
+        state.handle_key(KeyCode::Right);
+        assert!(state.download_lyrics);
+
+        // Toggle with 'l' hotkey
+        state.handle_key(KeyCode::Char('l'));
+        assert!(!state.download_lyrics);
     }
 
     #[test]
