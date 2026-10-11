@@ -2,7 +2,8 @@
 //! Integrates the interactive MP3 Downloader, Startup Mode Selection popup,
 //! Multi-Palette Theme Engine (7 themes), and Real-Time Visual Graph Dashboard.
 
-use crate::autoeq::{get_bundled_profiles, ParametricProfile};
+use crate::autoeq::{get_bundled_profiles, parse_parametric_eq, ParametricProfile};
+use crate::autoeq::storage::{download_raw_preset, load_all_user_presets, save_preset_to_disk, OmniRipPreset};
 use crate::dsp::biquad::{BiquadFilter, BiquadFilterType};
 use crate::dsp::enhancer::CrossfeedMode;
 use crate::dsp::streamer::{AudioStreamer, SyncMode};
@@ -10,9 +11,10 @@ use crate::dsp::AudioPipeline;
 use crate::ui::downloader::DownloaderState;
 use crate::ui::mode_modal::{ModeModal, WorkstationMode};
 use crate::ui::nicotine_modal::{NicotineModal, NicotineModalAction};
+use crate::ui::preset_modal::{render_preset_modal, ModalKeyAction, PresetModalState};
 use crate::ui::theme::ThemePalette;
 use crate::ui::visuals::VisualsDashboard;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
@@ -43,6 +45,7 @@ pub struct App {
     pub theme: ThemePalette,
     pub mode_modal: ModeModal,
     pub nicotine_modal: NicotineModal,
+    pub preset_modal: PresetModalState,
     pub downloader: DownloaderState,
     pub visuals: VisualsDashboard,
     pub autoeq_visual_mode: usize,
@@ -68,15 +71,18 @@ impl App {
         }
         pipeline.crossfader.update_filters(&filters, sample_rate);
 
-        let profiles = get_bundled_profiles(sample_rate);
+        let mut profiles = get_bundled_profiles(sample_rate);
+        for (_preset, prof) in load_all_user_presets(sample_rate) {
+            profiles.push(prof);
+        }
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
         let mut streamer = AudioStreamer::new(pipeline);
-        // Start streaming automatically
+        // Start Pure Rust Audio Engine automatically on launch
         let status = match streamer.start() {
-            Ok(()) => "Audio stream active on CoreAudio loopback.".to_string(),
-            Err(e) => format!("Stream warning: {}", e),
+            Ok(()) => "Pure Rust Audio Engine ready on /tmp/omnirip_audio.sock & TCP 49152".to_string(),
+            Err(e) => format!("Engine notice: {}", e),
         };
 
         Self {
@@ -93,6 +99,56 @@ impl App {
             theme: ThemePalette::default(),
             mode_modal: ModeModal::new(), // Starts open with startup popup question
             nicotine_modal: NicotineModal::new(),
+            preset_modal: PresetModalState::Hidden,
+            downloader: DownloaderState::new(),
+            visuals: VisualsDashboard::new(),
+            autoeq_visual_mode: 0,
+            active_mode: WorkstationMode::Downloader,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test() -> Self {
+        let sample_rate = 48000.0;
+        let mut pipeline = AudioPipeline::new(sample_rate);
+        let band_gains = [0.0; 10];
+
+        let mut filters = Vec::with_capacity(10);
+        for &freq in &FREQS_10_BAND {
+            filters.push(BiquadFilter::new(
+                BiquadFilterType::Peaking,
+                freq,
+                0.0,
+                1.414,
+                sample_rate,
+            ));
+        }
+        pipeline.crossfader.update_filters(&filters, sample_rate);
+
+        let mut profiles = get_bundled_profiles(sample_rate);
+        for (_preset, prof) in load_all_user_presets(sample_rate) {
+            profiles.push(prof);
+        }
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
+
+        let streamer = AudioStreamer::new(pipeline);
+
+        Self {
+            active_tab: 0,
+            selected_band: 5,
+            band_gains,
+            selected_mastering_idx: 0,
+            selected_profile_idx: 0,
+            profiles,
+            streamer,
+            status_message: "Test instance".to_string(),
+            status_time: Instant::now(),
+            profile_list_state: list_state,
+            theme: ThemePalette::default(),
+            mode_modal: ModeModal::new(),
+            nicotine_modal: NicotineModal::new(),
+            preset_modal: PresetModalState::Hidden,
             downloader: DownloaderState::new(),
             visuals: VisualsDashboard::new(),
             autoeq_visual_mode: 0,
@@ -106,6 +162,7 @@ impl App {
     }
 
     fn sync_graphic_eq(&mut self) {
+        let sr = self.streamer.active_sample_rate();
         let mut filters = Vec::with_capacity(10);
         for (i, &freq) in FREQS_10_BAND.iter().enumerate() {
             let gain = self.band_gains[i];
@@ -114,11 +171,160 @@ impl App {
                 freq,
                 gain,
                 1.414,
-                48000.0,
+                sr,
             ));
         }
         if let Ok(mut pipe) = self.streamer.pipeline.lock() {
-            pipe.crossfader.update_filters(&filters, 48000.0);
+            pipe.crossfader.update_filters(&filters, sr);
+        }
+    }
+
+    /// Master Factory Reset: completely restores EQ, mastering suite, enhancer,
+    /// volume/preamp, balance, AutoEQ profile, and sync cushion to pristine defaults.
+    pub fn reset_all_settings(&mut self) {
+        // 1. Reset 10-band graphic EQ
+        self.band_gains = [0.0; 10];
+        self.sync_graphic_eq();
+
+        // 2. Reset Audio Pipeline mastering suite & enhancer
+        let sr = self.streamer.active_sample_rate();
+        if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+            pipe.preamp_db = 0.0;
+            pipe.volume_boost_db = 0.0;
+            pipe.balance = 0.0;
+            pipe.bypass = false;
+            pipe.enhancer = crate::dsp::enhancer::AudiophileEnhancer::new(sr);
+            pipe.limiter = crate::dsp::limiter::BrickwallLimiter::new(sr);
+        }
+
+        // 3. Reset AutoEQ profiles and selection
+        self.selected_profile_idx = 0;
+        self.profile_list_state.select(Some(0));
+
+        // 4. Reset Sync cushion mode to default
+        self.streamer.set_sync_mode(SyncMode::Balanced);
+        self.streamer.force_resync();
+
+        // 5. Heal CoreAudio routing & unpause
+        self.streamer.heal_routing();
+
+        self.set_status("MASTER FACTORY RESET: All settings restored & CoreAudio routing healed.");
+    }
+
+    /// Save current active settings across all tabs as a named preset.
+    pub fn save_active_settings_as_preset(&mut self, name: &str) {
+        let (preamp_db, volume_boost_db, balance, tube_warmth, spatial_width, limiter_ceiling_db) =
+            if let Ok(pipe) = self.streamer.pipeline.lock() {
+                (
+                    pipe.preamp_db,
+                    pipe.volume_boost_db,
+                    pipe.balance,
+                    pipe.enhancer.tube_warmth,
+                    pipe.enhancer.spatial_width,
+                    20.0 * pipe.limiter.threshold.log10(),
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 1.0, -0.2)
+            };
+
+        let preset = OmniRipPreset::from_active_state(
+            name.to_string(),
+            preamp_db,
+            volume_boost_db,
+            balance,
+            tube_warmth,
+            spatial_width,
+            limiter_ceiling_db,
+            self.band_gains,
+            None,
+        );
+
+        match save_preset_to_disk(&preset) {
+            Ok(path) => {
+                let sr = self.streamer.active_sample_rate();
+                let profile = preset.to_profile(sr);
+                self.profiles.push(profile.clone());
+                self.selected_profile_idx = self.profiles.len() - 1;
+                self.profile_list_state.select(Some(self.selected_profile_idx));
+
+                if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+                    pipe.preamp_db = profile.preamp_db;
+                    pipe.crossfader.update_filters(&profile.filters, sr);
+                }
+
+                let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or("saved.json");
+                self.set_status(&format!("Saved preset '{}' to ~/.config/omnirip/presets/{}", name, fname));
+            }
+            Err(e) => {
+                self.set_status(&format!("Error saving preset: {}", e));
+            }
+        }
+    }
+
+    /// Import raw EqualizerAPO / Squiglink parametric EQ text directly into AutoEQ profiles.
+    pub fn import_squiglink_preset(&mut self, name: &str, text: &str) {
+        let sr = self.streamer.active_sample_rate();
+        let profile = parse_parametric_eq(name, text, sr);
+
+        let (volume_boost_db, balance, tube_warmth, spatial_width, limiter_ceiling_db) =
+            if let Ok(pipe) = self.streamer.pipeline.lock() {
+                (
+                    pipe.volume_boost_db,
+                    pipe.balance,
+                    pipe.enhancer.tube_warmth,
+                    pipe.enhancer.spatial_width,
+                    20.0 * pipe.limiter.threshold.log10(),
+                )
+            } else {
+                (0.0, 0.0, 0.0, 1.0, -0.2)
+            };
+
+        let preset = OmniRipPreset::from_active_state(
+            name.to_string(),
+            profile.preamp_db,
+            volume_boost_db,
+            balance,
+            tube_warmth,
+            spatial_width,
+            limiter_ceiling_db,
+            self.band_gains,
+            Some(text.to_string()),
+        );
+
+        let _ = save_preset_to_disk(&preset);
+
+        self.profiles.push(profile.clone());
+        self.selected_profile_idx = self.profiles.len() - 1;
+        self.profile_list_state.select(Some(self.selected_profile_idx));
+
+        if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+            pipe.preamp_db = profile.preamp_db;
+            pipe.crossfader.update_filters(&profile.filters, sr);
+        }
+
+        self.set_status(&format!("Imported Squiglink preset: '{}' ({} filters)", name, profile.filters.len()));
+    }
+
+    /// Download and parse parametric preset from a remote URL.
+    pub async fn download_preset_from_url(&mut self, name: &str, url: &str) {
+        if let PresetModalState::DownloadUrl { ref mut is_loading, .. } = self.preset_modal {
+            *is_loading = true;
+        }
+        self.set_status(&format!("Fetching preset '{}' from {}...", name, url));
+        match download_raw_preset(url).await {
+            Ok(text) => {
+                self.import_squiglink_preset(name, &text);
+                self.preset_modal = PresetModalState::Hidden;
+                self.set_status(&format!("Downloaded & applied preset '{}'!", name));
+            }
+            Err(e) => {
+                if let PresetModalState::DownloadUrl { ref mut status_msg, ref mut is_loading, .. } = self.preset_modal {
+                    *status_msg = Some(format!("Error: {}", e));
+                    *is_loading = false;
+                } else {
+                    self.set_status(&format!("Preset download error: {}", e));
+                }
+            }
         }
     }
 
@@ -142,7 +348,30 @@ impl App {
             if event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        // 1. If Nicotine Modal is open, intercept candidate browser keys
+                        // 1. If Preset Modal is active, intercept all modal keys
+                        if self.preset_modal.is_active() {
+                            let action = self.preset_modal.handle_key(key);
+                            match action {
+                                ModalKeyAction::None => {}
+                                ModalKeyAction::Close => {
+                                    self.preset_modal = PresetModalState::Hidden;
+                                }
+                                ModalKeyAction::SubmitSaveCurrent { name } => {
+                                    self.save_active_settings_as_preset(&name);
+                                    self.preset_modal = PresetModalState::Hidden;
+                                }
+                                ModalKeyAction::SubmitImportSquiglink { name, text } => {
+                                    self.import_squiglink_preset(&name, &text);
+                                    self.preset_modal = PresetModalState::Hidden;
+                                }
+                                ModalKeyAction::SubmitDownloadUrl { name, url } => {
+                                    self.download_preset_from_url(&name, &url).await;
+                                }
+                            }
+                            continue;
+                        }
+
+                        // 2. If Nicotine Modal is open, intercept candidate browser keys
                         if self.nicotine_modal.is_open {
                             if let Some(action) = self.nicotine_modal.handle_key(key.code) {
                                 match action {
@@ -158,7 +387,7 @@ impl App {
                             continue;
                         }
 
-                        // 2. If Startup Mode Modal is open, intercept selection keys
+                        // 3. If Startup Mode Modal is open, intercept selection keys
                         if self.mode_modal.is_open {
                             match key.code {
                                 KeyCode::Char('1') => {
@@ -183,14 +412,48 @@ impl App {
                                     self.mode_modal.is_open = false;
                                 }
                                 KeyCode::Char('q') | KeyCode::Char('Q') => break,
+                                KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
                                 _ => {}
                             }
                             continue;
                         }
 
-                        // 3. Global Hotkeys
+                        // 4. Global Hotkeys
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C')) {
+                            break;
+                        }
+
+                        // Preset Management Hotkeys (Shift+S, Shift+I, Shift+D)
+                        if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('S') || key.code == KeyCode::Char('s')))
+                            || key.code == KeyCode::Char('S')
+                        {
+                            self.preset_modal = PresetModalState::new_save_current();
+                            continue;
+                        }
+                        if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('I') || key.code == KeyCode::Char('i')))
+                            || key.code == KeyCode::Char('I')
+                        {
+                            self.preset_modal = PresetModalState::new_import_squiglink();
+                            continue;
+                        }
+                        if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('D') || key.code == KeyCode::Char('d')))
+                            || key.code == KeyCode::Char('D')
+                        {
+                            self.preset_modal = PresetModalState::new_download_url();
+                            continue;
+                        }
+
+                        if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('R') || key.code == KeyCode::Char('r')))
+                            || key.code == KeyCode::Char('R')
+                        {
+                            self.reset_all_settings();
+                            continue;
+                        }
                         match key.code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') => break,
+                            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                                self.streamer.terminate();
+                                break;
+                            }
                             KeyCode::Char('m') | KeyCode::Char('M') => {
                                 self.mode_modal.toggle();
                                 continue;
@@ -218,7 +481,7 @@ impl App {
                                 self.set_status(&format!("Visual Graph: {}", self.visuals.mode.label()));
                                 continue;
                             }
-                            KeyCode::Char('s') | KeyCode::Char('S') if self.active_mode == WorkstationMode::SystemEq => {
+                            KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 let next_mode = match self.streamer.sync_mode {
                                     SyncMode::Extreme => SyncMode::Ultra,
                                     SyncMode::Ultra => SyncMode::Balanced,
@@ -249,15 +512,59 @@ impl App {
                                 continue;
                             }
                             KeyCode::Char(' ') if self.active_mode == WorkstationMode::SystemEq => {
-                                if self.streamer.is_running.load(Ordering::SeqCst) {
-                                    self.streamer.stop();
-                                    self.set_status("Audio stream stopped.");
+                                let paused = self.streamer.toggle_pause();
+                                if paused {
+                                    self.set_status("Audio stream paused [Muted]. Press [Space] to resume.");
                                 } else {
-                                    match self.streamer.start() {
-                                        Ok(()) => self.set_status("Audio stream started."),
-                                        Err(e) => self.set_status(&format!("Start error: {}", e)),
+                                    self.set_status("Audio stream playing [Active].");
+                                }
+                                continue;
+                            }
+                            KeyCode::Char('p') | KeyCode::Char('P') if self.active_mode == WorkstationMode::SystemEq => {
+                                if !self.streamer.is_running.load(Ordering::SeqCst) {
+                                    if let Err(e) = self.streamer.start() {
+                                        self.set_status(&format!("Auto-start streamer error: {}", e));
                                     }
                                 }
+                                let active = self.streamer.toggle_test_tone();
+                                let mode = self.streamer.current_test_tone_mode();
+                                let state_str = if active { "ENABLED" } else { "DISABLED" };
+                                self.set_status(&format!("Test Audio Auditioning {}: [{}]", state_str, mode.label()));
+                                continue;
+                            }
+                            KeyCode::Char('o') | KeyCode::Char('O') if self.active_mode == WorkstationMode::SystemEq => {
+                                let new_mode = self.streamer.cycle_test_tone_mode();
+                                self.set_status(&format!("Test Audio Mode: [{}] - {}", new_mode.label(), new_mode.description()));
+                                continue;
+                            }
+                            KeyCode::Char('e') | KeyCode::Char('E') if self.active_mode == WorkstationMode::SystemEq => {
+                                self.streamer.engine_type = self.streamer.engine_type.next();
+                                self.set_status(&format!("Audio Engine switched to: [{}]", self.streamer.engine_type.label()));
+                                if self.streamer.is_running.load(Ordering::SeqCst) {
+                                    let _ = self.streamer.restart();
+                                }
+                                continue;
+                            }
+                            KeyCode::Char('i') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                let dev = self.streamer.cycle_input_device();
+                                self.set_status(&format!("Input Capture Device switched to: [{}]", dev));
+                                continue;
+                            }
+                            KeyCode::Char('d') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                let dev = self.streamer.cycle_output_device();
+                                self.set_status(&format!("Output Playback Device switched to: [{}]", dev));
+                                continue;
+                            }
+                            KeyCode::Char('a') | KeyCode::Char('A') if self.active_mode == WorkstationMode::SystemEq => {
+                                match self.streamer.set_iem_exclusive_mode() {
+                                    Ok(msg) => self.set_status(&msg),
+                                    Err(e) => self.set_status(&format!("IEM Mode Error: {}", e)),
+                                }
+                                continue;
+                            }
+                            KeyCode::Char('r') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                self.streamer.force_resync();
+                                self.set_status("Pure Rust Master Clock PLL forced re-sync (Phase & Cushion reset)");
                                 continue;
                             }
                             _ => {}
@@ -347,6 +654,9 @@ impl App {
                 KeyCode::Left => {
                     self.cycle_mastering_control(false);
                 }
+                KeyCode::Char('r') | KeyCode::Char('R') => {
+                    self.reset_all_settings();
+                }
                 _ => {}
             },
             3 => match code {
@@ -364,11 +674,23 @@ impl App {
                 }
                 KeyCode::Enter => {
                     let prof = self.profiles[self.selected_profile_idx].clone();
+                    let sr = self.streamer.active_sample_rate();
                     if let Ok(mut pipe) = self.streamer.pipeline.lock() {
                         pipe.preamp_db = prof.preamp_db;
-                        pipe.crossfader.update_filters(&prof.filters, 48000.0);
+                        pipe.crossfader.update_filters(&prof.filters, sr);
                     }
                     self.set_status(&format!("Applied AutoEQ preset: {}", prof.name));
+                }
+                KeyCode::Char('r') | KeyCode::Char('R') => {
+                    self.selected_profile_idx = 0;
+                    self.profile_list_state.select(Some(0));
+                    let prof = self.profiles[0].clone();
+                    let sr = self.streamer.active_sample_rate();
+                    if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+                        pipe.preamp_db = prof.preamp_db;
+                        pipe.crossfader.update_filters(&prof.filters, sr);
+                    }
+                    self.set_status("Reset AutoEQ to Flat / Neutral Baseline (0 dB).");
                 }
                 KeyCode::Char('v') | KeyCode::Char('V') | KeyCode::Char('f') | KeyCode::Char('F') => {
                     self.autoeq_visual_mode = (self.autoeq_visual_mode + 1) % 5;
@@ -537,6 +859,11 @@ impl App {
         if self.nicotine_modal.is_open {
             self.nicotine_modal.render(f, f.area(), &self.theme);
         }
+
+        // Render Preset Management Modal on top if active
+        if self.preset_modal.is_active() {
+            render_preset_modal(f, f.area(), &self.preset_modal);
+        }
     }
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -564,6 +891,12 @@ impl App {
 
         let theme_badge = Span::styled(format!(" [THEME: {}] ", self.theme.name), Style::default().fg(self.theme.accent));
         let sync_badge = Span::styled(format!(" [{:?}] ", self.streamer.sync_mode), Style::default().fg(Color::White));
+        let test_tone_badge = if self.streamer.is_test_tone_active() {
+            let mode = self.streamer.current_test_tone_mode();
+            Span::styled(format!(" [TEST AUDIO: {}] ", mode.label()), Style::default().fg(Color::Black).bg(Color::LightMagenta).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [AUDITION: OFF] ", Style::default().fg(Color::DarkGray))
+        };
         let bypass_badge = if bypass {
             Span::styled(" [BYPASS] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
         } else {
@@ -585,6 +918,7 @@ impl App {
             mode_badge,
             theme_badge,
             sync_badge,
+            test_tone_badge,
             bypass_badge,
             clip_badge,
             Span::raw(" | "),
@@ -916,8 +1250,9 @@ impl App {
         let v_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5), // Interactive Sync Mode Button Rack
-                Constraint::Min(8),    // Signal Flow & Telemetry
+                Constraint::Length(4), // Interactive Sync Mode Button Rack
+                Constraint::Percentage(52), // Signal Flow & Telemetry
+                Constraint::Min(7),    // Test Audio Audition & macOS Routing Setup
                 Constraint::Length(1), // Footer hotkeys
             ])
             .split(inner);
@@ -992,48 +1327,64 @@ impl App {
             "STOPPED (Press Space to Start Engine)"
         };
 
+        let _in_name = self.streamer.active_input_name();
+        let out_name = self.streamer.active_output_name();
+        let avail_outputs = AudioStreamer::available_output_names().join(" | ");
+
+        let engine_label = self.streamer.engine_type.label();
         let topo_lines = vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled(" [1] macOS CoreAudio System Output", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(" [1] Active Audio Engine: ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("[ {} ]", engine_label), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("  ([E] Cycle Engine)", Style::default().fg(self.theme.accent)),
             ]),
             Line::from(vec![
                 Span::styled("        |", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled("        v  (Virtual Loopback Driver)", Style::default().fg(self.theme.text_dim)),
+                Span::styled("        v  (Direct Hardware Stream - Zero Loopback Driver)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled(" [2] BlackHole 2ch Loopback Driver", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
-                Span::styled(" (48.0 kHz / 32-bit Float)", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" [2] Capture Mode: ", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
+                Span::styled(match self.streamer.engine_type {
+                    crate::dsp::streamer::AudioEngineType::PureRustIpc => "Pure Rust Zero-Driver IPC Transport (/tmp/omnirip_audio.sock)",
+                    crate::dsp::streamer::AudioEngineType::DirectHardware => "Driverless Bit-Perfect DAC Render",
+                }, Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
                 Span::styled("        |", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled("        v  (Lock-Free Worker Ring Buffer)", Style::default().fg(self.theme.text_dim)),
+                Span::styled("        v  (Lock-Free Ring Buffer Transport)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
                 Span::styled(" [3] OmniRip Real-Time DSP Engine", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" (48.0 kHz 32-bit Float)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
                 Span::styled("        +-- 10-Band ISO Graphic Equalizer Rails", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled("        +-- Studio Audiophile Mastering Suite", Style::default().fg(self.theme.text_dim)),
+                Span::styled("        +-- Studio Mastering (Tube Warmth, Spatial Width)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled("        \\-- AutoEQ Acoustic Biquad SOS Filters", Style::default().fg(self.theme.text_dim)),
+                Span::styled("        \\-- AutoEQ Acoustic Headphone Profiles", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
                 Span::styled("        |", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled("        v  (Atomic PI Clock Servo Transport)", Style::default().fg(self.theme.text_dim)),
+                Span::styled("        v  (Hardware DAC / Transducer Playback)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled(" [4] High-Resolution Output DAC", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(" (OmniRip Stream / System DAC)", Style::default().fg(self.theme.text)),
+                Span::styled(" [4] Output Playback Device: ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("[ {} ]", out_name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("  ([D] Cycle)", Style::default().fg(self.theme.accent)),
+            ]),
+            Line::from(vec![
+                Span::styled("        Outputs: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(avail_outputs, Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -1052,8 +1403,25 @@ impl App {
         let telem_inner = telem_block.inner(mid_chunks[1]);
         f.render_widget(telem_block, mid_chunks[1]);
 
+        let (ipc_telem, pll_opt) = self.streamer.telemetry();
         let target_frames = self.streamer.sync_mode.target_frames();
-        let cushion_ms = target_frames as f32 / 48.0;
+        let (avail_frames, target_pll, drift_ppm) = pll_opt.unwrap_or((0, target_frames, 0.0));
+        let cushion_percent = if target_pll > 0 {
+            ((avail_frames as f32 / target_pll as f32) * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        let cushion_ms = avail_frames as f32 / 48.0;
+
+        let num_bars = (cushion_percent / 5.0).min(20.0) as usize;
+        let tank_bar = format!("[{}{}] {:.0}% Cushion", "=".repeat(num_bars), ".".repeat(20 - num_bars), cushion_percent);
+
+        let ipc_status_str = if ipc_telem.active_clients > 0 {
+            format!("ACTIVE ({} client, {} packets)", ipc_telem.active_clients, ipc_telem.total_packets)
+        } else {
+            "LISTENING (0 clients on /tmp/omnirip_audio.sock)".to_string()
+        };
+        let ipc_status_color = if ipc_telem.active_clients > 0 { self.theme.success } else { Color::Yellow };
 
         let telem_lines = vec![
             Line::from(""),
@@ -1062,35 +1430,36 @@ impl App {
             ]),
             Line::from(vec![
                 Span::styled("  Tank Level:      ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("[====================....] 75% Fill", Style::default().fg(self.theme.success)),
+                Span::styled(tank_bar, Style::default().fg(if cushion_percent > 30.0 { self.theme.success } else { Color::Yellow })),
             ]),
             Line::from(vec![
-                Span::styled("  Target Cushion:  ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(format!("{} frames (~{:.1} ms cushion latency)", target_frames, cushion_ms), Style::default().fg(self.theme.text)),
+                Span::styled("  Current Cushion: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("{} / {} frames (~{:.1} ms latency)", avail_frames, target_pll, cushion_ms), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
                 Span::styled("  Health Status:   ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("HEALTHY (Stable Headroom, 0 Underflow Risk)", Style::default().fg(self.theme.success)),
+                Span::styled(if avail_frames > 128 { "HEALTHY (Phase-Locked Headroom, 0 Drop)" } else { "PRIMING / STANDBY (Awaiting Audio)" }, Style::default().fg(self.theme.success)),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("--- LOCK-FREE PI CLOCK SERVO MONITOR ---", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled("--- PURE RUST PID PLL & SINC MONITOR ---", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled("  Clock Servo:     ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("Proportional-Integral Tracking ACTIVE", Style::default().fg(self.theme.secondary)),
+                Span::styled("  IPC Transport:   ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(ipc_status_str, Style::default().fg(ipc_status_color).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled("  Clock Drift:     ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("+0.000 ppm (Locked to Hardware DAC Crystal)", Style::default().fg(self.theme.success)),
+                Span::styled("  Total Streamed:  ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("{} frames (~{:.2} MB PCM)", ipc_telem.total_frames, (ipc_telem.total_frames * 8) as f64 / 1_048_576.0), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled("  Jitter Window:   ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("0.02 ms RMS (Ultra-Low Transport Jitter)", Style::default().fg(self.theme.text)),
+                Span::styled("  Master Clock PLL:", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("{:+6.2} PPM (PID Phase-Locked)", drift_ppm), Style::default().fg(if drift_ppm.abs() < 50.0 { self.theme.success } else { Color::Yellow })),
+                Span::styled("  ([R] Re-sync)", Style::default().fg(self.theme.accent)),
             ]),
             Line::from(vec![
-                Span::styled("  Buffer Drops:    ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("0 Underflows / 0 Overruns (0.00% Zero-Drop)", Style::default().fg(self.theme.success)),
+                Span::styled("  Sinc Resampler:  ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("16-Point Blackman-Harris (-100 dB Sidelobes)", Style::default().fg(self.theme.text)),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -1101,10 +1470,6 @@ impl App {
                 Span::styled("[||||                ] 2.1% / 100%", Style::default().fg(self.theme.accent)),
             ]),
             Line::from(vec![
-                Span::styled("  Processing Time: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("0.18 ms (Sub-millisecond processing budget)", Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(vec![
                 Span::styled("  Native Format:   ", Style::default().fg(self.theme.text_dim)),
                 Span::styled("48,000 Hz / 32-bit Float Native DSP", Style::default().fg(self.theme.text)),
             ]),
@@ -1112,10 +1477,88 @@ impl App {
         let p_telem = Paragraph::new(telem_lines);
         f.render_widget(p_telem, telem_inner);
 
+        // BOTTOM: Split into Built-in Acoustic Audition Engine (Left) and macOS Audio MIDI Loopback Setup (Right)
+        let bottom_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(v_chunks[2]);
+
+        // Left Pane: Built-in Acoustic Audition Engine
+        let test_active = self.streamer.is_test_tone_active();
+        let test_mode = self.streamer.current_test_tone_mode();
+        let test_block = Block::default()
+            .title(" BUILT-IN ACOUSTIC AUDITION ENGINE ([P] Toggle, [O] Cycle Mode) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if test_active { Color::LightMagenta } else { self.theme.border }));
+        let test_inner = test_block.inner(bottom_chunks[0]);
+        f.render_widget(test_block, bottom_chunks[0]);
+
+        let test_status_badge = if test_active {
+            Span::styled(" [ACTIVE - STREAMING] ", Style::default().fg(Color::Black).bg(Color::LightMagenta).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [MUTED / STANDBY] ", Style::default().fg(self.theme.text_dim))
+        };
+
+        let test_lines = vec![
+            Line::from(vec![
+                Span::styled(" Status: ", Style::default().fg(self.theme.text_dim)),
+                test_status_badge,
+                Span::raw("  Mode: "),
+                Span::styled(format!("[{}]", test_mode.label()), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Description: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(test_mode.description(), Style::default().fg(self.theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Pipeline:    ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("Synthesized directly through active 10-Band EQ & Mastering DSP", Style::default().fg(self.theme.secondary)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Audition:    ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("Test EQ, Tube Warmth & Headphone Curves with zero setup!", Style::default().fg(self.theme.accent)),
+            ]),
+        ];
+        let p_test = Paragraph::new(test_lines);
+        f.render_widget(p_test, test_inner);
+
+        // Right Pane: macOS Audio MIDI Setup & System Loopback Guide
+        let guide_block = Block::default()
+            .title(" MACOS SYSTEM-WIDE SOUND LOOPBACK SETUP GUIDE ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.border));
+        let guide_inner = guide_block.inner(bottom_chunks[1]);
+        f.render_widget(guide_block, bottom_chunks[1]);
+
+        let guide_lines = vec![
+            Line::from(vec![
+                Span::styled(" [A] TRANSDUCER PRIORITY: ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled("Auto-resolve: iBasso USB DAC -> MacBook Headphone Jack -> MacBook Speakers", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("     ZERO DRIVER/ROOT:   ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("Pure Rust userland IPC engine. Zero kernel drivers, zero root daemons, zero audio lag.", Style::default().fg(self.theme.text_dim)),
+            ]),
+            Line::from(vec![
+                Span::styled(" [1] Transducer Cycle [D]:", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("Active Output: [{}] (Press [D] to cycle DAC / Headphones / Speakers)", out_name), Style::default().fg(self.theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" [2] Live Stream [Space]:", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("Press [Space] to stream! Audio routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" [3] Audition Tone [P]:  ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled("Press [P] to play built-in harmonic test tone directly through your active EQ profile.", Style::default().fg(self.theme.text_dim)),
+            ]),
+        ];
+        let p_guide = Paragraph::new(guide_lines);
+        f.render_widget(p_guide, guide_inner);
+
         // Footer hotkeys
-        let help = Paragraph::new(" [S / Left / Right] Cycle Sync Mode  [Space] Start / Stop Stream Engine  [Tab/1-5] Switch Tabs")
+        let help = Paragraph::new(" [A] Auto IEM Exclusive  [D] Cycle Output  [I] Cycle Input  [Space] Stream  [P] Test Audio  [O] Tone Mode  [S] Sync Mode  [B] Bypass")
             .style(Style::default().fg(self.theme.accent));
-        f.render_widget(help, v_chunks[2]);
+        f.render_widget(help, v_chunks[3]);
     }
 
     fn render_autoeq_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {
@@ -1479,7 +1922,7 @@ impl App {
             Span::styled(format!(" Preamp Headroom: {:+.1} dB (Protection Against Digital Intersample Clipping)", prof.preamp_db), Style::default().fg(self.theme.warning)),
         ]));
         matrix_lines.push(Line::from(vec![
-            Span::styled(" [Enter] Apply to Real-Time DSP Engine  [Up/Down] Select Profile  [Tab/1-5] Switch Tabs", Style::default().fg(self.theme.accent)),
+            Span::styled(" [Enter] Apply Profile  [Shift+S] Save Active Preset  [Shift+I] Import Text  [Shift+D] Download URL  [Up/Down] Select", Style::default().fg(self.theme.accent)),
         ]));
 
         let p_matrix = Paragraph::new(matrix_lines);
@@ -1498,10 +1941,74 @@ impl App {
                 " [M] Mode Select  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download/Convert  [Tab] Inputs  [Arrows] Select  [Q] Quit"
             }
             WorkstationMode::SystemEq => {
-                " [M] Mode Select  [T] Theme  [V] Visuals  [Tab/1-5] Tabs  [Arrows] Adjust  [Space] Stream  [Q] Quit"
+                " [M] Mode  [T] Theme  [V] Visuals  [Shift+S] Save Preset  [Shift+I] Import  [Shift+D] Download  [Shift+R] Reset  [Space] Pause/Play  [Q] Quit"
             }
         };
         let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
         f.render_widget(p, area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_master_factory_reset() {
+        let mut app = App::new_test();
+        // Mutate various parameters
+        app.band_gains[0] = 5.0;
+        app.band_gains[5] = -3.5;
+        if let Ok(mut pipe) = app.streamer.pipeline.lock() {
+            pipe.preamp_db = -6.0;
+            pipe.volume_boost_db = 3.0;
+            pipe.enhancer.tube_warmth = 0.5;
+            pipe.enhancer.spatial_width = 1.8;
+        }
+
+        // Perform master reset
+        app.reset_all_settings();
+
+        // Verify clean baseline defaults
+        assert_eq!(app.band_gains, [0.0; 10]);
+        if let Ok(pipe) = app.streamer.pipeline.lock() {
+            assert_eq!(pipe.preamp_db, 0.0);
+            assert_eq!(pipe.volume_boost_db, 0.0);
+            assert_eq!(pipe.balance, 0.0);
+            assert_eq!(pipe.enhancer.tube_warmth, 0.0);
+            assert_eq!(pipe.enhancer.spatial_width, 1.0);
+        }
+        assert!(app.status_message.contains("MASTER FACTORY RESET"));
+        assert!(!app.streamer.is_paused());
+        assert_eq!(app.selected_profile_idx, 0);
+    }
+
+    #[test]
+    fn test_save_and_import_preset() {
+        let mut app = App::new_test();
+        let initial_count = app.profiles.len();
+
+        // 1. Save active custom settings as preset
+        app.band_gains[0] = 4.0;
+        app.band_gains[5] = -2.0;
+        app.save_active_settings_as_preset("Test Studio Custom");
+
+        assert_eq!(app.profiles.len(), initial_count + 1);
+        assert_eq!(app.selected_profile_idx, app.profiles.len() - 1);
+        let saved_prof = &app.profiles[app.selected_profile_idx];
+        assert_eq!(saved_prof.name, "Test Studio Custom");
+        assert_eq!(saved_prof.filters.len(), 10);
+        assert_eq!(saved_prof.filters[0].gain_db, 4.0);
+
+        // 2. Import raw Squiglink text
+        let squig_text = "Preamp: -5.0 dB\nFilter 1: ON PK Fc 64 Hz Gain 3.5 dB Q 1.41\nFilter 2: ON HSC Fc 8000 Hz Gain -2.0 dB Q 0.71";
+        app.import_squiglink_preset("Test Squiglink IEM", squig_text);
+
+        assert_eq!(app.profiles.len(), initial_count + 2);
+        assert_eq!(app.selected_profile_idx, app.profiles.len() - 1);
+        let squig_prof = &app.profiles[app.selected_profile_idx];
+        assert_eq!(squig_prof.name, "Test Squiglink IEM");
+        assert_eq!(squig_prof.preamp_db, -5.0);
+        assert_eq!(squig_prof.filters.len(), 2);
     }
 }

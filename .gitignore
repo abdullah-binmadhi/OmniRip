@@ -102,6 +102,9 @@ tools/slskd/*
 !tools/slskd/README.md
 !tools/slskd/slskd.yml
 
+# Local scratch scripts and C test binaries
+scratch/
+
 # Graphify knowledge graph outputs and caches
 graphify-out/
 .graphify/

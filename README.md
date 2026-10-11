@@ -17,8 +17,8 @@ OmniRip is a standalone, real-time terminal audio workstation and system EQ writ
 
 ## Highlights
 
-- **Zero-GIL CoreAudio Engine**: Real-time native stream I/O via `cpal` capturing system audio through `BlackHole 2ch` and outputting directly to high-resolution USB DACs or aggregate devices.
-- **Lock-Free Adaptive Clock Servo**: Single-Producer Single-Consumer (`rtrb`) ring buffer with a Proportional-Integral (PI) clock servo that micro-adjusts consumption speed ($\pm 0.15\%$) via fractional linear interpolation. Eliminates hardware clock drift and periodic 7-second underflow dropouts.
+- **Built-in CoreAudio Virtual Driver & IPC Engine**: Custom OmniRip Audio HAL driver coupled with a high-speed, zero-latency pure Rust userland IPC transport. Eliminates the need for third-party loopback software or complex manual Multi-Output Device configurations.
+- **Lock-Free Adaptive Clock Servo**: Single-Producer Single-Consumer (`rtrb`) ring buffer with a Proportional-Integral (PI) clock servo that micro-adjusts consumption speed ($\pm 0.15\%$) via fractional linear interpolation. Eliminates hardware clock drift and periodic buffer underflow dropouts.
 - **Clickless Cascaded Biquad Matrix**: Transposed Direct Form II Second-Order Sections (SOS) with Audio EQ Cookbook coefficient calculation. Features a 15ms linear dual-engine crossfader for click-free parameter and preset swaps.
 - **Studio Audiophile Enhancer Suite**: 
   - 3D Soundstage Matrix (Mid/Side widener)
@@ -29,8 +29,22 @@ OmniRip is a standalone, real-time terminal audio workstation and system EQ writ
   - Boundary Guard Filters (18 Hz Subsonic HPF + 21 kHz Ultrasonic LPF)
   - Dynamic De-Esser (6.5 kHz sibilance envelope follower)
   - Zero-Overshoot Brickwall Limiter (-0.2 dBFS ceiling, instant attack, 50ms exponential release)
-- **Live Studio Telemetry HUD**: Momentary and short-term ITU-R BS.1770 K-weighted LUFS metering, normalized phase correlation, stereo peak dBFS, dynamic crest factor, and 32-band real-time FFT spectrum analyzer via `rustfft`.
-- **AutoEQ Headphone Calibration Database**: Built-in parametric profile parser for Squiglink and AutoEQ text targets. Includes pre-calibrated filters for Harman 2019, Crinacle IEF, Sennheiser HD600/HD650/HD800S, Hifiman Sundara/Edition XS, Moondrop Blessing 2, Sony WH-1000XM5, Apple AirPods Max, and Beyerdynamic DT 990 Pro.
+- **Studio-Grade Spectrum Visualizer & Telemetry HUD**:
+  - 2048-point Radix-2 FFT with ISO 266 1/3-octave logarithmic filter bank spanning 20 Hz to 20 kHz.
+  - Studio acoustic pink noise tilt (+3.0 dB/octave) for balanced high-frequency resolution.
+  - ANSI S1.11 10-band Octave Energy Meter.
+  - Dynamically distributed full-width X-axis frequency markers (`20`, `31`, `63`, `125`, `250`, `500`, `1k`, `2k`, `4k`, `8k`, `16k`, `20k`).
+  - Momentary and short-term ITU-R BS.1770 K-weighted LUFS metering, normalized phase correlation, stereo peak dBFS, and dynamic crest factor.
+- **Preset Management & Headphone Calibration Suite**:
+  - Preset Persistence (`Shift+S`): Save active 10-band EQ, DSP enhancer, and limiter settings to local storage (`~/.config/omnirip/presets.json`).
+  - Squiglink & EqualizerAPO Text Importer (`Shift+I`): Paste parametric EQ filter strings directly from the clipboard.
+  - Safe Preset Downloader (`Shift+D`): Retrieve EQ profiles from verified HTTP/HTTPS endpoints with domain safety checks.
+  - Built-in profile library: Harman 2019, Crinacle IEF, Sennheiser HD600/HD650/HD800S, Hifiman Sundara/Edition XS, Moondrop Blessing 2, Sony WH-1000XM5, Apple AirPods Max, Beyerdynamic DT 990 Pro.
+- **Master Factory Reset & Route Healing (`Shift+R`)**:
+  - Single-keystroke restoration of all DSP, EQ, enhancer parameters, and volume levels to clean reference state.
+  - Verifies and repairs macOS CoreAudio system routing, flushes audio buffers, and restores unmuted playback without restarting the application.
+- **Clean Play / Pause with Micro-Fade (`Space`)**:
+  - Instantaneous stream mute/pause toggle with a 5 ms linear micro-fade. Retains CoreAudio device lock so external audio does not bypass DSP routing.
 - **Harvester Library Manager**:
   - Soulseek (`slskd`) REST API client for lossless FLAC and WAV swarm search and download tracking.
   - Asynchronous `yt-dlp` high-resolution audio extractor.
@@ -67,12 +81,13 @@ OmniRip is a standalone, real-time terminal audio workstation and system EQ writ
 ```mermaid
 graph TD
     subgraph CAP["System Audio Capture"]
-        SYS["macOS Audio Output"] --> BH["BlackHole 2ch (Virtual Loopback)"]
-        BH --> CPAL_IN["cpal Input Stream (Real-Time Mach Thread)"]
+        SYS["macOS Audio Output"] --> DRV["OmniRip Audio Driver / CoreAudio HAL"]
+        DRV --> IPC["Pure Rust IPC Ring Buffer (Shared Memory)"]
+        IPC --> RT_IN["Real-Time Audio Worker (Mach Real-Time Thread)"]
     end
 
     subgraph SERVO["Adaptive Clock-Servo Engine"]
-        CPAL_IN --> RTRB["Lock-Free SPSC Ring Buffer (rtrb)"]
+        RT_IN --> RTRB["Lock-Free SPSC Ring Buffer (rtrb)"]
         RTRB --> PI["PI Clock-Servo (±0.15% Fractional Resampling)"]
     end
 
@@ -85,8 +100,8 @@ graph TD
     end
 
     subgraph OUT["Playback & Telemetry"]
-        LIM --> CPAL_OUT["cpal Output Stream -> Hardware DAC / Aggregate Device"]
-        LIM --> TELEM["Telemetry Engine (LUFS, Phase, Peak, 32-Band FFT)"]
+        LIM --> DAC_OUT["Hardware USB DAC / Headphones"]
+        LIM --> TELEM["Telemetry Engine (2048-pt FFT, LUFS, Phase, Peak)"]
         TELEM --> TUI["Ratatui Terminal UI (30 FPS Render Loop)"]
     end
 ```
@@ -99,10 +114,6 @@ graph TD
 
 - macOS 12+ (Apple Silicon or Intel)
 - [Rust toolchain](https://rustup.rs/) (1.75+)
-- [BlackHole 2ch](https://existential.audio/blackhole/) virtual audio loopback driver:
-  ```bash
-  brew install blackhole-2ch
-  ```
 
 ### Installation
 
@@ -112,7 +123,13 @@ Install OmniRip globally into your system path:
 cargo install --path .
 ```
 
-You can now start OmniRip from any terminal window:
+To install the optional native CoreAudio driver for automatic, zero-configuration system capture:
+
+```bash
+omnirip driver install
+```
+
+Start OmniRip from any terminal window:
 
 ```bash
 omnirip
@@ -128,13 +145,18 @@ cargo run --release
 
 ## Audio Routing Configuration (macOS)
 
-1. Open **Audio MIDI Setup** (`/System/Applications/Utilities/Audio MIDI Setup.app`).
-2. Create a **Multi-Output Device** (or Aggregate Device):
-   - Check `BlackHole 2ch`.
-   - Check your primary listening device (e.g. `MacBook Pro Speakers` or your USB DAC).
-   - Set your primary device as the Master Clock, and enable **Drift Correction** on `BlackHole 2ch`.
-3. Set macOS system sound output to `BlackHole 2ch` or the Multi-Output Device.
-4. Launch `omnirip` and press `Space` to engage the audio engine.
+OmniRip automatically manages audio routing:
+
+1. **Automatic Routing (Recommended)**:
+   - When the OmniRip Audio driver is installed, OmniRip sets macOS default output to `OmniRip Audio`.
+   - Incoming audio is processed through the DSP pipeline and streamed directly to your active hardware output (USB DAC, headphones, or internal speakers).
+   - Upon exit (`Q`), OmniRip restores your previous default audio output device.
+
+2. **Route Healing**:
+   - If audio output switches unexpectedly or external software changes system routing, press `Shift+R` to trigger Master Reset & Route Healing. OmniRip will re-verify the active CoreAudio device chain and restore clean DSP routing.
+
+3. **Fallback Loopback (BlackHole 2ch)**:
+   - If using BlackHole 2ch, select `BlackHole 2ch` as the input device in Tab `[3] Audio Routing` and route output to your DAC.
 
 ---
 
@@ -143,15 +165,19 @@ cargo run --release
 | Key | Action |
 | :--- | :--- |
 | `Tab` or `1`-`5` | Switch tabs: [1] EQ, [2] Mastering, [3] Routing, [4] AutoEQ, [5] Harvester |
-| `Left` / `Right` | Select EQ band or adjust parameter |
+| `Left` / `Right` | Select EQ band or adjust active parameter |
 | `Up` / `Down` | Adjust selected band gain ($\pm 0.5$ dB) or cycle mastering setting |
 | `0` | Reset currently selected EQ band to 0.0 dB |
 | `R` | Reset all 10 EQ bands to 0.0 dB |
-| `Space` | Toggle real-time audio streaming on/off |
+| `Shift+R` | Master Factory Reset (resets all DSP parameters and heals CoreAudio route) |
+| `Space` | Toggle real-time audio playback / pause (5 ms micro-fade, retains route lock) |
+| `Shift+S` | Save current EQ, DSP enhancers, and limiter settings as a custom preset |
+| `Shift+I` | Import preset from raw Squiglink or EqualizerAPO text |
+| `Shift+D` | Download preset from HTTP/HTTPS URL |
 | `B` | Toggle instant DSP bypass |
 | `S` | Cycle sync latency modes: Extreme (256) -> Ultra (512) -> Balanced (1024) |
 | `Enter` | Deploy selected AutoEQ headphone calibration preset |
-| `Q` | Cleanly exit OmniRip and restore terminal screen |
+| `Q` | Cleanly exit OmniRip and restore default macOS audio output device |
 
 ---
 
@@ -159,13 +185,15 @@ cargo run --release
 
 | Subsystem | Technology | Details |
 | :--- | :--- | :--- |
-| **Language & Toolchain** | Pure Rust (2021 Edition) | Zero GIL, Zero GC pauses, compiled with LTO & AVX2 vectorization |
-| **Audio I/O** | `cpal 0.15` | Native macOS CoreAudio backend with real-time OS threads |
+| **Language & Toolchain** | Pure Rust (2021 Edition) | Zero GIL, zero GC pauses, compiled with LTO & AVX2 vectorization |
+| **Audio Driver & IPC** | OmniRip Audio HAL + Userland IPC | Zero-latency shared memory transport with CoreAudio driver management |
+| **Audio Playback I/O** | `cpal 0.15` | Native macOS CoreAudio backend with real-time Mach threads |
 | **Ring Buffer** | `rtrb 0.3` | SPSC lock-free zero-allocation ring buffer |
 | **Clock Synchronizer** | Custom PI Clock Servo | Continuous error measurement with $\pm 0.15\%$ fractional linear interpolation |
-| **Equalization** | Cascaded Biquad SOS | Transposed Direct Form II with 15ms clickless dual-engine crossfading |
+| **Equalization** | Cascaded Biquad SOS | Transposed Direct Form II with 15ms clickless dual-engine crossfader |
 | **Loudness Metering** | `ITU-R BS.1770` | Momentary (400ms) and Short-Term (3.0s) K-weighted LUFS |
-| **Spectrum Analysis** | `rustfft 6.4` | 2048-point STFT, Hanning window, 32-band visualizer |
+| **Spectrum Analysis** | `rustfft 6.4` | 2048-point STFT, ISO 266 1/3-octave log filter bank, +3dB/octave pink tilt |
+| **Preset Storage** | JSON in `~/.config/omnirip/` | Atomic preset persistence, Squiglink text importer, safe URL downloader |
 | **Metadata Engine** | `lofty 0.21` | Universal ID3v2, Vorbis Comments, and MP4 atom reader/writer |
 | **Audio Decoder** | `symphonia 0.5` | Multi-format audio decoding for forensic spectral cutoff verification |
 | **Terminal UI** | `ratatui 0.29` + `crossterm 0.28` | 30 FPS reactive rendering with raw mode and clean terminal recovery |
@@ -174,13 +202,13 @@ cargo run --release
 
 ## Verification & Testing
 
-OmniRip includes a test suite covering DSP stability, biquad filter boost/cut curves, clock servo convergence, brickwall limiter overshoot, metadata tagging, and spectral cutoff analysis:
+OmniRip includes an automated test suite covering DSP stability, biquad filter boost/cut curves, clock servo convergence, brickwall limiter overshoot, preset persistence, URL validation, metadata tagging, and spectral cutoff analysis:
 
 ```bash
 cargo test
 ```
 
-All 19 tests run and pass in under 0.05 seconds.
+All 66 tests run and pass in under 0.15 seconds.
 
 ---
 

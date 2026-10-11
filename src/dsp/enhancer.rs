@@ -192,24 +192,28 @@ impl AudiophileEnhancer {
             }
         }
 
-        // 5. Class-A Tube Warmth (Asymmetrical soft polynomial saturation)
+        // 5. Class-A Tube Warmth (Continuous soft-knee saturation, zero DC offset)
         let t = self.tube_warmth;
         if t > 0.001 {
-            let drive = 1.0 + t * 2.0;
+            let drive = 1.0 + t * 1.5;
             for frame in buffer.iter_mut() {
                 for ch in 0..2 {
-                    let mut x = frame[ch] * drive;
-                    // Inject subtle even-harmonic asymmetry
-                    x += t * 0.15 * x * x;
-                    // Soft cubic polynomial saturation clamp
-                    if x > 1.0 {
-                        x = 1.0;
-                    } else if x < -1.0 {
-                        x = -1.0;
+                    let x = frame[ch] * drive;
+                    let sign = x.signum();
+                    let abs_x = x.abs();
+                    // C1 continuous soft-saturation curve: linear below 0.6, smooth quadratic knee up to 1.4, smooth saturation ceiling
+                    let sat = if abs_x < 0.6 {
+                        abs_x
+                    } else if abs_x < 1.4 {
+                        let u = (abs_x - 0.6) / 0.8;
+                        0.6 + 0.8 * (u - 0.5 * u * u)
                     } else {
-                        x = x - (x * x * x) / 3.0;
-                    }
-                    frame[ch] = x / drive;
+                        1.0
+                    };
+                    let y = sign * sat;
+                    // Subtle even harmonic warmth without DC offset
+                    let warm = y + t * 0.08 * (y * y - 0.5 * abs_x.min(1.0));
+                    frame[ch] = warm / (1.0 + t * 0.25);
                 }
             }
         }

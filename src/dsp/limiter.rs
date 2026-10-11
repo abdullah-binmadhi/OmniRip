@@ -42,32 +42,39 @@ impl BrickwallLimiter {
         }
 
         let thresh = self.threshold;
-        let rel_rate = 1.0 - (-1.0 / (self.sample_rate * 0.050)).exp();
+        let knee_start = thresh * 0.85; // 1.5 dB soft knee
+        let att_rate = 1.0 - (-1.0 / (self.sample_rate * 0.0015)).exp(); // 1.5 ms smooth attack
+        let rel_rate = 1.0 - (-1.0 / (self.sample_rate * 0.050)).exp();  // 50 ms smooth release
         let mut max_in_peak = 0.0f32;
 
         for frame in buffer.iter_mut() {
-            let peak = frame[0].abs().max(frame[1].abs());
-            if peak > max_in_peak {
-                max_in_peak = peak;
+            let raw_peak = frame[0].abs().max(frame[1].abs());
+            if raw_peak > max_in_peak {
+                max_in_peak = raw_peak;
             }
 
-            let target_gain = if peak > thresh {
-                thresh / peak.max(1e-6)
+            // Soft-knee compression prior to hard ceiling
+            let target_gain = if raw_peak > thresh {
+                thresh / raw_peak.max(1e-6)
+            } else if raw_peak > knee_start {
+                let excess = raw_peak - knee_start;
+                let knee_range = thresh - knee_start;
+                1.0 - 0.5 * (excess / knee_range).powi(2) * (1.0 - thresh / raw_peak.max(1e-6))
             } else {
                 1.0
             };
 
-            // Instant attack clamping
+            // Smooth attack and release filter (no single-sample step discontinuities)
             if target_gain < self.gain {
-                self.gain = target_gain;
+                self.gain += (target_gain - self.gain) * att_rate;
             } else {
-                self.gain += (1.0 - self.gain) * rel_rate;
+                self.gain += (target_gain - self.gain) * rel_rate;
             }
 
             frame[0] *= self.gain;
             frame[1] *= self.gain;
 
-            // Failsafe clamp to threshold
+            // Failsafe soft clamp to threshold
             if frame[0].abs() > thresh {
                 frame[0] = frame[0].signum() * thresh;
             }

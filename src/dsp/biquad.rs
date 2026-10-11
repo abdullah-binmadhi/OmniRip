@@ -236,75 +236,112 @@ impl FastSosFilter {
     }
 }
 
-/// Dual-Engine Clickless Crossfader: smoothly crossfades between filter states over 15ms.
+/// Dual-Engine Clickless Crossfader: smoothly ramps biquad filter coefficients across 20ms
+/// while preserving filter state memory (Transposed Direct Form II) to eliminate clicks, pops, and zipper noise.
 #[derive(Debug, Clone)]
 pub struct DualEngineCrossfader {
-    active: FastSosFilter,
-    pending: Option<FastSosFilter>,
-    crossfade_total: usize,
-    crossfade_remaining: usize,
+    current_coeffs: Vec<BiquadCoefficients>,
+    target_coeffs: Vec<BiquadCoefficients>,
+    states: Vec<[[f32; 2]; 2]>,
+    ramp_total: usize,
+    ramp_remaining: usize,
 }
 
 impl DualEngineCrossfader {
     pub fn new() -> Self {
         Self {
-            active: FastSosFilter::new(),
-            pending: None,
-            crossfade_total: 0,
-            crossfade_remaining: 0,
+            current_coeffs: Vec::new(),
+            target_coeffs: Vec::new(),
+            states: Vec::new(),
+            ramp_total: 0,
+            ramp_remaining: 0,
         }
     }
 
     pub fn update_filters(&mut self, filters: &[BiquadFilter], sample_rate: f32) {
-        if !self.active.sos.is_empty() {
-            let mut new_engine = FastSosFilter::new();
-            new_engine.update_filters(filters);
-            self.pending = Some(new_engine);
-            let samples = (sample_rate * 0.015) as usize; // 15 ms window
-            self.crossfade_total = samples.max(256);
-            self.crossfade_remaining = self.crossfade_total;
+        let active: Vec<_> = filters.iter().filter(|f| f.enabled).collect();
+        let new_coeffs: Vec<_> = active.iter().map(|f| f.compute_coefficients()).collect();
+        let num_sections = new_coeffs.len();
+
+        if self.current_coeffs.len() == num_sections && !self.current_coeffs.is_empty() {
+            self.target_coeffs = new_coeffs;
+            let ramp = (sample_rate * 0.020) as usize; // 20 ms ramp
+            self.ramp_total = ramp.max(128);
+            self.ramp_remaining = self.ramp_total;
         } else {
-            self.active.update_filters(filters);
-            self.pending = None;
-            self.crossfade_remaining = 0;
+            self.current_coeffs = new_coeffs.clone();
+            self.target_coeffs = new_coeffs;
+            self.states.resize(num_sections, [[0.0; 2]; 2]);
+            self.ramp_total = 0;
+            self.ramp_remaining = 0;
         }
     }
 
     #[inline]
     pub fn process(&mut self, buffer: &mut [[f32; 2]]) {
-        if self.crossfade_remaining > 0 && self.pending.is_some() {
-            let n_frames = buffer.len();
-            let mut old_buf = buffer.to_vec();
-            self.active.process(&mut old_buf);
+        if self.current_coeffs.is_empty() || buffer.is_empty() {
+            return;
+        }
 
-            if let Some(pending) = &mut self.pending {
-                pending.process(buffer);
-            }
+        let n_frames = buffer.len();
+        let is_ramping = self.ramp_remaining > 0 && self.ramp_total > 0;
 
-            let start_prog = 1.0 - (self.crossfade_remaining as f32 / self.crossfade_total as f32);
-            self.crossfade_remaining = self.crossfade_remaining.saturating_sub(n_frames);
-            let end_prog = 1.0 - (self.crossfade_remaining as f32 / self.crossfade_total as f32);
+        for (idx, curr) in self.current_coeffs.iter_mut().enumerate() {
+            let target = &self.target_coeffs[idx];
+            let state = &mut self.states[idx];
 
-            let step = if n_frames > 1 {
-                (end_prog - start_prog) / (n_frames - 1) as f32
+            if is_ramping {
+                let start_prog = 1.0 - (self.ramp_remaining as f32 / self.ramp_total as f32);
+                let rem = self.ramp_remaining.saturating_sub(n_frames);
+                let end_prog = 1.0 - (rem as f32 / self.ramp_total as f32);
+                let step = if n_frames > 1 {
+                    (end_prog - start_prog) / (n_frames - 1) as f32
+                } else {
+                    0.0
+                };
+
+                for (i, frame) in buffer.iter_mut().enumerate() {
+                    let p = start_prog + step * i as f32;
+                    let b0 = curr.b0 + p * (target.b0 - curr.b0);
+                    let b1 = curr.b1 + p * (target.b1 - curr.b1);
+                    let b2 = curr.b2 + p * (target.b2 - curr.b2);
+                    let a1 = curr.a1 + p * (target.a1 - curr.a1);
+                    let a2 = curr.a2 + p * (target.a2 - curr.a2);
+
+                    for ch in 0..2 {
+                        let x = frame[ch];
+                        let s = &mut state[ch];
+                        let y = b0 * x + s[0];
+                        s[0] = b1 * x - a1 * y + s[1];
+                        s[1] = b2 * x - a2 * y;
+                        frame[ch] = y;
+                    }
+                }
             } else {
-                0.0
-            };
+                let b0 = curr.b0;
+                let b1 = curr.b1;
+                let b2 = curr.b2;
+                let a1 = curr.a1;
+                let a2 = curr.a2;
 
-            for (i, frame) in buffer.iter_mut().enumerate() {
-                let w = start_prog + step * i as f32;
-                let old_frame = old_buf[i];
-                frame[0] = (1.0 - w) * old_frame[0] + w * frame[0];
-                frame[1] = (1.0 - w) * old_frame[1] + w * frame[1];
-            }
-
-            if self.crossfade_remaining == 0 {
-                if let Some(pending) = self.pending.take() {
-                    self.active = pending;
+                for frame in buffer.iter_mut() {
+                    for ch in 0..2 {
+                        let x = frame[ch];
+                        let s = &mut state[ch];
+                        let y = b0 * x + s[0];
+                        s[0] = b1 * x - a1 * y + s[1];
+                        s[1] = b2 * x - a2 * y;
+                        frame[ch] = y;
+                    }
                 }
             }
-        } else {
-            self.active.process(buffer);
+        }
+
+        if is_ramping {
+            self.ramp_remaining = self.ramp_remaining.saturating_sub(n_frames);
+            if self.ramp_remaining == 0 {
+                self.current_coeffs = self.target_coeffs.clone();
+            }
         }
     }
 }

@@ -1,11 +1,20 @@
 //! Headphone Preset Profiles and Target Curve Database.
 
 pub mod parser;
+pub mod storage;
 pub use parser::{parse_parametric_eq, ParametricProfile};
+pub use storage::{download_raw_preset, load_all_user_presets, save_preset_to_disk, OmniRipPreset};
 
 /// Return bundled headphone and audiophile reference profiles.
 pub fn get_bundled_profiles(sample_rate: f32) -> Vec<ParametricProfile> {
     vec![
+        parse_parametric_eq(
+            "Flat / Neutral Baseline (Default 0 dB)",
+            "
+Preamp: 0.0 dB
+",
+            sample_rate,
+        ),
         parse_parametric_eq(
             "Harman Target 2019 (Over-Ear Reference)",
             "

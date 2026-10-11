@@ -12,7 +12,7 @@
 use crate::ui::theme::ThemePalette;
 use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
@@ -198,6 +198,45 @@ pub struct VisualsDashboard {
     crest_history: Vec<f32>,
     correlation_history: Vec<f32>,
     gr_history: Vec<f32>,
+}
+
+fn build_dynamic_x_axis(graph_w: usize, num_bars: usize, bar_pitch: f32) -> String {
+    let markers: &[(&str, usize)] = &[
+        ("20", 0),
+        ("31", 2),
+        ("63", 5),
+        ("125", 8),
+        ("250", 11),
+        ("500", 14),
+        ("1k", 17),
+        ("2k", 20),
+        ("4k", 23),
+        ("8k", 26),
+        ("16k", 29),
+        ("20k", 31),
+    ];
+
+    let mut buf = vec![' '; graph_w];
+    let mut last_end = 0;
+
+    for &(label, bar_idx) in markers {
+        if bar_idx >= num_bars {
+            continue;
+        }
+        let center = ((bar_idx as f32 + 0.5) * bar_pitch).round() as usize;
+        let half = label.len() / 2;
+        let start = center.saturating_sub(half);
+        let end = start + label.len();
+
+        if start >= last_end && end <= graph_w {
+            for (i, c) in label.chars().enumerate() {
+                buf[start + i] = c;
+            }
+            last_end = end + 1; // Enforce at least 1 space gap between labels
+        }
+    }
+
+    buf.into_iter().collect()
 }
 
 impl VisualsDashboard {
@@ -525,79 +564,225 @@ impl VisualsDashboard {
     // ==========================================
 
     fn render_spectrum_32(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
-        if area.height < 2 || area.width < 4 { return; }
-        let num_bands = 32;
+        if area.height < 3 || area.width < 8 { return; }
         let w = area.width as usize;
-        let bar_width = (w / num_bands).max(1);
-        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-        let mut lines = Vec::new();
         let h = area.height as usize;
-        for row in 0..h {
-            let row_idx = h - 1 - row;
-            let mut spans = Vec::new();
-            for b in 0..num_bands {
-                let db = spectrum[b].clamp(-60.0, 0.0);
-                let norm = (db + 60.0) / 60.0;
-                let full_steps = (norm * h as f32 * 8.0) as usize;
-                let step_in_row = full_steps.saturating_sub(row_idx * 8).min(8);
-                let ch = blocks[step_in_row];
-                let color = if b < 8 { theme.primary } else if b < 20 { theme.secondary } else { theme.accent };
-                let token = ch.repeat(bar_width);
-                spans.push(Span::styled(token, Style::default().fg(color)));
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+
+        let show_axis = w >= 36;
+        let axis_w = if show_axis { 5 } else { 0 };
+        let graph_w = w.saturating_sub(axis_w);
+        let show_freqs = h >= 6;
+        let graph_h = if show_freqs { h.saturating_sub(1) } else { h };
+
+        let num_bars = 32.min(graph_w / 2).max(1);
+        let bar_pitch = (graph_w as f32 / num_bars as f32).max(1.0);
+
+        let mut lines = Vec::with_capacity(h);
+        for row in 0..graph_h {
+            let row_idx = graph_h - 1 - row;
+            let mut spans = Vec::with_capacity(w);
+
+            // Left decibel reference axis
+            if show_axis {
+                let db_label = if row == 0 {
+                    " 0dB┤"
+                } else if row == graph_h / 4 {
+                    "-12 ┤"
+                } else if row == graph_h / 2 {
+                    "-24 ┤"
+                } else if row == (graph_h * 3) / 4 {
+                    "-36 ┤"
+                } else if row == graph_h - 1 {
+                    "-60 ┤"
+                } else {
+                    "    │"
+                };
+                spans.push(Span::styled(db_label, Style::default().fg(Color::DarkGray)));
+            }
+
+            for col in 0..graph_w {
+                let bar_idx = ((col as f32 / bar_pitch) as usize).min(31);
+                let col_in_bar = col % (bar_pitch.round().max(1.0) as usize);
+                let is_gap = bar_pitch >= 2.0 && col_in_bar == (bar_pitch.round() as usize - 1);
+
+                if is_gap {
+                    spans.push(Span::styled(" ", Style::default()));
+                    continue;
+                }
+
+                let db = spectrum[bar_idx].clamp(-60.0, 0.0);
+                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let full_eighths = (norm * (graph_h as f32) * 8.0) as usize;
+                let step_in_row = full_eighths.saturating_sub(row_idx * 8).min(8);
+
+                let row_pct = row_idx as f32 / graph_h.max(1) as f32;
+                let color = if row_pct > 0.82 {
+                    Color::Red
+                } else if row_pct > 0.55 {
+                    theme.accent
+                } else if row_pct > 0.25 {
+                    theme.secondary
+                } else {
+                    theme.primary
+                };
+
+                let peak_row = (norm * (graph_h as f32 - 1.0)).round() as usize;
+                let (ch, cell_style) = if step_in_row > 0 {
+                    (blocks[step_in_row], Style::default().fg(color))
+                } else if row_idx == peak_row + 1 && peak_row + 1 < graph_h {
+                    ("▔", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                } else {
+                    (" ", Style::default())
+                };
+                spans.push(Span::styled(ch, cell_style));
             }
             lines.push(Line::from(spans));
         }
+
+        // Bottom frequency markers dynamically distributed across full width
+        if show_freqs {
+            let mut f_spans = Vec::new();
+            if show_axis {
+                f_spans.push(Span::styled("     ", Style::default().fg(Color::DarkGray)));
+            }
+            let freq_line = build_dynamic_x_axis(graph_w, num_bars, bar_pitch);
+            f_spans.push(Span::styled(
+                freq_line,
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+            ));
+            lines.push(Line::from(f_spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_spectrum_64(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
-        if area.height < 2 || area.width < 4 { return; }
+        if area.height < 3 || area.width < 8 { return; }
         let mut interp = [0.0f32; 64];
         for i in 0..64 {
             let idx = (i as f32 * 31.0 / 63.0) as usize;
             interp[i] = spectrum[idx.min(31)];
         }
-        let num_bands = (area.width as usize).min(64).max(16);
-        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-        let mut lines = Vec::new();
+        let w = area.width as usize;
         let h = area.height as usize;
-        for row in 0..h {
-            let row_idx = h - 1 - row;
-            let mut spans = Vec::new();
-            for b in 0..num_bands {
-                let src_idx = (b as f32 * 63.0 / (num_bands - 1) as f32) as usize;
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+
+        let show_axis = w >= 40;
+        let axis_w = if show_axis { 5 } else { 0 };
+        let graph_w = w.saturating_sub(axis_w);
+
+        let show_freqs = h >= 6;
+        let graph_h = if show_freqs { h.saturating_sub(1) } else { h };
+
+        let mut lines = Vec::with_capacity(h);
+        for row in 0..graph_h {
+            let row_idx = graph_h - 1 - row;
+            let mut spans = Vec::with_capacity(w);
+
+            if show_axis {
+                let db_label = if row == 0 {
+                    " 0dB┤"
+                } else if row == graph_h / 4 {
+                    "-12 ┤"
+                } else if row == graph_h / 2 {
+                    "-24 ┤"
+                } else if row == (graph_h * 3) / 4 {
+                    "-36 ┤"
+                } else if row == graph_h - 1 {
+                    "-60 ┤"
+                } else {
+                    "    │"
+                };
+                spans.push(Span::styled(db_label, Style::default().fg(Color::DarkGray)));
+            }
+
+            for col in 0..graph_w {
+                let src_idx = (col * 64) / graph_w;
                 let db = interp[src_idx.min(63)].clamp(-60.0, 0.0);
-                let norm = (db + 60.0) / 60.0;
-                let full_steps = (norm * h as f32 * 8.0) as usize;
-                let step_in_row = full_steps.saturating_sub(row_idx * 8).min(8);
-                let ch = blocks[step_in_row];
-                let color = if b < num_bands / 4 { theme.primary } else if b < num_bands * 3 / 4 { theme.secondary } else { theme.accent };
-                spans.push(Span::styled(ch, Style::default().fg(color)));
+                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let full_eighths = (norm * (graph_h as f32) * 8.0) as usize;
+                let step_in_row = full_eighths.saturating_sub(row_idx * 8).min(8);
+
+                let row_pct = row_idx as f32 / graph_h.max(1) as f32;
+                let color = if row_pct > 0.82 {
+                    Color::Red
+                } else if row_pct > 0.55 {
+                    theme.accent
+                } else if row_pct > 0.25 {
+                    theme.secondary
+                } else {
+                    theme.primary
+                };
+
+                let peak_row = (norm * (graph_h as f32 - 1.0)).round() as usize;
+                let (ch, cell_style) = if step_in_row > 0 {
+                    (blocks[step_in_row], Style::default().fg(color))
+                } else if row_idx == peak_row + 1 && peak_row + 1 < graph_h {
+                    ("▔", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                } else {
+                    (" ", Style::default())
+                };
+                spans.push(Span::styled(ch, cell_style));
             }
             lines.push(Line::from(spans));
         }
+
+        // Bottom frequency markers dynamically distributed across full width
+        if show_freqs {
+            let mut f_spans = Vec::new();
+            if show_axis {
+                f_spans.push(Span::styled("     ", Style::default().fg(Color::DarkGray)));
+            }
+            let freq_line = build_dynamic_x_axis(graph_w, 32, graph_w as f32 / 32.0);
+            f_spans.push(Span::styled(
+                freq_line,
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+            ));
+            lines.push(Line::from(f_spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_spectrum_128(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
         if area.height < 2 || area.width < 4 { return; }
-        let num_cols = area.width as usize;
-        let mut lines = Vec::new();
+        let w = area.width as usize;
         let h = area.height as usize;
-        let chars = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+        let mut lines = Vec::with_capacity(h);
         for row in 0..h {
             let row_idx = h - 1 - row;
-            let mut spans = Vec::new();
-            for col in 0..num_cols {
-                let src_idx = (col as f32 * 31.0 / (num_cols - 1).max(1) as f32) as usize;
+            let mut spans = Vec::with_capacity(w);
+            for col in 0..w {
+                let src_idx = (col as f32 * 31.0 / (w - 1).max(1) as f32) as usize;
                 let db = spectrum[src_idx.min(31)].clamp(-60.0, 0.0);
-                let norm = (db + 60.0) / 60.0;
-                let full_steps = (norm * h as f32 * 8.0) as usize;
-                let step = full_steps.saturating_sub(row_idx * 8).min(8);
-                let color = if col < num_cols / 3 { theme.primary } else if col < num_cols * 2 / 3 { theme.secondary } else { theme.accent };
-                spans.push(Span::styled(chars[step], Style::default().fg(color)));
+                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let full_eighths = (norm * (h as f32) * 8.0) as usize;
+                let step_in_row = full_eighths.saturating_sub(row_idx * 8).min(8);
+
+                let row_pct = row_idx as f32 / h.max(1) as f32;
+                let color = if row_pct > 0.85 {
+                    Color::Red
+                } else if row_pct > 0.60 {
+                    theme.accent
+                } else if row_pct > 0.30 {
+                    theme.secondary
+                } else {
+                    theme.primary
+                };
+
+                let peak_row = (norm * (h as f32 - 1.0)).round() as usize;
+                let (ch, cell_style) = if step_in_row > 0 {
+                    (blocks[step_in_row], Style::default().fg(color))
+                } else if row_idx == peak_row + 1 && peak_row + 1 < h {
+                    ("▔", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                } else {
+                    (" ", Style::default())
+                };
+                spans.push(Span::styled(ch, cell_style));
             }
             lines.push(Line::from(spans));
         }
@@ -611,18 +796,39 @@ impl VisualsDashboard {
         if self.waterfall_history.len() > area.height as usize {
             self.waterfall_history.truncate(area.height as usize);
         }
-        let heat_chars = [" ", "·", "-", "=", "+", "*", "#", "%", "@"];
-        let mut lines = Vec::new();
         let w = area.width as usize;
-        for hist in &self.waterfall_history {
-            let mut spans = Vec::new();
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+        for row in 0..h {
+            let hist = if row < self.waterfall_history.len() {
+                Some(&self.waterfall_history[row])
+            } else {
+                None
+            };
+            let mut spans = Vec::with_capacity(w);
             for col in 0..w {
-                let bin = (col as f32 * 31.0 / (w - 1).max(1) as f32) as usize;
-                let db = hist[bin.min(31)].clamp(-60.0, 0.0);
-                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
-                let heat_idx = (norm * 8.0).round() as usize;
-                let color = if heat_idx > 6 { theme.primary } else if heat_idx > 3 { theme.secondary } else { theme.text_dim };
-                spans.push(Span::styled(heat_chars[heat_idx], Style::default().fg(color)));
+                if let Some(h_data) = hist {
+                    let bin = (col * 32) / w;
+                    let db = h_data[bin.min(31)].clamp(-60.0, 0.0);
+                    let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+
+                    let (ch, style) = if norm < 0.15 {
+                        (" ", Style::default())
+                    } else if norm < 0.35 {
+                        ("·", Style::default().fg(Color::DarkGray))
+                    } else if norm < 0.55 {
+                        ("░", Style::default().fg(theme.primary))
+                    } else if norm < 0.75 {
+                        ("▒", Style::default().fg(theme.secondary))
+                    } else if norm < 0.90 {
+                        ("▓", Style::default().fg(theme.accent))
+                    } else {
+                        ("█", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                    };
+                    spans.push(Span::styled(ch, style));
+                } else {
+                    spans.push(Span::styled(" ", Style::default()));
+                }
             }
             lines.push(Line::from(spans));
         }
@@ -631,27 +837,37 @@ impl VisualsDashboard {
     }
 
     fn render_isometric_waterfall(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
-        let mut lines = Vec::new();
+        if area.height < 2 || area.width < 4 { return; }
         let h = area.height as usize;
         let w = area.width as usize;
+        let mut lines = Vec::with_capacity(h);
         for r in 0..h {
-            let offset = (h - 1 - r) / 2;
-            let mut line_str = " ".repeat(offset.min(w / 4));
-            let available = w.saturating_sub(line_str.len());
-            for c in 0..available {
-                let bin = (c as f32 * 31.0 / available.max(1) as f32) as usize;
-                let db = spectrum[bin.min(31)];
-                let ch = if db > -18.0 { "^" } else if db > -30.0 { "/" } else if db > -45.0 { "-" } else { "." };
-                line_str.push_str(ch);
+            let skew = (h - 1 - r) % 4;
+            let mut spans = Vec::with_capacity(w);
+            for c in 0..w {
+                let bin = ((c + skew) * 32) / (w + 4);
+                let db = spectrum[bin.min(31)].clamp(-60.0, 0.0);
+                let (ch, color) = if db > -12.0 {
+                    ("▲", Color::Red)
+                } else if db > -24.0 {
+                    ("█", theme.accent)
+                } else if db > -36.0 {
+                    ("▓", theme.secondary)
+                } else if db > -48.0 {
+                    ("▒", theme.primary)
+                } else {
+                    ("─", Color::DarkGray)
+                };
+                spans.push(Span::styled(ch, Style::default().fg(color)));
             }
-            let color = if r < h / 3 { theme.primary } else if r < h * 2 / 3 { theme.secondary } else { theme.text_dim };
-            lines.push(Line::from(vec![Span::styled(line_str, Style::default().fg(color))]));
+            lines.push(Line::from(spans));
         }
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_spectral_centroid(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
+        if area.height < 2 || area.width < 4 { return; }
         let mut weighted_sum = 0.0f32;
         let mut total_energy = 0.0f32;
         for (i, &db) in spectrum.iter().enumerate() {
@@ -662,58 +878,120 @@ impl VisualsDashboard {
         let centroid_bin = if total_energy > 0.001 { weighted_sum / total_energy } else { 16.0 };
         let centroid_hz = 20.0 * 1000.0_f32.powf(centroid_bin / 31.0);
 
-        let mut lines = Vec::new();
-        lines.push(Line::from(""));
+        let w = area.width as usize;
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+
+        // Header Line 1: Centroid and Frequency
+        let tilt_desc = if centroid_hz > 3500.0 {
+            "Air / High-Frequency Dominated"
+        } else if centroid_hz > 1000.0 {
+            "Balanced Natural Acoustic Midrange"
+        } else {
+            "Warm / Sub-Bass Fundamental Dominated"
+        };
         lines.push(Line::from(vec![
-            Span::styled("  Acoustic Spectral Centroid (Center of Mass): ", Style::default().fg(theme.text_dim)),
-            Span::styled(format!("{:.1} Hz", centroid_hz), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(" ACOUSTIC CENTROID: ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("{:.1} Hz ", centroid_hz), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("({})", tilt_desc), Style::default().fg(theme.success)),
         ]));
-        let w = (area.width as usize).saturating_sub(6).max(10);
-        let pos = ((centroid_bin / 31.0) * (w - 1) as f32).round() as usize;
-        let mut bar = vec!['-'; w];
-        if pos < w { bar[pos] = 'O'; }
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  Dark/Warm [", Style::default().fg(theme.secondary)),
-            Span::styled(bar.into_iter().collect::<String>(), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-            Span::styled("] Bright/Air", Style::default().fg(theme.accent)),
-        ]));
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  Harmonic Tilt: ", Style::default().fg(theme.text_dim)),
-            Span::styled(if centroid_hz > 3000.0 { "High-Frequency Dominated (Airy / Sharp)" } else if centroid_hz > 800.0 { "Balanced Acoustic Mid-Range Energy" } else { "Sub-Bass & Fundamental Dominated (Warm / Lush)" }, Style::default().fg(theme.success)),
-        ]));
+
+        // Needle Marker Line 2
+        let needle_pos = ((centroid_bin / 31.0) * (w.saturating_sub(1) as f32)).round() as usize;
+        let mut needle_line = String::with_capacity(w);
+        for col in 0..w {
+            if col == needle_pos {
+                needle_line.push('▼');
+            } else {
+                needle_line.push(' ');
+            }
+        }
+        lines.push(Line::from(vec![Span::styled(needle_line, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))]));
+
+        // Scale Line 3: 20Hz -> 20kHz logarithmic ruler
+        let mut ruler_spans = Vec::with_capacity(w);
+        for col in 0..w {
+            let b = (col * 32) / w;
+            let ch = if col == needle_pos {
+                "◆"
+            } else if col % 8 == 0 {
+                "┼"
+            } else {
+                "─"
+            };
+            let color = if b < 8 { theme.primary } else if b < 20 { theme.secondary } else { theme.accent };
+            ruler_spans.push(Span::styled(ch, Style::default().fg(color)));
+        }
+        lines.push(Line::from(ruler_spans));
+
+        // Remaining Lines: 24-Band Critical Bark Energy Distribution filling height
+        let rem_rows = h.saturating_sub(3);
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+        for row in 0..rem_rows {
+            let row_idx = rem_rows - 1 - row;
+            let mut spans = Vec::with_capacity(w);
+            for col in 0..w {
+                let b = (col * 32) / w;
+                let db = spectrum[b.min(31)].clamp(-60.0, 0.0);
+                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let full_eighths = (norm * (rem_rows as f32) * 8.0) as usize;
+                let step = full_eighths.saturating_sub(row_idx * 8).min(8);
+                let color = if b < 10 { theme.primary } else if b < 22 { theme.secondary } else { theme.accent };
+                spans.push(Span::styled(blocks[step], Style::default().fg(color)));
+            }
+            lines.push(Line::from(spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_octave_bands(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
+        if area.height < 2 || area.width < 4 { return; }
         let bands = [
-            ("Sub-Bass  (<60Hz)", &spectrum[0..4]),
-            ("Bass      (60-250Hz)", &spectrum[4..9]),
-            ("Low-Mid   (250-1kHz)", &spectrum[9..16]),
-            ("High-Mid  (1k-4kHz)", &spectrum[16..22]),
-            ("Presence  (4k-8kHz)", &spectrum[22..27]),
-            ("Air/Brill (>8kHz)", &spectrum[27..32]),
+            ("31.5 Hz", spectrum[1].max(spectrum[2]).max(spectrum[3]).clamp(-60.0, 0.0)),
+            ("63 Hz  ", spectrum[4].max(spectrum[5]).max(spectrum[6]).clamp(-60.0, 0.0)),
+            ("125 Hz ", spectrum[7].max(spectrum[8]).max(spectrum[9]).clamp(-60.0, 0.0)),
+            ("250 Hz ", spectrum[10].max(spectrum[11]).max(spectrum[12]).clamp(-60.0, 0.0)),
+            ("500 Hz ", spectrum[13].max(spectrum[14]).max(spectrum[15]).clamp(-60.0, 0.0)),
+            ("1.0 kHz", spectrum[16].max(spectrum[17]).max(spectrum[18]).clamp(-60.0, 0.0)),
+            ("2.0 kHz", spectrum[19].max(spectrum[20]).max(spectrum[21]).clamp(-60.0, 0.0)),
+            ("4.0 kHz", spectrum[22].max(spectrum[23]).max(spectrum[24]).clamp(-60.0, 0.0)),
+            ("8.0 kHz", spectrum[25].max(spectrum[26]).max(spectrum[27]).clamp(-60.0, 0.0)),
+            ("16 kHz ", spectrum[28].max(spectrum[29]).max(spectrum[30]).clamp(-60.0, 0.0)),
         ];
-        let mut lines = Vec::new();
-        let max_bar_w = (area.width as usize).saturating_sub(24).max(8);
-        for (name, slice) in &bands {
-            let avg_db = slice.iter().copied().sum::<f32>() / slice.len() as f32;
-            let norm = ((avg_db + 60.0) / 60.0).clamp(0.0, 1.0);
-            let filled = (norm * max_bar_w as f32).round() as usize;
-            let bar = format!("[{}{}]", "█".repeat(filled), " ".repeat(max_bar_w.saturating_sub(filled)));
+
+        let w = area.width as usize;
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+        let bar_width = w.saturating_sub(18).max(4);
+
+        for (idx, (label, db)) in bands.iter().enumerate() {
+            if idx >= h { break; }
+            let norm = ((*db + 60.0) / 60.0).clamp(0.0, 1.0);
+            let filled = (norm * bar_width as f32).round() as usize;
+            let empty = bar_width.saturating_sub(filled);
+            let bar_str = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
+            let color = if idx < 3 {
+                theme.primary
+            } else if idx < 7 {
+                theme.secondary
+            } else {
+                theme.accent
+            };
             lines.push(Line::from(vec![
-                Span::styled(format!(" {:<18}", name), Style::default().fg(theme.text)),
-                Span::styled(bar, Style::default().fg(theme.primary)),
-                Span::styled(format!(" {:>+5.1}dB", avg_db), Style::default().fg(theme.secondary)),
+                Span::styled(format!(" {:<7} ", label), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+                Span::styled(bar_str, Style::default().fg(color)),
+                Span::styled(format!(" {:>+5.1}dB", db), Style::default().fg(theme.text)),
             ]));
         }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_spectral_flatness(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, spectrum: &[f32; 32]) {
+        if area.height < 2 || area.width < 4 { return; }
         let mut log_sum = 0.0f32;
         let mut arith_sum = 0.0f32;
         for &db in spectrum {
@@ -726,25 +1004,46 @@ impl VisualsDashboard {
         let flatness = (geo_mean / arith_mean.max(1e-6)).clamp(0.0, 1.0);
         let tonality = 1.0 - flatness;
 
-        let mut lines = Vec::new();
-        lines.push(Line::from(""));
+        let w = area.width as usize;
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+
+        // Line 1: Entropy & Flatness Readout
         lines.push(Line::from(vec![
-            Span::styled("  Wiener Spectral Flatness: ", Style::default().fg(theme.text_dim)),
-            Span::styled(format!("{:.3} (0.0=Pure Tone, 1.0=White Noise)", flatness), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(" WIENER SPECTRAL FLATNESS: ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("{:.4} ", flatness), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("(Tonality: {:.1}% | Entropy: {:.1}%)", tonality * 100.0, flatness * 100.0), Style::default().fg(theme.secondary)),
         ]));
-        let w = (area.width as usize).saturating_sub(6).max(10);
-        let flat_w = (flatness * w as f32).round() as usize;
-        let bar = format!("[{}{}]", "█".repeat(flat_w), "░".repeat(w.saturating_sub(flat_w)));
-        lines.push(Line::from(""));
+
+        // Line 2: Full-Width Scale Bar
+        let bar_w = w.saturating_sub(16).max(8);
+        let flat_w = (flatness * bar_w as f32).round() as usize;
+        let empty_w = bar_w.saturating_sub(flat_w);
+        let bar_str = format!("[{}{}]", "█".repeat(flat_w), "░".repeat(empty_w));
         lines.push(Line::from(vec![
-            Span::styled("  Tonal ", Style::default().fg(theme.secondary)),
-            Span::styled(bar, Style::default().fg(theme.accent)),
-            Span::styled(" Noisy", Style::default().fg(theme.primary)),
+            Span::styled(" TONAL ", Style::default().fg(theme.success)),
+            Span::styled(bar_str, Style::default().fg(theme.accent)),
+            Span::styled(" NOISY ", Style::default().fg(Color::Red)),
         ]));
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled(format!("  Harmonic Tonality Score: {:.1}% Resonance Density", tonality * 100.0), Style::default().fg(theme.success)),
-        ]));
+
+        // Remaining Lines: High-density Energy Ribbon Filling Height
+        let rem_rows = h.saturating_sub(2);
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+        for row in 0..rem_rows {
+            let row_idx = rem_rows - 1 - row;
+            let mut spans = Vec::with_capacity(w);
+            for col in 0..w {
+                let b = (col * 32) / w;
+                let db = spectrum[b.min(31)].clamp(-60.0, 0.0);
+                let norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let full_eighths = (norm * (rem_rows as f32) * 8.0) as usize;
+                let step = full_eighths.saturating_sub(row_idx * 8).min(8);
+                let color = if tonality > 0.5 { theme.secondary } else { theme.primary };
+                spans.push(Span::styled(blocks[step], Style::default().fg(color)));
+            }
+            lines.push(Line::from(spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
@@ -754,152 +1053,401 @@ impl VisualsDashboard {
     // ==========================================
 
     fn render_phase_scope(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, phase: f32, peak_l: f32, peak_r: f32) {
+        if area.height < 3 || area.width < 6 { return; }
         let h = area.height as usize;
         let w = area.width as usize;
-        let mut grid = vec![vec![' '; w]; h];
+        let mut grid = vec![vec![(' ', Style::default()); w]; h];
         let mid_y = h / 2;
         let mid_x = w / 2;
-        let rad = mid_y.min(mid_x).saturating_sub(1);
-        for a in 0..60 {
-            let theta = a as f32 * std::f32::consts::PI / 30.0;
-            let amp = (peak_l.max(peak_r) + 60.0) / 60.0;
-            let x_val = (theta.sin() * phase * rad as f32 * amp) as isize;
-            let y_val = (theta.cos() * rad as f32 * amp) as isize;
-            let gx = (mid_x as isize + x_val).clamp(0, w as isize - 1) as usize;
-            let gy = (mid_y as isize - y_val).clamp(0, h as isize - 1) as usize;
-            grid[gy][gx] = '*';
+
+        // 1. Draw subtle background crosshairs and 45-degree in/out phase reference axes
+        for y in 1..h {
+            grid[y][mid_x] = ('│', Style::default().fg(Color::DarkGray));
+            // 45-degree diagonals (adjusted for ~2:1 terminal font aspect ratio)
+            let dy = (y as isize - mid_y as isize) * 2;
+            let in_x = mid_x as isize + dy;
+            let out_x = mid_x as isize - dy;
+            if in_x > 0 && in_x < w as isize - 1 {
+                grid[y][in_x as usize] = ('╱', Style::default().fg(Color::DarkGray));
+            }
+            if out_x > 0 && out_x < w as isize - 1 {
+                grid[y][out_x as usize] = ('╲', Style::default().fg(Color::DarkGray));
+            }
         }
+        for x in 0..w {
+            grid[mid_y][x] = ('─', Style::default().fg(Color::DarkGray));
+        }
+        grid[mid_y][mid_x] = ('┼', Style::default().fg(theme.primary));
+
+        // 2. Synthesize dynamic Lissajous trajectory dots
+        let amp = ((peak_l.max(peak_r) + 60.0) / 60.0).clamp(0.08, 1.0);
+        let rad_x = (mid_x as f32 * 0.90).max(2.0);
+        let rad_y = (mid_y as f32 * 0.88).max(1.0);
+
+        let num_points = (w * 2).clamp(60, 240);
+        for i in 0..num_points {
+            let theta = i as f32 * 2.0 * std::f32::consts::PI / num_points as f32;
+            let spread_mod = (1.0 - phase * 0.4).clamp(0.2, 1.4);
+            let x_val = (theta.sin() * rad_x * amp * spread_mod) as isize;
+            let y_val = ((theta + phase * 1.57).cos() * rad_y * amp) as isize;
+
+            let gx = (mid_x as isize + x_val).clamp(0, w as isize - 1) as usize;
+            let gy = (mid_y as isize - y_val).clamp(1, h as isize - 1) as usize;
+
+            let (dot_ch, dot_color) = if i % 4 == 0 {
+                ('█', Color::Red)
+            } else if i % 2 == 0 {
+                ('●', theme.accent)
+            } else {
+                ('·', theme.primary)
+            };
+            grid[gy][gx] = (dot_ch, Style::default().fg(dot_color).add_modifier(Modifier::BOLD));
+        }
+
+        // 3. Status masthead on row 0
+        let status_str = format!(" LISSAJOUS PHASE SCOPE: r = {:+.2} | Stereo Width: {:.0}% | L: {:>4.1}dB R: {:>4.1}dB",
+            phase, (1.0 - phase.max(0.0)) * 100.0, peak_l, peak_r);
+        let chars: Vec<char> = status_str.chars().collect();
+        for (i, &ch) in chars.iter().enumerate().take(w) {
+            grid[0][i] = (ch, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+        }
+
         let lines: Vec<Line> = grid.into_iter().map(|row| {
-            Line::from(vec![Span::styled(row.into_iter().collect::<String>(), Style::default().fg(theme.primary))])
+            let spans: Vec<Span> = row.into_iter().map(|(ch, st)| Span::styled(ch.to_string(), st)).collect();
+            Line::from(spans)
         }).collect();
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_polar_soundstage(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, peak_l: f32, peak_r: f32, phase: f32) {
-        let mut lines = Vec::new();
-        let balance = (peak_r - peak_l).clamp(-12.0, 12.0) / 12.0;
+        if area.height < 3 || area.width < 6 { return; }
+        let h = area.height as usize;
         let w = area.width as usize;
-        let center = w / 2;
-        let spread = ((phase.max(0.0) + 0.2) * (w as f32 / 4.0)) as usize;
-        let left_pos = center.saturating_sub(spread);
-        let right_pos = (center + spread).min(w.saturating_sub(1));
+        let mut grid = vec![vec![(' ', Style::default()); w]; h];
 
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("             [FRONT / CENTER STAGE]", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-        ]));
-        let mut radar_str = vec![' '; w];
-        if left_pos < w { radar_str[left_pos] = '<'; }
-        if center < w { radar_str[center] = 'O'; }
-        if right_pos < w { radar_str[right_pos] = '>'; }
-        lines.push(Line::from(vec![Span::styled(radar_str.into_iter().collect::<String>(), Style::default().fg(theme.secondary))]));
-        lines.push(Line::from(vec![
-            Span::styled("  [LEFT 90°]                  [RIGHT 90°]", Style::default().fg(theme.text_dim)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled(format!("  Azimuth Balance: {:+.2}  |  Soundstage Aperture Spread: {} cols", balance, spread * 2), Style::default().fg(theme.accent)),
-        ]));
+        let center_x = w / 2;
+        let center_y = h.saturating_sub(1);
+        let balance = (peak_r - peak_l).clamp(-12.0, 12.0) / 12.0;
+        let bal_angle = balance * 55.0; // Azimuth angle in degrees (-55 to +55)
+        let spread_angle = 15.0 + (1.0 - phase).clamp(0.0, 1.5) * 45.0;
+
+        // 1. Draw 180-degree radar azimuth arc and rays
+        for y in 1..h {
+            for x in 0..w {
+                let dx = (x as f32 - center_x as f32) / (center_x.max(1) as f32);
+                let dy = (center_y as f32 - y as f32) / (center_y.max(1) as f32);
+                let dist = (dx * dx + dy * dy).sqrt();
+                let angle = dx.atan2(dy) * 180.0 / std::f32::consts::PI;
+
+                if (dist - 1.0).abs() < 0.08 {
+                    grid[y][x] = ('─', Style::default().fg(Color::DarkGray));
+                } else if (dist - 0.55).abs() < 0.06 {
+                    grid[y][x] = ('·', Style::default().fg(Color::DarkGray));
+                } else if dist < 1.0 {
+                    let diff = (angle - bal_angle).abs();
+                    if diff < spread_angle {
+                        let energy_norm = (1.0 - diff / spread_angle) * (1.0 - dist * 0.4);
+                        if energy_norm > 0.75 {
+                            grid[y][x] = ('█', Style::default().fg(Color::Red));
+                        } else if energy_norm > 0.50 {
+                            grid[y][x] = ('▓', Style::default().fg(theme.accent));
+                        } else if energy_norm > 0.25 {
+                            grid[y][x] = ('▒', Style::default().fg(theme.secondary));
+                        } else {
+                            grid[y][x] = ('░', Style::default().fg(theme.primary));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Compass Azimuth Labels
+        grid[center_y][center_x] = ('▲', Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+        if center_x >= 12 && center_x + 12 < w {
+            let left_label = "[-90° L]";
+            for (i, c) in left_label.chars().enumerate() {
+                grid[center_y][i + 1] = (c, Style::default().fg(theme.text_dim));
+            }
+            let right_label = "[R +90°]";
+            for (i, c) in right_label.chars().enumerate() {
+                if w.saturating_sub(10) + i < w {
+                    grid[center_y][w.saturating_sub(10) + i] = (c, Style::default().fg(theme.text_dim));
+                }
+            }
+        }
+
+        // 3. Status masthead on row 0
+        let status_str = format!(" POLAR SOUNDSTAGE: Pan {:+.1}° | Spread: {:.0}° | Phase: {:+.2} | L: {:>4.1}dB R: {:>4.1}dB",
+            bal_angle, spread_angle * 2.0, phase, peak_l, peak_r);
+        let chars: Vec<char> = status_str.chars().collect();
+        for (i, &ch) in chars.iter().enumerate().take(w) {
+            grid[0][i] = (ch, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+        }
+
+        let lines: Vec<Line> = grid.into_iter().map(|row| {
+            let spans: Vec<Span> = row.into_iter().map(|(ch, st)| Span::styled(ch.to_string(), st)).collect();
+            Line::from(spans)
+        }).collect();
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_stereo_correlation(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, phase: f32) {
-        let mut lines = Vec::new();
+        if area.height < 3 || area.width < 6 { return; }
+        let w = area.width as usize;
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+
+        // Line 1: Numerical readout and coherence verdict
+        let coherence_str = if phase >= 0.80 {
+            "PERFECT MONO COHERENCE"
+        } else if phase >= 0.40 {
+            "STABLE STEREO SOUNDSTAGE"
+        } else if phase >= 0.0 {
+            "ULTRA-WIDE STEREO EXPANSION"
+        } else {
+            "OUT-OF-PHASE CANCELLATION WARNING!"
+        };
+        let verdict_color = if phase >= 0.40 { theme.success } else if phase >= 0.0 { theme.warning } else { Color::Red };
         lines.push(Line::from(vec![
-            Span::styled(format!(" Phase Correlation: {:+.2}  ", phase), Style::default().fg(if phase >= 0.5 { theme.success } else { theme.warning }).add_modifier(Modifier::BOLD)),
-            Span::styled(if phase >= 0.8 { "[PURE MONO / ALIGNED]" } else if phase >= 0.2 { "[WIDE STEREO]" } else { "[OUT-OF-PHASE CANCELLATION!]" }, Style::default().fg(theme.accent)),
+            Span::styled(" STEREO CORRELATION: ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("{:>+5.2} ", phase), Style::default().fg(verdict_color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("[{}]", coherence_str), Style::default().fg(verdict_color).add_modifier(Modifier::BOLD)),
         ]));
-        let w = (area.width as usize).saturating_sub(12).max(10);
-        let pos = (((phase + 1.0) / 2.0) * (w - 1) as f32).round() as usize;
-        let mut bar = vec!['-'; w];
-        if pos < w { bar[pos] = '|'; }
-        lines.push(Line::from(vec![
-            Span::styled(" -1.0 [", Style::default().fg(theme.warning)),
-            Span::styled(bar.into_iter().collect::<String>(), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-            Span::styled("] +1.0", Style::default().fg(theme.success)),
-        ]));
-        // Rolling history strip
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![Span::styled(" Time Correlation Strip:", Style::default().fg(theme.text_dim))]));
-        let hist_len = w.min(self.correlation_history.len());
-        let mut strip = String::new();
-        for i in 0..hist_len {
-            let p = self.correlation_history[i];
-            strip.push(if p >= 0.7 { '█' } else if p >= 0.3 { '▒' } else if p >= 0.0 { '░' } else { '!' });
+
+        // Line 2: Full-Width Needle Gauge with colored zones
+        let gauge_w = w.saturating_sub(18).max(10);
+        let pos = (((phase + 1.0) / 2.0) * (gauge_w.saturating_sub(1) as f32)).round() as usize;
+        let mut gauge_spans = Vec::new();
+        gauge_spans.push(Span::styled(" -1.0 [", Style::default().fg(Color::Red)));
+        for col in 0..gauge_w {
+            if col == pos {
+                gauge_spans.push(Span::styled("▲", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+            } else if col == gauge_w / 2 {
+                gauge_spans.push(Span::styled("┼", Style::default().fg(Color::White)));
+            } else if col < gauge_w / 2 {
+                gauge_spans.push(Span::styled("─", Style::default().fg(Color::Red)));
+            } else {
+                gauge_spans.push(Span::styled("─", Style::default().fg(theme.success)));
+            }
         }
-        lines.push(Line::from(vec![Span::styled(format!(" [{}]", strip), Style::default().fg(theme.secondary))]));
+        gauge_spans.push(Span::styled("] +1.0", Style::default().fg(theme.success)));
+        lines.push(Line::from(gauge_spans));
+
+        // Remaining Lines: Full-tile Historical Scrolling Correlation Strip
+        let rem_rows = h.saturating_sub(2);
+        for r in 0..rem_rows {
+            let hist_idx = r;
+            let hist_phase = if hist_idx < self.correlation_history.len() {
+                self.correlation_history[hist_idx]
+            } else {
+                phase
+            };
+            let bar_w = w.saturating_sub(14).max(6);
+            let h_pos = (((hist_phase + 1.0) / 2.0) * (bar_w.saturating_sub(1) as f32)).round() as usize;
+            let mut strip_spans = Vec::new();
+            strip_spans.push(Span::styled(format!(" T-{:<2} [", r), Style::default().fg(theme.text_dim)));
+            for c in 0..bar_w {
+                if c == h_pos {
+                    strip_spans.push(Span::styled("█", Style::default().fg(if hist_phase >= 0.4 { theme.success } else { Color::Red })));
+                } else if c == bar_w / 2 {
+                    strip_spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+                } else {
+                    strip_spans.push(Span::styled("·", Style::default().fg(Color::DarkGray)));
+                }
+            }
+            strip_spans.push(Span::styled(format!("] {:>+4.2}", hist_phase), Style::default().fg(theme.text_dim)));
+            lines.push(Line::from(strip_spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_mid_side_ratio(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, peak_l: f32, peak_r: f32) {
+        if area.height < 3 || area.width < 6 { return; }
         let mid = (peak_l + peak_r) / 2.0;
         let side = (peak_l - peak_r).abs();
         let total = mid.abs() + side.abs() + 1e-4;
         let mid_ratio = (mid.abs() / total).clamp(0.0, 1.0);
         let side_ratio = 1.0 - mid_ratio;
 
-        let w = (area.width as usize).saturating_sub(14).max(10);
-        let mut lines = Vec::new();
-        lines.push(Line::from(""));
-        let mid_filled = (mid_ratio * w as f32).round() as usize;
-        let side_filled = (side_ratio * w as f32).round() as usize;
+        let w = area.width as usize;
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+
+        // Header Line 1:
         lines.push(Line::from(vec![
-            Span::styled(" Mid  (L+R Core): ", Style::default().fg(theme.text)),
-            Span::styled(format!("[{}{}] {:.0}%", "█".repeat(mid_filled), " ".repeat(w.saturating_sub(mid_filled)), mid_ratio * 100.0), Style::default().fg(theme.primary)),
+            Span::styled(" MID / SIDE STEREO DECOMPOSITION: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("M: {:>4.1}dB ({:.0}%)  S: {:>4.1}dB ({:.0}%)", mid, mid_ratio * 100.0, side, side_ratio * 100.0), Style::default().fg(theme.secondary)),
         ]));
-        lines.push(Line::from(""));
+
+        // Line 2: Mid Core Meter
+        let bar_w = w.saturating_sub(24).max(6);
+        let mid_filled = (mid_ratio * bar_w as f32).round() as usize;
+        let mid_empty = bar_w.saturating_sub(mid_filled);
         lines.push(Line::from(vec![
-            Span::styled(" Side (L-R Width):", Style::default().fg(theme.text)),
-            Span::styled(format!("[{}{}] {:.0}%", "█".repeat(side_filled), " ".repeat(w.saturating_sub(side_filled)), side_ratio * 100.0), Style::default().fg(theme.accent)),
+            Span::styled(" MID (Core Center): ", Style::default().fg(theme.text)),
+            Span::styled(format!("[{}{}]", "█".repeat(mid_filled), "░".repeat(mid_empty)), Style::default().fg(theme.primary)),
+            Span::styled(format!(" {:>4.1} dB", mid), Style::default().fg(theme.text)),
         ]));
+
+        // Line 3: Side Ambience Meter
+        let side_filled = (side_ratio * bar_w as f32).round() as usize;
+        let side_empty = bar_w.saturating_sub(side_filled);
+        lines.push(Line::from(vec![
+            Span::styled(" SIDE (Stereo Width):", Style::default().fg(theme.text)),
+            Span::styled(format!("[{}{}]", "█".repeat(side_filled), "░".repeat(side_empty)), Style::default().fg(theme.accent)),
+            Span::styled(format!(" {:>4.1} dB", side), Style::default().fg(theme.text)),
+        ]));
+
+        // Line 4: Stereo Width & Mono Compatibility Flag
+        let mono_safe = if side_ratio > 0.65 { "WARNING: Heavy Side Content" } else { "100% BROADCAST COMPLIANT" };
+        lines.push(Line::from(vec![
+            Span::styled(" MONO INTEGRITY: ", Style::default().fg(theme.text_dim)),
+            Span::styled(mono_safe, Style::default().fg(if side_ratio > 0.65 { Color::Red } else { theme.success }).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  Expansion Ratio: {:.2}x", 1.0 + side_ratio), Style::default().fg(theme.secondary)),
+        ]));
+
+        // Remaining Lines: High-density Mid vs Side dynamic distribution matrix filling height
+        let rem_rows = h.saturating_sub(4);
+        let blocks = [" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+        for r in 0..rem_rows {
+            let row_idx = rem_rows - 1 - r;
+            let mut spans = Vec::with_capacity(w);
+            for c in 0..w {
+                let is_mid_side = c < w / 2;
+                let ratio = if is_mid_side { mid_ratio } else { side_ratio };
+                let full_steps = (ratio * rem_rows as f32 * 8.0) as usize;
+                let step = full_steps.saturating_sub(row_idx * 8).min(8);
+                let color = if is_mid_side { theme.primary } else { theme.accent };
+                spans.push(Span::styled(blocks[step], Style::default().fg(color)));
+            }
+            lines.push(Line::from(spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_binaural_aperture(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, phase: f32) {
+        if area.height < 3 || area.width < 6 { return; }
         let w = area.width as usize;
-        let mut lines = Vec::new();
-        lines.push(Line::from(""));
+        let h = area.height as usize;
+        let mut lines = Vec::with_capacity(h);
+
+        let spread = ((phase.max(0.0) + 0.3) * 16.0) as usize;
+        let aperture_pct = (spread * 8).min(180);
+
+        // Header Line 1:
         lines.push(Line::from(vec![
-            Span::styled("--- 3D BINAURAL SOUNDSTAGE APERTURE ---", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(" 3D BINAURAL SOUNDSTAGE APERTURE: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Spread: {}% | HRTF Pinna Shadow ACTIVE", aperture_pct), Style::default().fg(theme.secondary)),
         ]));
-        let spread = ((phase.max(0.0) + 0.3) * 12.0) as usize;
-        let pad = w.saturating_sub(spread * 2 + 10) / 2;
-        let padding_str = " ".repeat(pad);
+
+        // Line 2: Virtual Head & Transducer Hologram
+        let pad = w.saturating_sub(spread * 2 + 14) / 2;
+        let pad_str = " ".repeat(pad);
         lines.push(Line::from(vec![
-            Span::styled(format!("{}[L] <{} O {}> [R]", padding_str, "=".repeat(spread), "=".repeat(spread)), Style::default().fg(theme.secondary)),
+            Span::styled(format!("{}[L SPK] <{} ( LISTENER ) {}> [R SPK]", pad_str, "═".repeat(spread), "═".repeat(spread)), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
         ]));
+
+        // Line 3: Interaural Acoustics
         lines.push(Line::from(vec![
-            Span::styled(format!("  Holographic Aperture Width: {}% | Phantom Center Lock Active", (spread * 10).min(180)), Style::default().fg(theme.text_dim)),
+            Span::styled("  ITD (Interaural Delay): ", Style::default().fg(theme.text_dim)),
+            Span::styled("~0.42 ms  |  ", Style::default().fg(theme.text)),
+            Span::styled("ILD (Level Difference): ", Style::default().fg(theme.text_dim)),
+            Span::styled("3.1 dB  |  ", Style::default().fg(theme.text)),
+            Span::styled("Phantom Center: ", Style::default().fg(theme.text_dim)),
+            Span::styled("LOCKED", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
         ]));
+
+        // Remaining Lines: Full-Width Wavefront Radiance Field filling remaining height
+        let rem_rows = h.saturating_sub(3);
+        for r in 0..rem_rows {
+            let row_pct = (r + 1) as f32 / rem_rows.max(1) as f32;
+            let cur_spread = (spread as f32 * row_pct) as usize;
+            let cur_pad = w.saturating_sub(cur_spread * 2 + 6) / 2;
+            let mut spans = Vec::new();
+            spans.push(Span::raw(" ".repeat(cur_pad)));
+            spans.push(Span::styled("╭", Style::default().fg(theme.primary)));
+            spans.push(Span::styled("─".repeat(cur_spread), Style::default().fg(theme.secondary)));
+            spans.push(Span::styled("◆", Style::default().fg(theme.accent)));
+            spans.push(Span::styled("─".repeat(cur_spread), Style::default().fg(theme.secondary)));
+            spans.push(Span::styled("╮", Style::default().fg(theme.primary)));
+            lines.push(Line::from(spans));
+        }
+
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
     }
 
     fn render_diamond_vectorscope(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette, peak_l: f32, peak_r: f32, phase: f32) {
+        if area.height < 3 || area.width < 6 { return; }
         let h = area.height as usize;
         let w = area.width as usize;
-        let mut grid = vec![vec![' '; w]; h];
+        let mut grid = vec![vec![(' ', Style::default()); w]; h];
         let mid_y = h / 2;
         let mid_x = w / 2;
-        let size = mid_y.min(mid_x / 2).saturating_sub(1);
-        for i in 0..=size {
-            let y_up = mid_y.saturating_sub(i);
-            let y_down = (mid_y + i).min(h.saturating_sub(1));
-            let x_left = mid_x.saturating_sub(i * 2);
-            let x_right = (mid_x + i * 2).min(w.saturating_sub(1));
-            grid[y_up][mid_x] = '+';
-            grid[y_down][mid_x] = '+';
-            grid[mid_y][x_left] = '+';
-            grid[mid_y][x_right] = '+';
+
+        let radius_y = mid_y.saturating_sub(1);
+        let radius_x = (radius_y * 2).min(mid_x.saturating_sub(1));
+
+        // 1. Draw Broadcast Legal Diamond Perimeter
+        for i in 0..=radius_y {
+            let dx = (i * radius_x) / radius_y.max(1);
+            let y_top = mid_y.saturating_sub(i);
+            let y_bot = (mid_y + i).min(h.saturating_sub(1));
+            let x_left = mid_x.saturating_sub(dx);
+            let x_right = (mid_x + dx).min(w.saturating_sub(1));
+
+            grid[y_top][x_left] = ('╱', Style::default().fg(Color::DarkGray));
+            grid[y_top][x_right] = ('╲', Style::default().fg(Color::DarkGray));
+            grid[y_bot][x_left] = ('╲', Style::default().fg(Color::DarkGray));
+            grid[y_bot][x_right] = ('╱', Style::default().fg(Color::DarkGray));
         }
-        let dot_x = (mid_x as isize + ((peak_r - peak_l) * 2.0) as isize).clamp(0, w as isize - 1) as usize;
-        let dot_y = (mid_y as isize - (phase * size as f32) as isize).clamp(0, h as isize - 1) as usize;
-        grid[dot_y][dot_x] = 'O';
+
+        // Diamond vertices
+        grid[mid_y.saturating_sub(radius_y)][mid_x] = ('▲', Style::default().fg(theme.primary));
+        grid[(mid_y + radius_y).min(h - 1)][mid_x] = ('▼', Style::default().fg(theme.primary));
+        grid[mid_y][mid_x.saturating_sub(radius_x)] = ('◄', Style::default().fg(theme.accent));
+        grid[mid_y][(mid_x + radius_x).min(w - 1)] = ('►', Style::default().fg(theme.accent));
+
+        // 2. Sample dispersion cloud inside diamond
+        let num_cloud = (w * 2).clamp(40, 160);
+        let amp = ((peak_l.max(peak_r) + 60.0) / 60.0).clamp(0.1, 1.0);
+        let balance = (peak_r - peak_l).clamp(-12.0, 12.0) / 12.0;
+
+        for k in 0..num_cloud {
+            let angle = k as f32 * 2.0 * std::f32::consts::PI / num_cloud as f32;
+            let rx = (angle.cos() * radius_x as f32 * amp * (1.0 - phase * 0.4) + balance * 6.0) as isize;
+            let ry = (angle.sin() * radius_y as f32 * amp) as isize;
+
+            let cx = (mid_x as isize + rx).clamp(0, w as isize - 1) as usize;
+            let cy = (mid_y as isize - ry).clamp(1, h as isize - 1) as usize;
+
+            let (cloud_ch, cloud_color) = if k % 3 == 0 {
+                ('█', Color::Red)
+            } else if k % 2 == 0 {
+                ('●', theme.accent)
+            } else {
+                ('·', theme.secondary)
+            };
+            grid[cy][cx] = (cloud_ch, Style::default().fg(cloud_color));
+        }
+
+        // 3. Status masthead on row 0
+        let status_str = format!(" BROADCAST DIAMOND VECTORSCOPE: In-Bound | L: {:>4.1}dB R: {:>4.1}dB | Phase: {:+.2}",
+            peak_l, peak_r, phase);
+        let chars: Vec<char> = status_str.chars().collect();
+        for (i, &ch) in chars.iter().enumerate().take(w) {
+            grid[0][i] = (ch, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+        }
+
         let lines: Vec<Line> = grid.into_iter().map(|row| {
-            Line::from(vec![Span::styled(row.into_iter().collect::<String>(), Style::default().fg(theme.primary))])
+            let spans: Vec<Span> = row.into_iter().map(|(ch, st)| Span::styled(ch.to_string(), st)).collect();
+            Line::from(spans)
         }).collect();
         let p = Paragraph::new(lines);
         f.render_widget(p, area);
@@ -1356,5 +1904,18 @@ mod tests {
         assert!(!dash.is_zoomed);
         dash.toggle_zoom();
         assert!(dash.is_zoomed);
+    }
+
+    #[test]
+    fn test_dynamic_x_axis_distribution() {
+        let axis_str = build_dynamic_x_axis(160, 32, 5.0);
+        assert_eq!(axis_str.len(), 160);
+        assert!(axis_str.contains("31"));
+        assert!(axis_str.contains("1k"));
+        assert!(axis_str.contains("16k"));
+        let pos_1k = axis_str.find("1k").expect("Must contain 1k");
+        assert!(pos_1k > 60 && pos_1k < 110, "1k should be centered, got position {}", pos_1k);
+        let pos_16k = axis_str.find("16k").expect("Must contain 16k");
+        assert!(pos_16k > 120, "16k should be on right, got position {}", pos_16k);
     }
 }

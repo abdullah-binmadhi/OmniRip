@@ -7,6 +7,7 @@ pub mod restoration;
 pub mod servo;
 pub mod streamer;
 pub mod telemetry;
+pub mod transport;
 
 pub use biquad::{BiquadFilter, BiquadFilterType, DualEngineCrossfader, FastSosFilter};
 pub use enhancer::{AudiophileEnhancer, CrossfeedMode};
@@ -14,6 +15,7 @@ pub use limiter::BrickwallLimiter;
 pub use servo::{create_servo_ring_buffer, ServoReader, ServoWriter};
 pub use streamer::{AudioStreamer, SyncMode};
 pub use telemetry::TelemetryEngine;
+pub use transport::{AudioPacketHeader, IpcAudioServer, OMNIRIP_SOCKET_PATH};
 
 /// Complete mastering audio DSP pipeline.
 #[derive(Debug, Clone)]

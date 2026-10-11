@@ -4,6 +4,14 @@ use super::biquad::{BiquadFilter, BiquadFilterType, FastSosFilter};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
 
+/// ISO 266 standard 32-band 1/3-octave center frequencies (20 Hz - 20 kHz).
+pub const ISO_32_CENTER_FREQS: [f32; 32] = [
+    20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0,
+    125.0, 160.0, 200.0, 250.0, 315.0, 400.0, 500.0, 630.0,
+    800.0, 1000.0, 1250.0, 1600.0, 2000.0, 2500.0, 3150.0, 4000.0,
+    5000.0, 6300.0, 8000.0, 10000.0, 12500.0, 16000.0, 18000.0, 20000.0,
+];
+
 #[derive(Clone)]
 pub struct TelemetryEngine {
     pub peak_left_db: f32,
@@ -52,10 +60,10 @@ impl TelemetryEngine {
         k_filter.update_filters(&k_coeffs);
 
         let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(512);
+        let fft = planner.plan_fft_forward(2048);
 
-        let hanning: Vec<f32> = (0..512)
-            .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / 512.0).cos()))
+        let hanning: Vec<f32> = (0..2048)
+            .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / 2048.0).cos()))
             .collect();
 
         Self {
@@ -65,12 +73,12 @@ impl TelemetryEngine {
             lufs_momentary: -96.0,
             lufs_short_term: -96.0,
             crest_factor_db: 0.0,
-            spectrum_32: [0.0; 32],
+            spectrum_32: [-60.0; 32],
             sample_rate,
             k_filter,
             accum_frames: 0,
             fft_planner: fft,
-            fft_buffer: vec![Complex::new(0.0, 0.0); 512],
+            fft_buffer: vec![Complex::new(0.0, 0.0); 2048],
             hanning_window: hanning,
             lufs_m_history: Vec::with_capacity(64),
             lufs_s_history: Vec::with_capacity(256),
@@ -163,31 +171,40 @@ impl TelemetryEngine {
                 self.crest_factor_db = 0.0;
             }
 
-            // 5. 32-Band FFT Live Spectrum
-            let n_fft = 512.min(buffer.len());
+            // 5. 32-Band FFT Live Spectrum (ISO 266 1/3-Octave True Logarithmic Filter Bank)
+            let n_fft = 2048.min(buffer.len());
             for i in 0..n_fft {
-                let mono = (buffer[i][0] + buffer[i][1]) * 0.5 * self.hanning_window[i];
+                // Coherent gain compensation: (L+R)*0.5 * 2.0 = (L+R)
+                let mono = (buffer[i][0] + buffer[i][1]) * self.hanning_window[i];
                 self.fft_buffer[i] = Complex::new(mono, 0.0);
             }
-            for i in n_fft..512 {
+            for i in n_fft..2048 {
                 self.fft_buffer[i] = Complex::new(0.0, 0.0);
             }
 
             self.fft_planner.process(&mut self.fft_buffer);
 
-            // Group 256 positive bins into 32 logarithmic bands
-            for b in 0..32 {
-                let start_bin = (b * 8).min(255);
-                let end_bin = ((b + 1) * 8).min(256);
+            let bin_hz = self.sample_rate / 2048.0;
+            for (b, &fc) in ISO_32_CENTER_FREQS.iter().enumerate() {
+                // Exact 1/3-octave band limits: f_lower = fc * 2^(-1/6), f_upper = fc * 2^(+1/6)
+                let f_lower = fc * 0.8908987;
+                let f_upper = fc * 1.122462;
+                let start_bin = ((f_lower / bin_hz).floor() as usize).clamp(1, 1023);
+                let end_bin = ((f_upper / bin_hz).ceil() as usize).clamp(start_bin + 1, 1024);
+
                 let mut sum_mag = 0.0f32;
                 for k in start_bin..end_bin {
-                    let mag = (self.fft_buffer[k].norm() / 256.0).max(1e-5);
-                    sum_mag += mag;
+                    let mag = (self.fft_buffer[k].norm() / 1024.0).max(1e-5);
+                    sum_mag += mag * mag;
                 }
-                let avg_mag = sum_mag / (end_bin - start_bin) as f32;
-                let db = 20.0 * avg_mag.log10();
-                // Map [-60dB, 0dB] to [0.0, 1.0]
-                self.spectrum_32[b] = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                let avg_rms = (sum_mag / (end_bin - start_bin) as f32).sqrt().max(1e-5);
+                let raw_db = 20.0 * avg_rms.log10();
+
+                // Professional studio acoustic pink noise tilt (+3.0 dB/octave normalized at 1 kHz)
+                let tilt_db = 3.0 * (fc / 1000.0).log2();
+                let compensated_db = raw_db + tilt_db;
+
+                self.spectrum_32[b] = compensated_db.clamp(-60.0, 0.0);
             }
         }
     }
@@ -213,5 +230,41 @@ mod tests {
         assert!((telemetry.peak_left_db - (-3.0)).abs() < 0.5);
         assert!((telemetry.phase_correlation - 1.0).abs() < 1e-3);
         assert!(telemetry.lufs_momentary > -10.0);
+    }
+
+    #[test]
+    fn test_spectrum_32_frequency_coverage() {
+        let mut telemetry = TelemetryEngine::new(48000.0);
+        let n_samples = 2048;
+
+        // 1. Test 1000 Hz tone excitation (Band index 17)
+        let mut sine_1k = Vec::with_capacity(n_samples);
+        for i in 0..n_samples {
+            let t = i as f32 / 48000.0;
+            let s = 0.5 * (2.0 * std::f32::consts::PI * 1000.0 * t).sin();
+            sine_1k.push([s, s]);
+        }
+        telemetry.update(&sine_1k);
+        assert!(telemetry.spectrum_32[17] > -20.0, "1 kHz band must be active, got {}", telemetry.spectrum_32[17]);
+
+        // 2. Test 10,000 Hz tone excitation (Band index 27)
+        let mut sine_10k = Vec::with_capacity(n_samples);
+        for i in 0..n_samples {
+            let t = i as f32 / 48000.0;
+            let s = 0.5 * (2.0 * std::f32::consts::PI * 10000.0 * t).sin();
+            sine_10k.push([s, s]);
+        }
+        telemetry.update(&sine_10k);
+        assert!(telemetry.spectrum_32[27] > -20.0, "10 kHz band must be active, got {}", telemetry.spectrum_32[27]);
+
+        // 3. Test 100 Hz tone excitation (Band index 7)
+        let mut sine_100 = Vec::with_capacity(n_samples);
+        for i in 0..n_samples {
+            let t = i as f32 / 48000.0;
+            let s = 0.5 * (2.0 * std::f32::consts::PI * 100.0 * t).sin();
+            sine_100.push([s, s]);
+        }
+        telemetry.update(&sine_100);
+        assert!(telemetry.spectrum_32[7] > -20.0, "100 Hz band must be active, got {}", telemetry.spectrum_32[7]);
     }
 }

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniRip Pure Rust Audio Engine - 1-Click Browser Setup</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0f111a;
+            color: #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .card {
+            background-color: #1a1e2e;
+            border: 1px solid #2d3748;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 640px;
+            width: 100%;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+        h1 {
+            color: #63b3ed;
+            margin-top: 0;
+            font-size: 24px;
+            letter-spacing: 0.5px;
+        }
+        p {
+            color: #a0aec0;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+        .drag-box {
+            margin: 28px 0;
+            padding: 20px;
+            background-color: #23293e;
+            border: 2px dashed #4a5568;
+            border-radius: 8px;
+        }
+        .bookmarklet-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #3182ce, #2b6cb0);
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 14px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(49, 130, 206, 0.4);
+            cursor: move;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .bookmarklet-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(49, 130, 206, 0.6);
+        }
+        .steps {
+            text-align: left;
+            margin-top: 24px;
+            background-color: #151824;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .steps ol {
+            margin: 0;
+            padding-left: 20px;
+            color: #cbd5e0;
+        }
+        .steps li {
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .steps li:last-child {
+            margin-bottom: 0;
+        }
+        code {
+            background-color: #2d3748;
+            color: #f6ad55;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: Menlo, Monaco, Consolas, monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>OmniRip Browser Audio Bridge</h1>
+        <p>Route YouTube, SoundCloud, Twitch, and web videos directly through OmniRip's 64-bit EQ Engine to your iBasso DAC or MacBook Headphone Jack with zero latency.</p>
+
+        <div class="drag-box">
+            <p style="margin-top: 0; font-size: 13px; color: #90cdf4; font-weight: 600;">DRAG THIS BUTTON TO YOUR BOOKMARKS BAR:</p>
+            <a class="bookmarklet-btn" href="javascript:(function(){const m=document.querySelector('video')||document.querySelector('audio');if(!m){alert('No video/audio playing on page.');return;}if(m._omnirip){alert('OmniRip EQ already connected to this tab!');return;}m._omnirip=true;try{const c=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});const s=c.createMediaElementSource(m);const p=c.createScriptProcessor(512,2,2);const ws=new WebSocket('ws://127.0.0.1:49152');ws.binaryType='arraybuffer';ws.onopen=()=>console.log('[OmniRip] Connected to Audio Engine!');ws.onerror=()=>alert('Could not connect to OmniRip on 127.0.0.1:49152. Start OmniRip first!');let seq=0;p.onaudioprocess=(e)=>{if(ws.readyState!==1)return;const l=e.inputBuffer.getChannelData(0);const r=e.inputBuffer.getChannelData(1);const len=l.length;const b=new ArrayBuffer(16+len*8);const v=new DataView(b);v.setUint32(0,0x4F4D4E49,true);v.setUint32(4,seq++,true);v.setUint32(8,48000,true);v.setUint16(12,2,true);v.setUint16(14,len,true);const fv=new Float32Array(b,16);for(let i=0;i<len;i++){fv[i*2]=l[i];fv[i*2+1]=r[i];}ws.send(b);};s.connect(p);p.connect(c.destination);console.log('[OmniRip] Audio stream active!');}catch(err){alert('OmniRip Error: '+err.message);}})();">OmniRip EQ</a>
+        </div>
+
+        <div class="steps">
+            <ol>
+                <li><strong>Show your Bookmarks Bar:</strong> Press <code>Cmd + Shift + B</code> in Zen Browser, Safari, or Chrome.</li>
+                <li><strong>Drag the button above:</strong> Drag the blue <code>OmniRip EQ</code> button into your bookmarks bar.</li>
+                <li><strong>Play any YouTube video:</strong> Go to YouTube or any video site and start playing.</li>
+                <li><strong>Click the bookmark:</strong> Click <code>OmniRip EQ</code> in your bookmarks bar. The audio will immediately stream through OmniRip with your active EQ and tube warmth!</li>
+            </ol>
+        </div>
+    </div>
+</body>
+</html>
