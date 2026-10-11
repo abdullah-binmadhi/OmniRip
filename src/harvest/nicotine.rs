@@ -15,15 +15,44 @@ pub struct NicotineConfig {
 }
 
 impl NicotineConfig {
-    /// Detects and reads the user's local active Nicotine+ session from standard config locations.
+    /// Detects and reads the user's local active Soulseek session from environment variables or standard config locations.
     pub fn detect_local() -> Option<Self> {
-        let home = std::env::var("HOME").ok()?;
-        let candidates = [
-            PathBuf::from(&home).join(".config/nicotine/config"),
-            PathBuf::from(&home).join("Library/Application Support/Nicotine/config"),
-            PathBuf::from(&home).join("Library/Application Support/Nicotine+/config"),
-            PathBuf::from(&home).join(".nicotine/config"),
-        ];
+        // 1. Check environment variables (SOULSEEK_USERNAME / SOULSEEK_LOGIN)
+        let env_user = std::env::var("SOULSEEK_USERNAME")
+            .or_else(|_| std::env::var("SOULSEEK_LOGIN"))
+            .ok();
+        if let Some(user) = env_user {
+            let trimmed = user.trim();
+            if !trimmed.is_empty() {
+                let pass = std::env::var("SOULSEEK_PASSWORD")
+                    .or_else(|_| std::env::var("SOULSEEK_PASS"))
+                    .ok();
+                return Some(Self {
+                    username: trimmed.to_string(),
+                    password: pass.filter(|p| !p.trim().is_empty()),
+                    server: "server.slsknet.org".to_string(),
+                    port: 2242,
+                    download_dir: None,
+                    is_logged_in: true,
+                });
+            }
+        }
+
+        // 2. Scan cross-platform config paths (macOS, Linux, Windows)
+        let mut candidates = Vec::new();
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            let home_path = PathBuf::from(&home);
+            candidates.push(home_path.join(".config/omnirip/soulseek.ini"));
+            candidates.push(home_path.join(".config/nicotine/config"));
+            candidates.push(home_path.join("Library/Application Support/Nicotine/config"));
+            candidates.push(home_path.join("Library/Application Support/Nicotine+/config"));
+            candidates.push(home_path.join(".nicotine/config"));
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata_path = PathBuf::from(&appdata);
+            candidates.push(appdata_path.join("omnirip/soulseek.ini"));
+            candidates.push(appdata_path.join("nicotine/config"));
+        }
 
         for path in candidates {
             if path.exists() {
@@ -275,5 +304,19 @@ downloaddir = /Users/test/Music/NicotineDownloads
 
         assert!(flac_score > mp3_score);
         assert!(flac_score >= 120.0);
+    }
+
+    #[test]
+    fn test_detect_local_via_env_vars() {
+        std::env::set_var("SOULSEEK_USERNAME", "test_env_user");
+        std::env::set_var("SOULSEEK_PASSWORD", "test_env_pass");
+
+        let cfg = NicotineConfig::detect_local().expect("Should detect from env vars");
+        assert_eq!(cfg.username, "test_env_user");
+        assert_eq!(cfg.password.as_deref(), Some("test_env_pass"));
+        assert!(cfg.is_logged_in);
+
+        std::env::remove_var("SOULSEEK_USERNAME");
+        std::env::remove_var("SOULSEEK_PASSWORD");
     }
 }
