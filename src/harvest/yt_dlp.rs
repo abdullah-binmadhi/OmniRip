@@ -45,9 +45,43 @@ pub struct YtDlpProgress {
     pub is_finished: bool,
 }
 
+/// Resolves the executable path for yt-dlp across PATH and standard install directories.
+pub fn get_yt_dlp_bin() -> Result<String, String> {
+    let binary_name = if cfg!(target_os = "windows") { "yt-dlp.exe" } else { "yt-dlp" };
+
+    if let Ok(output) = std::process::Command::new(binary_name).arg("--version").output() {
+        if output.status.success() {
+            return Ok(binary_name.to_string());
+        }
+    }
+
+    let candidates = [
+        "/opt/homebrew/bin/yt-dlp",
+        "/usr/local/bin/yt-dlp",
+        "/usr/bin/yt-dlp",
+        "/bin/yt-dlp",
+    ];
+
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let user_bin = std::path::PathBuf::from(home).join(".local").join("bin").join("yt-dlp");
+        if user_bin.exists() {
+            return Ok(user_bin.to_string_lossy().to_string());
+        }
+    }
+
+    Err("yt-dlp not found. Install via: brew install yt-dlp (macOS) or winget install yt-dlp (Windows).".to_string())
+}
+
 /// Checks if yt-dlp is available in PATH and returns its version string.
 pub async fn check_installed() -> Result<String, String> {
-    let output = Command::new("yt-dlp")
+    let bin = get_yt_dlp_bin()?;
+    let output = Command::new(&bin)
         .arg("--version")
         .output()
         .await
@@ -163,7 +197,8 @@ pub fn get_album_track_path<P: AsRef<Path>>(
 
 /// Expands a YouTube Music album or playlist into individual track metadata using yt-dlp.
 pub async fn expand_album_tracks(url: &str) -> Result<AlbumInfo, String> {
-    let output = Command::new("yt-dlp")
+    let bin = get_yt_dlp_bin()?;
+    let output = Command::new(&bin)
         .arg("--flat-playlist")
         .arg("-J")
         .arg(url)
@@ -271,7 +306,8 @@ async fn download_with_template(
     out_template: &str,
     format: AudioFormat,
 ) -> Result<String, String> {
-    let mut cmd = Command::new("yt-dlp");
+    let bin = get_yt_dlp_bin()?;
+    let mut cmd = Command::new(&bin);
     cmd.arg("-x")
         .arg("--audio-format")
         .arg(format.yt_audio_format())
