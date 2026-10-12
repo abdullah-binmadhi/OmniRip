@@ -918,6 +918,7 @@ impl DownloaderState {
 
         let idx = self.selected_lossless_idx.min(self.lossless_candidates.len().saturating_sub(1));
         let chosen = self.lossless_candidates[idx].clone();
+        let candidates = self.lossless_candidates.clone();
         let job_id = self.pending_job_id;
         let entire_album = self.download_entire_album;
         let all_files = self.all_peer_files.clone();
@@ -927,7 +928,7 @@ impl DownloaderState {
 
         let chosen_clone = chosen.clone();
         tokio::spawn(async move {
-            let chosen = chosen_clone;
+            let mut chosen = chosen_clone;
             let slskd = SlskdClient::detect_local();
 
             if entire_album {
@@ -1063,6 +1064,8 @@ impl DownloaderState {
                     }
                 }
 
+                let _ = slskd.trigger_shares_scan().await;
+
                 if let Some(id) = job_id {
                     let _ = tx
                         .send((
@@ -1076,6 +1079,9 @@ impl DownloaderState {
                         .await;
                 }
             } else {
+                let mut attempted_peers: Vec<String> = vec![chosen.username.clone()];
+                let mut queued_ticks: u32 = 0;
+
                 let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
 
                 if let Some(id) = job_id {
@@ -1091,15 +1097,15 @@ impl DownloaderState {
                         .await;
                 }
 
-                let clean_chosen = chosen.filename.replace('\\', "/");
-                let leaf_name = clean_chosen.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_chosen).to_string();
+                let mut clean_chosen = chosen.filename.replace('\\', "/");
+                let mut leaf_name = clean_chosen.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_chosen).to_string();
 
                 let mut completed = false;
                 let mut failed_msg = None;
                 let start_time = std::time::Instant::now();
 
                 while start_time.elapsed().as_secs() < 3600 {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
                     if let Ok(transfers) = slskd.get_active_transfers().await {
                         let target = transfers.iter().find(|t| {
@@ -1112,9 +1118,34 @@ impl DownloaderState {
                                 completed = true;
                                 break;
                             } else if state_lower.contains("cancelled") || state_lower.contains("errored") || state_lower.contains("timedout") || state_lower.contains("rejected") {
-                                failed_msg = Some(format!("Soulseek transfer failed (State: {})", t.state));
-                                break;
+                                // Auto-failover to alternative candidate if available
+                                if let Some(alt) = candidates.iter().find(|c| !attempted_peers.contains(&c.username)) {
+                                    let prev_peer = chosen.username.clone();
+                                    chosen = alt.clone();
+                                    attempted_peers.push(chosen.username.clone());
+                                    queued_ticks = 0;
+                                    clean_chosen = chosen.filename.replace('\\', "/");
+                                    leaf_name = clean_chosen.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_chosen).to_string();
+                                    let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
+
+                                    if let Some(id) = job_id {
+                                        let _ = tx
+                                            .send((
+                                                id,
+                                                JobPhase::Queued,
+                                                1.0,
+                                                "Failover".into(),
+                                                "--:--".into(),
+                                                Some(format!("Transfer cancelled/rejected by peer '{}'. Auto-failing over to peer '{}'...", prev_peer, chosen.username)),
+                                            ))
+                                            .await;
+                                    }
+                                } else {
+                                    failed_msg = Some(format!("Soulseek transfer failed (State: {})", t.state));
+                                    break;
+                                }
                             } else if state_lower.contains("inprogress") || state_lower.contains("running") || state_lower.contains("transferring") {
+                                queued_ticks = 0;
                                 let speed_str = if t.average_speed >= 1024.0 * 1024.0 {
                                     format!("{:.1} MB/s", t.average_speed / (1024.0 * 1024.0))
                                 } else if t.average_speed > 0.0 {
@@ -1138,6 +1169,34 @@ impl DownloaderState {
                                         .await;
                                 }
                             } else {
+                                queued_ticks += 1;
+                                // 25 ticks * 1.5s = ~37.5s watchdog timeout for queue stall
+                                if queued_ticks >= 25 {
+                                    if let Some(alt) = candidates.iter().find(|c| !attempted_peers.contains(&c.username)) {
+                                        let prev_peer = chosen.username.clone();
+                                        chosen = alt.clone();
+                                        attempted_peers.push(chosen.username.clone());
+                                        queued_ticks = 0;
+                                        clean_chosen = chosen.filename.replace('\\', "/");
+                                        leaf_name = clean_chosen.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_chosen).to_string();
+                                        let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
+
+                                        if let Some(id) = job_id {
+                                            let _ = tx
+                                                .send((
+                                                    id,
+                                                    JobPhase::Queued,
+                                                    1.0,
+                                                    "Failover".into(),
+                                                    "--:--".into(),
+                                                    Some(format!("Peer '{}' queue stalled (donor privileges required). Auto-failing over to peer '{}'...", prev_peer, chosen.username)),
+                                                ))
+                                                .await;
+                                        }
+                                        continue;
+                                    }
+                                }
+
                                 if let Some(id) = job_id {
                                     let _ = tx
                                         .send((
@@ -1218,6 +1277,7 @@ impl DownloaderState {
                     }
 
                     let _ = write_tags(&target_str, &tag_info);
+                    let _ = slskd.trigger_shares_scan().await;
 
                     let verdict_str = if let Ok(res) = analyze_file(&target_str) {
                         Some(format!("LOSSLESS VERIFIED: {} (Saved to {})", res.verdict.description(), target_dest.display()))
@@ -1693,7 +1753,9 @@ impl DownloaderState {
             };
 
             let queue_style = if c.in_queue == 0 {
-                Style::default().fg(Color::Green)
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            } else if c.in_queue <= 4 {
+                Style::default().fg(Color::Yellow)
             } else {
                 Style::default().fg(Color::LightRed)
             };
@@ -1704,7 +1766,7 @@ impl DownloaderState {
                 Span::styled(format!("{:<8} ", bitrate_str), Style::default().fg(theme.accent)),
                 Span::styled(format!("{:<9} ", size_str), Style::default().fg(Color::Yellow)),
                 Span::styled(format!("{:<10} ", speed_str), speed_style),
-                Span::styled(format!("{:<10} ", queue_str), queue_style),
+                Span::styled(format!("{:<16} ", queue_str), queue_style),
                 Span::styled(format!("@{:<15} ", peer_str), Style::default().fg(Color::Cyan)),
                 Span::styled(format!("[{}] ", dir_str), Style::default().fg(theme.text_dim)),
                 Span::styled(file_leaf.to_string(), if is_selected { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),

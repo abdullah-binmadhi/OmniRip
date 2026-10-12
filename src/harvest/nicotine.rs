@@ -302,9 +302,11 @@ impl NicotineCandidate {
 
     pub fn formatted_queue(&self) -> String {
         if self.in_queue == 0 {
-            "0 queued".to_string()
+            "[INSTANT]".to_string()
+        } else if self.in_queue <= 4 {
+            format!("[QUEUE: {}]", self.in_queue)
         } else {
-            format!("{} in queue", self.in_queue)
+            format!("[DONOR ONLY ({})]", self.in_queue)
         }
     }
 }
@@ -356,19 +358,21 @@ pub fn score_candidate(candidate: &NicotineCandidate) -> f32 {
         }
     }
 
-    // 5. Queue availability
+    // 5. Queue availability & non-privileged priority
     if candidate.in_queue == 0 {
-        score += 20.0;
-    } else if candidate.in_queue > 10 {
-        score -= 15.0;
+        score += 60.0; // Major priority boost: instant download without donor privileges
+    } else if candidate.in_queue <= 3 {
+        score += 10.0;
+    } else if candidate.in_queue > 5 {
+        score -= 50.0; // Heavy penalty: non-privileged users will be stalled or rejected
     }
 
     // 6. Peer speed
     if let Some(speed) = candidate.speed_kbps {
         if speed >= 1000.0 {
-            score += 10.0;
+            score += 25.0;
         } else if speed >= 500.0 {
-            score += 5.0;
+            score += 10.0;
         }
     }
 
@@ -495,14 +499,52 @@ downloaddir = /Users/test/Music/NicotineDownloads
         };
 
         assert_eq!(candidate.formatted_speed(), "2.4 MB/s");
-        assert_eq!(candidate.formatted_queue(), "0 queued");
+        assert_eq!(candidate.formatted_queue(), "[INSTANT]");
 
         candidate.speed_kbps = Some(450.0);
-        candidate.in_queue = 8;
+        candidate.in_queue = 3;
         assert_eq!(candidate.formatted_speed(), "450 KB/s");
-        assert_eq!(candidate.formatted_queue(), "8 in queue");
+        assert_eq!(candidate.formatted_queue(), "[QUEUE: 3]");
+
+        candidate.in_queue = 8;
+        assert_eq!(candidate.formatted_queue(), "[DONOR ONLY (8)]");
 
         candidate.speed_kbps = None;
         assert_eq!(candidate.formatted_speed(), "Unknown");
+    }
+
+    #[test]
+    fn test_score_candidate_zero_queue_priority() {
+        // Standard 16-bit FLAC from instant-start peer with 0 queue
+        let instant_flac = NicotineCandidate {
+            username: "instant_peer".to_string(),
+            filename: "Song.flac".to_string(),
+            size_bytes: 35_000_000,
+            bitrate_kbps: Some(1411),
+            bit_depth: Some(16),
+            sample_rate: Some(44100),
+            speed_kbps: Some(1200.0),
+            in_queue: 0,
+            score: 0.0,
+        };
+
+        // 24-bit / 96kHz Hi-Res FLAC but heavily congested queue (donor privileges needed)
+        let congested_hires = NicotineCandidate {
+            username: "congested_vault".to_string(),
+            filename: "Song 24bit.flac".to_string(),
+            size_bytes: 90_000_000,
+            bitrate_kbps: Some(3000),
+            bit_depth: Some(24),
+            sample_rate: Some(96000),
+            speed_kbps: Some(800.0),
+            in_queue: 15,
+            score: 0.0,
+        };
+
+        let instant_score = score_candidate(&instant_flac);
+        let congested_score = score_candidate(&congested_hires);
+
+        // Instant start peer must comfortably outrank congested donor-only peer
+        assert!(instant_score > congested_score, "Instant start 16-bit FLAC ({}) should outrank congested 24-bit FLAC ({})", instant_score, congested_score);
     }
 }

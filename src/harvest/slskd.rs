@@ -305,6 +305,23 @@ impl SlskdClient {
         std::path::PathBuf::from(&home).join("Music")
     }
 
+    /// Triggers a re-scan of configured shares in slskd to update published file count.
+    pub async fn trigger_shares_scan(&self) -> Result<(), String> {
+        let url = format!("{}/api/v0/shares", self.base_url);
+        let resp = self
+            .client
+            .put(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Trigger shares scan error: {}", e))?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("Trigger shares scan failed: HTTP {}", resp.status()))
+        }
+    }
+
     /// Queues a file for download from a Soulseek user.
     pub async fn queue_download(&self, username: &str, filename: &str, size: u64) -> Result<(), String> {
         let url = format!("{}/api/v0/transfers/downloads/{}", self.base_url, username);

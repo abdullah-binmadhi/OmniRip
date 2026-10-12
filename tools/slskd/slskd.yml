@@ -23,3 +23,6 @@ web:
 remote_configuration: true
 feature:
   swagger: true
+shares:
+  directories:
+    - /path/to/your/Music
