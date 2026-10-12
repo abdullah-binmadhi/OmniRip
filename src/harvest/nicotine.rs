@@ -291,6 +291,22 @@ impl NicotineCandidate {
             "Single Track".to_string()
         }
     }
+
+    pub fn formatted_speed(&self) -> String {
+        match self.speed_kbps {
+            Some(kb) if kb >= 1024.0 => format!("{:.1} MB/s", kb / 1024.0),
+            Some(kb) if kb > 0.0 => format!("{:.0} KB/s", kb),
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    pub fn formatted_queue(&self) -> String {
+        if self.in_queue == 0 {
+            "0 queued".to_string()
+        } else {
+            format!("{} in queue", self.in_queue)
+        }
+    }
 }
 
 /// Evaluates and scores a candidate file based on acoustic lossless fidelity and peer availability.
@@ -462,5 +478,31 @@ downloaddir = /Users/test/Music/NicotineDownloads
         assert_eq!(parsed.password.as_deref(), Some("test_pass"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_candidate_formatted_speed_and_queue() {
+        let mut candidate = NicotineCandidate {
+            username: "fast_peer".to_string(),
+            filename: "track.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            bit_depth: Some(16),
+            sample_rate: Some(44100),
+            speed_kbps: Some(2500.0),
+            in_queue: 0,
+            score: 100.0,
+        };
+
+        assert_eq!(candidate.formatted_speed(), "2.4 MB/s");
+        assert_eq!(candidate.formatted_queue(), "0 queued");
+
+        candidate.speed_kbps = Some(450.0);
+        candidate.in_queue = 8;
+        assert_eq!(candidate.formatted_speed(), "450 KB/s");
+        assert_eq!(candidate.formatted_queue(), "8 in queue");
+
+        candidate.speed_kbps = None;
+        assert_eq!(candidate.formatted_speed(), "Unknown");
     }
 }

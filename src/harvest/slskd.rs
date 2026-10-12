@@ -14,6 +14,23 @@ pub struct SlskdFileResult {
     pub bitrate: Option<u32>,
     pub sample_rate: Option<u32>,
     pub bit_depth: Option<u32>,
+    #[serde(default)]
+    pub upload_speed: Option<u64>,
+    #[serde(default)]
+    pub queue_length: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlskdTransferFile {
+    pub username: String,
+    pub filename: String,
+    pub size: u64,
+    pub state: String,
+    pub bytes_transferred: u64,
+    pub percent_complete: f32,
+    pub average_speed: f64,
+    pub remaining_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +196,9 @@ impl SlskdClient {
         if let Some(responses) = resp_list_opt {
             for r in responses {
                 let username = r["username"].as_str().unwrap_or_default().to_string();
+                let upload_speed = r["uploadSpeed"].as_u64();
+                let queue_length = r["queueLength"].as_u64().map(|v| v as u32).unwrap_or(0);
+
                 if let Some(files) = r["files"].as_array() {
                     for f in files {
                         let filename = f["filename"].as_str().unwrap_or_default().to_string();
@@ -194,6 +214,8 @@ impl SlskdClient {
                             bitrate,
                             sample_rate,
                             bit_depth,
+                            upload_speed,
+                            queue_length,
                         });
                     }
                 }
@@ -201,6 +223,86 @@ impl SlskdClient {
         }
 
         Ok(results)
+    }
+
+    /// Fetches all currently active download transfers across all peers.
+    pub async fn get_active_transfers(&self) -> Result<Vec<SlskdTransferFile>, String> {
+        let url = format!("{}/api/v0/transfers/downloads", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Query transfers error: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Query transfers error: HTTP {}", resp.status()));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse transfers JSON: {}", e))?;
+
+        let mut transfers = Vec::new();
+        if let Some(user_arr) = json.as_array() {
+            for user_obj in user_arr {
+                let username = user_obj["username"].as_str().unwrap_or_default().to_string();
+                if let Some(dir_arr) = user_obj["directories"].as_array() {
+                    for dir_obj in dir_arr {
+                        if let Some(files) = dir_obj["files"].as_array() {
+                            for f in files {
+                                let filename = f["filename"].as_str().unwrap_or_default().to_string();
+                                let size = f["size"].as_u64().unwrap_or_default();
+                                let state = f["state"].as_str().unwrap_or("Unknown").to_string();
+                                let bytes_transferred = f["bytesTransferred"].as_u64().unwrap_or_default();
+                                let percent_complete = f["percentComplete"].as_f64().unwrap_or(0.0) as f32;
+                                let average_speed = f["averageSpeed"].as_f64().unwrap_or(0.0);
+                                let remaining_time = f["remainingTime"].as_str().map(|s| s.to_string());
+
+                                transfers.push(SlskdTransferFile {
+                                    username: username.clone(),
+                                    filename,
+                                    size,
+                                    state,
+                                    bytes_transferred,
+                                    percent_complete,
+                                    average_speed,
+                                    remaining_time,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(transfers)
+    }
+
+    /// Returns the active download directory for slskd.
+    pub async fn get_downloads_dir(&self) -> std::path::PathBuf {
+        let url = format!("{}/api/v0/options", self.base_url);
+        if let Ok(resp) = self.client.get(&url).send().await {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(p) = json.get("directories").and_then(|d| d.get("downloads")).and_then(|v| v.as_str()) {
+                    let path = std::path::PathBuf::from(p);
+                    if path.exists() {
+                        return path;
+                    }
+                }
+            }
+        }
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mac_default = std::path::PathBuf::from(&home).join("Library/Application Support/slskd/downloads");
+        if mac_default.exists() {
+            return mac_default;
+        }
+        let xdg_default = std::path::PathBuf::from(&home).join(".local/share/slskd/downloads");
+        if xdg_default.exists() {
+            return xdg_default;
+        }
+        std::path::PathBuf::from(&home).join("Music")
     }
 
     /// Queues a file for download from a Soulseek user.

@@ -154,11 +154,11 @@ pub enum JobPhase {
 impl JobPhase {
     pub fn label(&self) -> String {
         match self {
-            JobPhase::Queued => "[QUEUED]".to_string(),
+            JobPhase::Queued => "[QUEUING]".to_string(),
             JobPhase::Downloading => "[DOWNLOADING]".to_string(),
             JobPhase::AwaitingSelection(_, _) => "[SELECT QUALITY]".to_string(),
             JobPhase::Auditing => "[AUDITING]".to_string(),
-            JobPhase::Completed => "[COMPLETED]".to_string(),
+            JobPhase::Completed => "[COMPLETE]".to_string(),
             JobPhase::Failed(err) => format!("[FAILED: {}]", err),
         }
     }
@@ -198,6 +198,26 @@ impl DownloaderTab {
 pub const FREQ_LABELS: [&str; 10] = [
     "31Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
 ];
+
+fn find_file_recursive(dir: &std::path::Path, target_leaf: &str) -> Option<std::path::PathBuf> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.eq_ignore_ascii_case(target_leaf) || name.ends_with(target_leaf) {
+                        return Some(path);
+                    }
+                }
+            } else if path.is_dir() {
+                if let Some(found) = find_file_recursive(&path, target_leaf) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
 
 pub struct DownloaderState {
     pub active_tab: DownloaderTab,
@@ -549,8 +569,8 @@ impl DownloaderState {
                                 bitrate_kbps: r.bitrate,
                                 sample_rate: r.sample_rate,
                                 bit_depth: r.bit_depth,
-                                speed_kbps: None,
-                                in_queue: 0,
+                                speed_kbps: r.upload_speed.map(|s| (s as f32) / 1024.0),
+                                in_queue: r.queue_length as usize,
                                 score: 0.0,
                             })
                             .collect();
@@ -962,37 +982,274 @@ impl DownloaderState {
                     let _ = tx
                         .send((
                             id,
-                            JobPhase::Completed,
-                            100.0,
-                            "P2P Queued".into(),
-                            "00:00".into(),
+                            JobPhase::Queued,
+                            1.0,
+                            "Queuing".into(),
+                            "--:--".into(),
                             Some(format!(
-                                "Queued entire album ({} files, {}) from peer '{}' via Soulseek",
+                                "Queued {} tracks with peer '{}'. Waiting in upload queue...",
                                 count,
-                                chosen.directory_name(),
                                 chosen.username
                             )),
                         ))
                         .await;
                 }
-            } else {
-                let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
+
+                // Poll active transfers until all album tracks complete
+                let start_time = std::time::Instant::now();
+                while start_time.elapsed().as_secs() < 3600 {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+                    if let Ok(transfers) = slskd.get_active_transfers().await {
+                        let peer_transfers: Vec<_> = transfers
+                            .iter()
+                            .filter(|t| t.username == chosen.username)
+                            .collect();
+
+                        let mut completed_count = 0;
+                        let mut active_speed = 0.0;
+                        for item in &to_download {
+                            let item_clean = item.filename.replace('\\', "/");
+                            let item_leaf = item_clean.rsplit_once('/').map(|(_, l)| l).unwrap_or(&item_clean);
+                            if let Some(t) = peer_transfers.iter().find(|t| t.filename.replace('\\', "/").ends_with(item_leaf)) {
+                                if t.state.to_lowercase().contains("completed") || t.state.to_lowercase().contains("succeeded") {
+                                    completed_count += 1;
+                                } else {
+                                    active_speed += t.average_speed;
+                                }
+                            }
+                        }
+
+                        let prog = (completed_count as f32 / count.max(1) as f32) * 100.0;
+                        let speed_str = if active_speed >= 1024.0 * 1024.0 {
+                            format!("{:.1} MB/s", active_speed / (1024.0 * 1024.0))
+                        } else if active_speed > 0.0 {
+                            format!("{:.0} KB/s", active_speed / 1024.0)
+                        } else {
+                            format!("{}/{} Tracks", completed_count, count)
+                        };
+
+                        if completed_count == count {
+                            break;
+                        }
+
+                        if let Some(id) = job_id {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    if completed_count > 0 || active_speed > 0.0 { JobPhase::Downloading } else { JobPhase::Queued },
+                                    prog.clamp(1.0, 99.0),
+                                    speed_str,
+                                    "--:--".into(),
+                                    Some(format!("Downloading album from peer '{}': {}/{} completed", chosen.username, completed_count, count)),
+                                ))
+                                .await;
+                        }
+                    }
+                }
+
+                // Ingest album into ~/Music/<Album>/
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                let album_dir_name = chosen.directory_name();
+                let dest_album_dir = std::path::PathBuf::from(&home).join("Music").join(&album_dir_name);
+                let _ = std::fs::create_dir_all(&dest_album_dir);
+
+                let slskd_downloads = slskd.get_downloads_dir().await;
+                for item in &to_download {
+                    let clean_item = item.filename.replace('\\', "/");
+                    let leaf = clean_item.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_item);
+                    if let Some(src) = find_file_recursive(&slskd_downloads, leaf) {
+                        let _ = std::fs::copy(&src, dest_album_dir.join(leaf));
+                    }
+                }
+
                 if let Some(id) = job_id {
                     let _ = tx
                         .send((
                             id,
                             JobPhase::Completed,
                             100.0,
-                            "P2P Queued".into(),
+                            "Complete".into(),
                             "00:00".into(),
-                            Some(format!(
-                                "Queued lossless {} from peer '{}': {}",
-                                chosen.formatted_resolution(),
-                                chosen.username,
-                                chosen.filename
-                            )),
+                            Some(format!("Album saved to {}", dest_album_dir.display())),
                         ))
                         .await;
+                }
+            } else {
+                let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
+
+                if let Some(id) = job_id {
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Queued,
+                            1.0,
+                            "Queuing".into(),
+                            "--:--".into(),
+                            Some(format!("Queued with peer '{}'. Waiting in upload queue...", chosen.username)),
+                        ))
+                        .await;
+                }
+
+                let clean_chosen = chosen.filename.replace('\\', "/");
+                let leaf_name = clean_chosen.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_chosen).to_string();
+
+                let mut completed = false;
+                let mut failed_msg = None;
+                let start_time = std::time::Instant::now();
+
+                while start_time.elapsed().as_secs() < 3600 {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                    if let Ok(transfers) = slskd.get_active_transfers().await {
+                        let target = transfers.iter().find(|t| {
+                            t.username == chosen.username && (t.filename == chosen.filename || t.filename.replace('\\', "/").ends_with(&leaf_name))
+                        });
+
+                        if let Some(t) = target {
+                            let state_lower = t.state.to_lowercase();
+                            if state_lower.contains("completed") || state_lower.contains("succeeded") {
+                                completed = true;
+                                break;
+                            } else if state_lower.contains("cancelled") || state_lower.contains("errored") || state_lower.contains("timedout") || state_lower.contains("rejected") {
+                                failed_msg = Some(format!("Soulseek transfer failed (State: {})", t.state));
+                                break;
+                            } else if state_lower.contains("inprogress") || state_lower.contains("running") || state_lower.contains("transferring") {
+                                let speed_str = if t.average_speed >= 1024.0 * 1024.0 {
+                                    format!("{:.1} MB/s", t.average_speed / (1024.0 * 1024.0))
+                                } else if t.average_speed > 0.0 {
+                                    format!("{:.0} KB/s", t.average_speed / 1024.0)
+                                } else {
+                                    "Starting".to_string()
+                                };
+                                let eta_str = t.remaining_time.clone().unwrap_or_else(|| "--:--".to_string());
+                                let prog = t.percent_complete.clamp(1.0, 99.0);
+
+                                if let Some(id) = job_id {
+                                    let _ = tx
+                                        .send((
+                                            id,
+                                            JobPhase::Downloading,
+                                            prog,
+                                            speed_str,
+                                            eta_str,
+                                            Some(format!("Downloading from peer '{}': {:.1}% ({})", chosen.username, prog, leaf_name)),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                if let Some(id) = job_id {
+                                    let _ = tx
+                                        .send((
+                                            id,
+                                            JobPhase::Queued,
+                                            1.0,
+                                            "Queuing".into(),
+                                            "--:--".into(),
+                                            Some(format!("Waiting in peer '{}' upload queue (State: {})...", chosen.username, t.state)),
+                                        ))
+                                        .await;
+                                }
+                            }
+                        } else {
+                            let downloads_dir = slskd.get_downloads_dir().await;
+                            if find_file_recursive(&downloads_dir, &leaf_name).is_some() {
+                                completed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if completed {
+                    if let Some(id) = job_id {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Auditing,
+                                95.0,
+                                "Auditing".into(),
+                                "--:--".into(),
+                                Some("Download complete. Ingesting into Music library and verifying spectral cutoff...".into()),
+                            ))
+                            .await;
+                    }
+
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let music_dir = std::path::PathBuf::from(&home).join("Music");
+                    let _ = std::fs::create_dir_all(&music_dir);
+
+                    let slskd_downloads = slskd.get_downloads_dir().await;
+                    let found_src = find_file_recursive(&slskd_downloads, &leaf_name);
+
+                    let target_dest = if let Some(src) = found_src {
+                        let dest = music_dir.join(&leaf_name);
+                        let _ = std::fs::copy(&src, &dest);
+                        dest
+                    } else {
+                        music_dir.join(&leaf_name)
+                    };
+
+                    let target_str = target_dest.to_string_lossy().to_string();
+
+                    let file_path = std::path::Path::new(&target_str);
+                    let raw_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&leaf_name);
+                    let cleaned = clean_title(raw_stem);
+
+                    let mut tag_info = AudioTrackInfo {
+                        title: Some(cleaned.title.clone()),
+                        artist: cleaned.artist.clone(),
+                        ..Default::default()
+                    };
+
+                    if let Ok(mb) = lookup_metadata(cleaned.artist.as_deref(), &cleaned.title).await {
+                        tag_info.title = Some(mb.title);
+                        tag_info.artist = Some(mb.artist);
+                        tag_info.album = mb.album;
+                        tag_info.year = mb.year;
+                        tag_info.track_number = mb.track_number;
+                        if let Some(ref mbid) = mb.release_mbid {
+                            if let Some(art_bytes) = fetch_cover_art_archive(mbid).await {
+                                tag_info.cover_art = Some(art_bytes.clone());
+                                let companion_art = file_path.with_extension("jpg");
+                                let _ = std::fs::write(&companion_art, art_bytes);
+                            }
+                        }
+                    }
+
+                    let _ = write_tags(&target_str, &tag_info);
+
+                    let verdict_str = if let Ok(res) = analyze_file(&target_str) {
+                        Some(format!("LOSSLESS VERIFIED: {} (Saved to {})", res.verdict.description(), target_dest.display()))
+                    } else {
+                        Some(format!("Queued lossless {} from peer '{}' (Saved to {})", chosen.formatted_resolution(), chosen.username, target_dest.display()))
+                    };
+
+                    if let Some(id) = job_id {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Completed,
+                                100.0,
+                                "Complete".into(),
+                                "00:00".into(),
+                                verdict_str,
+                            ))
+                            .await;
+                    }
+                } else if let Some(err) = failed_msg {
+                    if let Some(id) = job_id {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Failed(err.clone()),
+                                0.0,
+                                "Failed".into(),
+                                "--:--".into(),
+                                Some(err),
+                            ))
+                            .await;
+                    }
                 }
             }
         });
@@ -1426,12 +1683,29 @@ impl DownloaderState {
             let file_leaf = c.filename.replace('\\', "/");
             let file_leaf = file_leaf.rsplit_once('/').map(|(_, f)| f).unwrap_or(&c.filename);
 
+            let speed_str = c.formatted_speed();
+            let queue_str = c.formatted_queue();
+
+            let speed_style = match c.speed_kbps {
+                Some(kb) if kb >= 1024.0 => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Some(kb) if kb >= 250.0 => Style::default().fg(Color::Cyan),
+                _ => Style::default().fg(Color::Yellow),
+            };
+
+            let queue_style = if c.in_queue == 0 {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::LightRed)
+            };
+
             let line_spans = vec![
                 Span::styled(cursor, if is_selected { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
                 Span::styled(format!("{:<18} ", res_str), if is_selected { Style::default().fg(theme.primary).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
                 Span::styled(format!("{:<8} ", bitrate_str), Style::default().fg(theme.accent)),
-                Span::styled(format!("{:<10} ", size_str), Style::default().fg(Color::Yellow)),
-                Span::styled(format!("@{:<16} ", peer_str), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("{:<9} ", size_str), Style::default().fg(Color::Yellow)),
+                Span::styled(format!("{:<10} ", speed_str), speed_style),
+                Span::styled(format!("{:<10} ", queue_str), queue_style),
+                Span::styled(format!("@{:<15} ", peer_str), Style::default().fg(Color::Cyan)),
                 Span::styled(format!("[{}] ", dir_str), Style::default().fg(theme.text_dim)),
                 Span::styled(file_leaf.to_string(), if is_selected { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
             ];
@@ -1446,7 +1720,7 @@ impl DownloaderState {
         }).collect();
 
         let list_block = Block::default()
-            .title(" AVAILABLE LOSSLESS RELEASES IN SWARM ")
+            .title(" AVAILABLE LOSSLESS RELEASES IN SWARM (Resolution | Bitrate | Size | Speed | Queue | Peer | Directory) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.primary));
 
@@ -2274,5 +2548,14 @@ mod tests {
         };
         assert_eq!(flac24.formatted_resolution(), "24-bit / 96.0 kHz");
         assert_eq!(flac24.directory_name(), "Master");
+    }
+
+    #[test]
+    fn test_job_phase_labels() {
+        assert_eq!(JobPhase::Queued.label(), "[QUEUING]");
+        assert_eq!(JobPhase::Downloading.label(), "[DOWNLOADING]");
+        assert_eq!(JobPhase::Auditing.label(), "[AUDITING]");
+        assert_eq!(JobPhase::Completed.label(), "[COMPLETE]");
+        assert_eq!(JobPhase::Failed("Error".into()).label(), "[FAILED: Error]");
     }
 }
