@@ -9,12 +9,13 @@ use crate::harvest::yt_dlp::{
     download_audio, download_audio_to_path, expand_album_tracks, fetch_video_title,
     get_album_track_path, is_playlist_or_album, AudioFormat,
 };
+use crate::ui::preset_modal::centered_rect;
 use crate::ui::theme::ThemePalette;
 use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +108,7 @@ impl AcquisitionPolicy {
         match self {
             AcquisitionPolicy::Mp3Only => "MP3 Only",
             AcquisitionPolicy::BestAvailable => "Best Available",
-            AcquisitionPolicy::NicotineFlacPreferred => "Nicotine+ FLAC",
+            AcquisitionPolicy::NicotineFlacPreferred => "Nicotine+/Soulseek",
             AcquisitionPolicy::FastWebFallback => "Fast Web Fallback",
         }
     }
@@ -134,7 +135,7 @@ impl AcquisitionPolicy {
         match self {
             AcquisitionPolicy::Mp3Only => "Direct MP3 rip via Web engine",
             AcquisitionPolicy::BestAvailable => "Soulseek P2P FLAC hunt with auto Web fallback",
-            AcquisitionPolicy::NicotineFlacPreferred => "Strict Soulseek P2P swarm lossless FLAC hunt",
+            AcquisitionPolicy::NicotineFlacPreferred => "Interactive Soulseek P2P swarm hunt for authentic lossless FLAC/WAV",
             AcquisitionPolicy::FastWebFallback => "Fast audio stream extraction via Web engine",
         }
     }
@@ -144,6 +145,7 @@ impl AcquisitionPolicy {
 pub enum JobPhase {
     Queued,
     Downloading,
+    AwaitingSelection(Vec<NicotineCandidate>, Vec<crate::harvest::slskd::SlskdFileResult>),
     Auditing,
     Completed,
     Failed(String),
@@ -154,6 +156,7 @@ impl JobPhase {
         match self {
             JobPhase::Queued => "[QUEUED]".to_string(),
             JobPhase::Downloading => "[DOWNLOADING]".to_string(),
+            JobPhase::AwaitingSelection(_, _) => "[SELECT QUALITY]".to_string(),
             JobPhase::Auditing => "[AUDITING]".to_string(),
             JobPhase::Completed => "[COMPLETED]".to_string(),
             JobPhase::Failed(err) => format!("[FAILED: {}]", err),
@@ -210,6 +213,13 @@ pub struct DownloaderState {
     pub download_lyrics: bool,
     pub active_soulseek_user: Option<String>,
     pub status_message: String,
+    // Interactive Lossless Swarm Candidate & Scope Selector State
+    pub show_lossless_selector: bool,
+    pub lossless_candidates: Vec<NicotineCandidate>,
+    pub all_peer_files: Vec<crate::harvest::slskd::SlskdFileResult>,
+    pub selected_lossless_idx: usize,
+    pub download_entire_album: bool,
+    pub pending_job_id: Option<usize>,
     // Dedicated 10-Band EQ State
     pub selected_band: usize,
     pub band_gains: [f32; 10],
@@ -241,6 +251,12 @@ impl DownloaderState {
             download_lyrics: true,
             active_soulseek_user,
             status_message: "Ready. Press Enter to paste/edit URL, or [1-3] to switch tabs.".to_string(),
+            show_lossless_selector: false,
+            lossless_candidates: Vec::new(),
+            all_peer_files: Vec::new(),
+            selected_lossless_idx: 0,
+            download_entire_album: false,
+            pending_job_id: None,
             selected_band: 5,
             band_gains: [0.0; 10],
             hpf_30hz: false,
@@ -253,6 +269,18 @@ impl DownloaderState {
 
     pub fn poll_updates(&mut self) {
         while let Ok((id, phase, prog, speed, eta, verdict)) = self.rx.try_recv() {
+            if let JobPhase::AwaitingSelection(ref candidates, ref all_files) = phase {
+                self.lossless_candidates = candidates.clone();
+                self.all_peer_files = all_files.clone();
+                self.selected_lossless_idx = 0;
+                self.download_entire_album = false;
+                self.pending_job_id = Some(id);
+                self.show_lossless_selector = true;
+                self.status_message = format!(
+                    "Found {} lossless version(s) in Soulseek swarm. Choose quality and scope in modal.",
+                    self.lossless_candidates.len()
+                );
+            }
             if let Some(job) = self.jobs.iter_mut().find(|j| j.id == id) {
                 job.phase = phase;
                 job.progress = prog;
@@ -453,10 +481,10 @@ impl DownloaderState {
 
                     if let Ok(results) = slskd.get_search_results(&search_id).await {
                         let mut candidates: Vec<NicotineCandidate> = results
-                            .into_iter()
+                            .iter()
                             .map(|r| NicotineCandidate {
-                                username: r.username,
-                                filename: r.filename,
+                                username: r.username.clone(),
+                                filename: r.filename.clone(),
                                 size_bytes: r.size,
                                 bitrate_kbps: r.bitrate,
                                 sample_rate: r.sample_rate,
@@ -471,6 +499,28 @@ impl DownloaderState {
                             c.score = score_candidate(c);
                         }
                         candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+                        if policy == AcquisitionPolicy::NicotineFlacPreferred {
+                            let lossless: Vec<NicotineCandidate> = candidates
+                                .iter()
+                                .filter(|c| c.is_flac() || c.filename.to_lowercase().ends_with(".flac") || c.filename.to_lowercase().ends_with(".wav"))
+                                .cloned()
+                                .collect();
+
+                            if !lossless.is_empty() {
+                                let _ = tx
+                                    .send((
+                                        id,
+                                        JobPhase::AwaitingSelection(lossless, results),
+                                        25.0,
+                                        "Select Quality".into(),
+                                        "--:--".into(),
+                                        Some("Found lossless swarm versions. Awaiting quality and scope selection...".into()),
+                                    ))
+                                    .await;
+                                return;
+                            }
+                        }
 
                         if let Some(best) = candidates.first() {
                             if best.is_flac() || best.score >= 40.0 {
@@ -755,7 +805,156 @@ impl DownloaderState {
         });
     }
 
+    pub fn confirm_lossless_selection(&mut self) {
+        if self.lossless_candidates.is_empty() {
+            self.show_lossless_selector = false;
+            return;
+        }
+
+        let idx = self.selected_lossless_idx.min(self.lossless_candidates.len().saturating_sub(1));
+        let chosen = self.lossless_candidates[idx].clone();
+        let job_id = self.pending_job_id;
+        let entire_album = self.download_entire_album;
+        let all_files = self.all_peer_files.clone();
+        let tx = self.tx.clone();
+
+        self.show_lossless_selector = false;
+
+        let chosen_clone = chosen.clone();
+        tokio::spawn(async move {
+            let chosen = chosen_clone;
+            let slskd = SlskdClient::detect_local();
+
+            if entire_album {
+                let clean_chosen = chosen.filename.replace('\\', "/");
+                let parent_dir = if let Some((dir, _)) = clean_chosen.rsplit_once('/') {
+                    dir.to_string()
+                } else {
+                    String::new()
+                };
+
+                let album_files: Vec<_> = all_files
+                    .iter()
+                    .filter(|f| {
+                        if f.username != chosen.username {
+                            return false;
+                        }
+                        if parent_dir.is_empty() {
+                            true
+                        } else {
+                            let clean_f = f.filename.replace('\\', "/");
+                            clean_f.starts_with(&format!("{}/", parent_dir)) || clean_f == clean_chosen
+                        }
+                    })
+                    .cloned()
+                    .collect();
+
+                let to_download = if album_files.is_empty() {
+                    vec![chosen.clone()]
+                } else {
+                    album_files
+                        .into_iter()
+                        .map(|f| NicotineCandidate {
+                            username: f.username,
+                            filename: f.filename,
+                            size_bytes: f.size,
+                            bitrate_kbps: f.bitrate,
+                            sample_rate: f.sample_rate,
+                            bit_depth: f.bit_depth,
+                            speed_kbps: None,
+                            in_queue: 0,
+                            score: 0.0,
+                        })
+                        .collect()
+                };
+
+                let count = to_download.len();
+                for item in &to_download {
+                    let _ = slskd.queue_download(&item.username, &item.filename, item.size_bytes).await;
+                }
+
+                if let Some(id) = job_id {
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Completed,
+                            100.0,
+                            "P2P Queued".into(),
+                            "00:00".into(),
+                            Some(format!(
+                                "Queued entire album ({} files, {}) from peer '{}' via Soulseek",
+                                count,
+                                chosen.directory_name(),
+                                chosen.username
+                            )),
+                        ))
+                        .await;
+                }
+            } else {
+                let _ = slskd.queue_download(&chosen.username, &chosen.filename, chosen.size_bytes).await;
+                if let Some(id) = job_id {
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Completed,
+                            100.0,
+                            "P2P Queued".into(),
+                            "00:00".into(),
+                            Some(format!(
+                                "Queued lossless {} from peer '{}': {}",
+                                chosen.formatted_resolution(),
+                                chosen.username,
+                                chosen.filename
+                            )),
+                        ))
+                        .await;
+                }
+            }
+        });
+
+        if entire_album {
+            self.status_message = format!(
+                "Queued entire album ({}) from peer '{}' via Soulseek",
+                chosen.directory_name(),
+                chosen.username
+            );
+        } else {
+            self.status_message = format!(
+                "Queued lossless {} from peer '{}' via Soulseek",
+                chosen.formatted_resolution(),
+                chosen.username
+            );
+        }
+    }
+
     pub fn handle_key(&mut self, code: KeyCode) {
+        if self.show_lossless_selector {
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.selected_lossless_idx > 0 {
+                        self.selected_lossless_idx -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.selected_lossless_idx + 1 < self.lossless_candidates.len() {
+                        self.selected_lossless_idx += 1;
+                    }
+                }
+                KeyCode::Tab | KeyCode::Char(' ') => {
+                    self.download_entire_album = !self.download_entire_album;
+                }
+                KeyCode::Enter => {
+                    self.confirm_lossless_selection();
+                }
+                KeyCode::Esc => {
+                    self.show_lossless_selector = false;
+                    self.status_message = "Cancelled lossless version selection.".to_string();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // When not actively editing URL text, numbers 1, 2, 3 and F1-F3 switch workspace sub-tabs
         if !self.is_editing_url {
             match code {
@@ -1059,6 +1258,130 @@ impl DownloaderState {
             DownloaderTab::Eq => self.render_eq_tab(f, root_chunks[1], theme),
             DownloaderTab::Visuals => self.render_visuals_tab(f, root_chunks[1], theme),
         }
+
+        // 3. Lossless Swarm Quality & Scope Selector Modal Overlay
+        if self.show_lossless_selector {
+            self.render_lossless_selector_modal(f, area, theme);
+        }
+    }
+
+    fn render_lossless_selector_modal(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
+        let popup_area = centered_rect(84, 75, area);
+        f.render_widget(Clear, popup_area);
+
+        let count = self.lossless_candidates.len();
+        let modal_block = Block::default()
+            .title(format!(" SOULSEEK LOSSLESS SWARM SELECTOR (Found {} versions) ", count))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.accent));
+
+        let inner_area = modal_block.inner(popup_area);
+        f.render_widget(modal_block, popup_area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Scope selection radio row
+                Constraint::Min(6),   // Candidates list
+                Constraint::Length(2), // Bottom keybinding guidance
+            ])
+            .split(inner_area);
+
+        // 1. Download Scope Toggle Bar
+        let single_style = if !self.download_entire_album {
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_dim)
+        };
+        let album_style = if self.download_entire_album {
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_dim)
+        };
+
+        let chosen_candidate = self.lossless_candidates.get(self.selected_lossless_idx);
+        let dir_display = chosen_candidate.map(|c| c.directory_name()).unwrap_or_else(|| "Album Folder".to_string());
+
+        let scope_spans = vec![
+            Span::styled(" DOWNLOAD SCOPE:  ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                if !self.download_entire_album { "(*) Single Track Only" } else { "( ) Single Track Only" },
+                single_style,
+            ),
+            Span::raw("    "),
+            Span::styled(
+                if self.download_entire_album {
+                    format!("(*) Entire Album / Directory [{}]", dir_display)
+                } else {
+                    format!("( ) Entire Album / Directory [{}]", dir_display)
+                },
+                album_style,
+            ),
+        ];
+
+        let scope_p = Paragraph::new(vec![
+            Line::from(scope_spans),
+            Line::from(Span::styled("  Toggle scope with [Tab] or [Space] before confirming with [Enter]", Style::default().fg(theme.text_dim))),
+        ]);
+        f.render_widget(scope_p, chunks[0]);
+
+        // 2. Candidates List
+        let items: Vec<ListItem> = self.lossless_candidates.iter().enumerate().map(|(idx, c)| {
+            let is_selected = idx == self.selected_lossless_idx;
+            let cursor = if is_selected { "> " } else { "  " };
+
+            let res_str = c.formatted_resolution();
+            let bitrate_str = match c.bitrate_kbps {
+                Some(b) if b > 0 => format!("{}k", b),
+                _ => "Lossless".to_string(),
+            };
+            let size_str = c.formatted_size();
+            let peer_str = &c.username;
+            let dir_str = c.directory_name();
+            let file_leaf = c.filename.replace('\\', "/");
+            let file_leaf = file_leaf.rsplit_once('/').map(|(_, f)| f).unwrap_or(&c.filename);
+
+            let line_spans = vec![
+                Span::styled(cursor, if is_selected { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+                Span::styled(format!("{:<18} ", res_str), if is_selected { Style::default().fg(theme.primary).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
+                Span::styled(format!("{:<8} ", bitrate_str), Style::default().fg(theme.accent)),
+                Span::styled(format!("{:<10} ", size_str), Style::default().fg(Color::Yellow)),
+                Span::styled(format!("@{:<16} ", peer_str), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("[{}] ", dir_str), Style::default().fg(theme.text_dim)),
+                Span::styled(file_leaf.to_string(), if is_selected { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+            ];
+
+            let bg_style = if is_selected {
+                Style::default().bg(Color::Rgb(30, 35, 45))
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(Line::from(line_spans)).style(bg_style)
+        }).collect();
+
+        let list_block = Block::default()
+            .title(" AVAILABLE LOSSLESS RELEASES IN SWARM ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.primary));
+
+        let candidate_list = List::new(items)
+            .block(list_block);
+        f.render_widget(candidate_list, chunks[1]);
+
+        // 3. Keybindings bar
+        let footer = Line::from(vec![
+            Span::styled(" [Up/Down] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::raw("Navigate Versions  | "),
+            Span::styled(" [Tab/Space] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::raw("Toggle Single Track / Album  | "),
+            Span::styled(" [Enter] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Queue P2P Download  | "),
+            Span::styled(" [Esc] ", Style::default().fg(Color::Red)),
+            Span::raw("Cancel"),
+        ]);
+        let footer_p = Paragraph::new(footer).alignment(Alignment::Center);
+        f.render_widget(footer_p, chunks[2]);
     }
 
     fn render_queue_tab(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
@@ -1773,5 +2096,98 @@ mod tests {
         assert_eq!(p.next(), AcquisitionPolicy::BestAvailable);
         assert_eq!(p.prev(), AcquisitionPolicy::FastWebFallback);
         assert_eq!(AcquisitionPolicy::NicotineFlacPreferred.prev(), AcquisitionPolicy::BestAvailable);
+    }
+
+    #[test]
+    fn test_nicotine_policy_renamed_label() {
+        assert_eq!(AcquisitionPolicy::NicotineFlacPreferred.label(), "Nicotine+/Soulseek");
+        assert!(AcquisitionPolicy::NicotineFlacPreferred.description().contains("Soulseek P2P swarm"));
+    }
+
+    #[test]
+    fn test_lossless_selector_modal_navigation_and_toggle() {
+        let mut state = DownloaderState::new();
+        state.lossless_candidates = vec![
+            NicotineCandidate {
+                username: "audiophile_peer1".to_string(),
+                filename: "Music/Artist/Album 1995/01. Track.flac".to_string(),
+                size_bytes: 40_000_000,
+                bitrate_kbps: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                speed_kbps: None,
+                in_queue: 0,
+                score: 95.0,
+            },
+            NicotineCandidate {
+                username: "hi_res_vault".to_string(),
+                filename: "D:\\Shares\\Lossless\\Artist\\Album 1995 Hi-Res\\01. Track.flac".to_string(),
+                size_bytes: 85_000_000,
+                bitrate_kbps: Some(3200),
+                sample_rate: Some(96000),
+                bit_depth: Some(24),
+                speed_kbps: None,
+                in_queue: 0,
+                score: 99.0,
+            },
+        ];
+        state.show_lossless_selector = true;
+        state.selected_lossless_idx = 0;
+        state.download_entire_album = false;
+
+        // Down arrow advances to hi-res version
+        state.handle_key(KeyCode::Down);
+        assert_eq!(state.selected_lossless_idx, 1);
+
+        // Clamps at last item
+        state.handle_key(KeyCode::Down);
+        assert_eq!(state.selected_lossless_idx, 1);
+
+        // Up arrow moves back
+        state.handle_key(KeyCode::Up);
+        assert_eq!(state.selected_lossless_idx, 0);
+
+        // Tab toggles download scope to Entire Album
+        state.handle_key(KeyCode::Tab);
+        assert!(state.download_entire_album);
+
+        // Space toggles download scope back to Single Track
+        state.handle_key(KeyCode::Char(' '));
+        assert!(!state.download_entire_album);
+
+        // Esc cancels and closes modal
+        state.handle_key(KeyCode::Esc);
+        assert!(!state.show_lossless_selector);
+    }
+
+    #[test]
+    fn test_lossless_candidate_helpers() {
+        let flac16 = NicotineCandidate {
+            username: "peer1".to_string(),
+            filename: "Music/Band/Album/01. Track.flac".to_string(),
+            size_bytes: 35 * 1024 * 1024,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: None,
+            in_queue: 0,
+            score: 90.0,
+        };
+        assert_eq!(flac16.formatted_resolution(), "16-bit / 44.1 kHz");
+        assert_eq!(flac16.directory_name(), "Album");
+
+        let flac24 = NicotineCandidate {
+            username: "peer2".to_string(),
+            filename: "D:\\Lossless\\Master\\Track.flac".to_string(),
+            size_bytes: 80 * 1024 * 1024,
+            bitrate_kbps: Some(3000),
+            sample_rate: Some(96000),
+            bit_depth: Some(24),
+            speed_kbps: None,
+            in_queue: 0,
+            score: 98.0,
+        };
+        assert_eq!(flac24.formatted_resolution(), "24-bit / 96.0 kHz");
+        assert_eq!(flac24.directory_name(), "Master");
     }
 }

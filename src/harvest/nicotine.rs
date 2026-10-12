@@ -266,6 +266,31 @@ impl NicotineCandidate {
         let mb = (self.size_bytes as f64) / (1024.0 * 1024.0);
         format!("{:.1} MB", mb)
     }
+
+    pub fn formatted_resolution(&self) -> String {
+        let depth_str = match self.bit_depth {
+            Some(d) => format!("{}-bit", d),
+            None => if self.is_flac() { "Lossless".to_string() } else { "16-bit".to_string() },
+        };
+        let rate_str = match self.sample_rate {
+            Some(sr) => format!("{:.1} kHz", (sr as f32) / 1000.0),
+            None => "44.1 kHz".to_string(),
+        };
+        format!("{} / {}", depth_str, rate_str)
+    }
+
+    pub fn directory_name(&self) -> String {
+        let clean = self.filename.replace('\\', "/");
+        if let Some((dir, _)) = clean.rsplit_once('/') {
+            if let Some((_, last_dir)) = dir.rsplit_once('/') {
+                last_dir.to_string()
+            } else {
+                dir.to_string()
+            }
+        } else {
+            "Single Track".to_string()
+        }
+    }
 }
 
 /// Evaluates and scores a candidate file based on acoustic lossless fidelity and peer availability.
