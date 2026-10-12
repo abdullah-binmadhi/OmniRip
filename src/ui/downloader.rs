@@ -435,7 +435,7 @@ impl DownloaderState {
                 let title = mb_meta.as_ref().map(|m| m.title.clone()).unwrap_or(cleaned_meta.title);
                 let query = build_nicotine_query(&artist, &title);
 
-                let slskd = SlskdClient::new("http://localhost:5030", None);
+                let slskd = SlskdClient::detect_local();
 
                 if let Ok(search_id) = slskd.start_search(&query).await {
                     let _ = tx
@@ -449,7 +449,7 @@ impl DownloaderState {
                         ))
                         .await;
 
-                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
 
                     if let Ok(results) = slskd.get_search_results(&search_id).await {
                         let mut candidates: Vec<NicotineCandidate> = results

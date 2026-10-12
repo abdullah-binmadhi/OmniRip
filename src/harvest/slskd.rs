@@ -54,9 +54,44 @@ impl SlskdClient {
         }
     }
 
+    /// Automatically connects to local slskd daemon, discovering API key from environment or local config.
+    pub fn detect_local() -> Self {
+        let base_url = std::env::var("SLSKD_URL").unwrap_or_else(|_| "http://localhost:5030".to_string());
+        let mut api_key = std::env::var("SLSKD_API_KEY").ok();
+
+        if api_key.is_none() {
+            let candidates = [
+                std::path::PathBuf::from("tools/slskd/slskd.local.yml"),
+                std::path::PathBuf::from("tools/slskd/slskd.yml"),
+                std::path::PathBuf::from("slskd.yml"),
+            ];
+            for path in candidates {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("api_key:") {
+                            if let Some((_, val)) = trimmed.split_once(':') {
+                                let key = val.trim().trim_matches('"').trim_matches('\'');
+                                if !key.is_empty() {
+                                    api_key = Some(key.to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if api_key.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Self::new(&base_url, api_key)
+    }
+
     /// Initiates a search query on the Soulseek network.
     pub async fn start_search(&self, text: &str) -> Result<String, String> {
-        let url = format!("{}/api/v0/search", self.base_url);
+        let url = format!("{}/api/v0/searches", self.base_url);
         let body = serde_json::json!({
             "searchText": text
         });
@@ -87,7 +122,7 @@ impl SlskdClient {
 
     /// Fetches search results for an active search ID.
     pub async fn get_search_results(&self, search_id: &str) -> Result<Vec<SlskdFileResult>, String> {
-        let url = format!("{}/api/v0/search/{}", self.base_url, search_id);
+        let url = format!("{}/api/v0/searches/{}/responses", self.base_url, search_id);
         let resp = self
             .client
             .get(&url)
@@ -105,7 +140,9 @@ impl SlskdClient {
             .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
         let mut results = Vec::new();
-        if let Some(responses) = json["responses"].as_array() {
+        let resp_list_opt = json.as_array().or_else(|| json.get("responses").and_then(|r| r.as_array()));
+
+        if let Some(responses) = resp_list_opt {
             for r in responses {
                 let username = r["username"].as_str().unwrap_or_default().to_string();
                 if let Some(files) = r["files"].as_array() {
@@ -229,5 +266,11 @@ mod tests {
         let f = res.unwrap();
         assert_eq!(f.username, "AudiophileMaster");
         assert_eq!(f.bit_depth, Some(16));
+    }
+
+    #[test]
+    fn test_slskd_detect_local() {
+        let client = SlskdClient::detect_local();
+        assert_eq!(client.base_url, "http://localhost:5030");
     }
 }
