@@ -146,6 +146,7 @@ pub enum JobPhase {
     Queued,
     Downloading,
     AwaitingSelection(Vec<NicotineCandidate>, Vec<crate::harvest::slskd::SlskdFileResult>),
+    AwaitingQueryOverride(String),
     Auditing,
     Completed,
     Failed(String),
@@ -157,6 +158,7 @@ impl JobPhase {
             JobPhase::Queued => "[QUEUING]".to_string(),
             JobPhase::Downloading => "[DOWNLOADING]".to_string(),
             JobPhase::AwaitingSelection(_, _) => "[SELECT QUALITY]".to_string(),
+            JobPhase::AwaitingQueryOverride(_) => "[OVERRIDE QUERY]".to_string(),
             JobPhase::Auditing => "[AUDITING]".to_string(),
             JobPhase::Completed => "[COMPLETE]".to_string(),
             JobPhase::Failed(err) => format!("[FAILED: {}]", err),
@@ -240,6 +242,10 @@ pub struct DownloaderState {
     pub selected_lossless_idx: usize,
     pub download_entire_album: bool,
     pub pending_job_id: Option<usize>,
+    // Interactive Soulseek Query Override Modal State
+    pub show_query_override_modal: bool,
+    pub query_override_input: String,
+    pub query_override_job_id: Option<usize>,
     // Dedicated 10-Band EQ State
     pub selected_band: usize,
     pub band_gains: [f32; 10],
@@ -277,6 +283,9 @@ impl DownloaderState {
             selected_lossless_idx: 0,
             download_entire_album: false,
             pending_job_id: None,
+            show_query_override_modal: false,
+            query_override_input: String::new(),
+            query_override_job_id: None,
             selected_band: 5,
             band_gains: [0.0; 10],
             hpf_30hz: false,
@@ -299,6 +308,14 @@ impl DownloaderState {
                 self.status_message = format!(
                     "Found {} lossless version(s) in Soulseek swarm. Choose quality and scope in modal.",
                     self.lossless_candidates.len()
+                );
+            } else if let JobPhase::AwaitingQueryOverride(ref failed_query) = phase {
+                self.show_query_override_modal = true;
+                self.query_override_input = failed_query.clone();
+                self.query_override_job_id = Some(id);
+                self.status_message = format!(
+                    "No lossless seeds found for '{}'. Enter refined query in modal.",
+                    failed_query
                 );
             }
             if let Some(job) = self.jobs.iter_mut().find(|j| j.id == id) {
@@ -529,34 +546,56 @@ impl DownloaderState {
                     }
                 }
 
-                // 2. Initiate search and run progressive polling
-                match slskd.start_search(&query).await {
+                // 2. Initiate parallel search (specific artist+title AND broad title) and run progressive polling
+                let specific_query = query.clone();
+                let broad_title_query = title.trim().to_string();
+                let search_id_1 = slskd.start_search(&specific_query).await;
+                let search_id_2 = if broad_title_query.len() >= 3 && broad_title_query.to_lowercase() != specific_query.to_lowercase() {
+                    slskd.start_search(&broad_title_query).await.ok()
+                } else {
+                    None
+                };
+
+                match search_id_1 {
                     Ok(search_id) => {
                         let mut results = Vec::new();
 
-                        // Progressive polling loop (up to 6 iterations of 1s each)
-                        for attempt in 1..=6 {
+                        // Progressive polling loop (up to 25 iterations of 1s each)
+                        for attempt in 1..=25 {
+                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                            let mut current_results = Vec::new();
+                            if let Ok(res1) = slskd.get_search_results(&search_id).await {
+                                current_results.extend(res1);
+                            }
+                            if let Some(ref s2) = search_id_2 {
+                                if let Ok(res2) = slskd.get_search_results(s2).await {
+                                    current_results.extend(res2);
+                                }
+                            }
+
+                            // Deduplicate results by (username, filename)
+                            let mut seen = std::collections::HashSet::new();
+                            current_results.retain(|r| seen.insert((r.username.clone(), r.filename.clone())));
+                            results = current_results;
+
+                            let lossless_count = results.iter().filter(|r| {
+                                r.filename.to_lowercase().ends_with(".flac") || r.filename.to_lowercase().ends_with(".wav")
+                            }).count();
+
                             let _ = tx
                                 .send((
                                     id,
                                     JobPhase::Downloading,
-                                    15.0 + (attempt as f32) * 2.0,
-                                    format!("Swarm ({}/6s)", attempt),
+                                    15.0 + (attempt as f32) * 0.4,
+                                    format!("Swarm ({}/25s)", attempt),
                                     "--:--".into(),
-                                    Some(format!("Hunting Soulseek peers for '{}'...", query)),
+                                    Some(format!("Hunting Soulseek peers for '{}' ({}/25s, {} lossless seeds)...", query, attempt, lossless_count)),
                                 ))
                                 .await;
 
-                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-                            if let Ok(current_results) = slskd.get_search_results(&search_id).await {
-                                let has_lossless = current_results.iter().any(|r| {
-                                    r.filename.to_lowercase().ends_with(".flac") || r.filename.to_lowercase().ends_with(".wav")
-                                });
-                                results = current_results;
-                                if attempt >= 3 && has_lossless && results.len() >= 5 {
-                                    break;
-                                }
+                            if attempt >= 4 && lossless_count >= 5 {
+                                break;
                             }
                         }
 
@@ -600,15 +639,15 @@ impl DownloaderState {
                                     .await;
                                 return;
                             } else {
-                                // STRICT ZERO WEB FALLBACK FOR NICOTINE+/SOULSEEK
+                                // Zero seeds found: transition to AwaitingQueryOverride so user can refine query in TUI
                                 let _ = tx
                                     .send((
                                         id,
-                                        JobPhase::Failed("No lossless FLAC/WAV seeds found in Soulseek swarm. Web fallback disabled.".into()),
+                                        JobPhase::AwaitingQueryOverride(query.clone()),
                                         0.0,
-                                        "No Seeds".into(),
+                                        "Override Query".into(),
                                         "--:--".into(),
-                                        Some(format!("Searched Soulseek peers for '{}' but found zero lossless seeds. Web fallback disabled.", query)),
+                                        Some(format!("Searched Soulseek for '{}' but found zero lossless seeds. Awaiting query override...", query)),
                                     ))
                                     .await;
                                 return;
@@ -1329,7 +1368,145 @@ impl DownloaderState {
         }
     }
 
+    /// Re-hunts the Soulseek swarm with a custom user-supplied search query.
+    pub fn rehunt_soulseek(&mut self, job_id: usize, custom_query: String) {
+        let tx = self.tx.clone();
+        let query = custom_query.clone();
+        if let Some(j) = self.jobs.iter_mut().find(|j| j.id == job_id) {
+            j.phase = JobPhase::Downloading;
+            j.progress = 12.0;
+            j.speed = "Re-hunting".into();
+        }
+        self.status_message = format!("Re-hunting Soulseek swarm with refined query: '{}'...", query);
+
+        tokio::spawn(async move {
+            let slskd = SlskdClient::detect_local();
+            match slskd.start_search(&query).await {
+                Ok(search_id) => {
+                    let mut results = Vec::new();
+                    for attempt in 1..=25 {
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        if let Ok(current_results) = slskd.get_search_results(&search_id).await {
+                            results = current_results;
+                            let lossless_count = results.iter().filter(|r| {
+                                r.filename.to_lowercase().ends_with(".flac") || r.filename.to_lowercase().ends_with(".wav")
+                            }).count();
+
+                            let _ = tx
+                                .send((
+                                    job_id,
+                                    JobPhase::Downloading,
+                                    15.0 + (attempt as f32) * 0.4,
+                                    format!("Swarm ({}/25s)", attempt),
+                                    "--:--".into(),
+                                    Some(format!("Re-hunting Soulseek for '{}' ({}/25s, {} seeds)...", query, attempt, lossless_count)),
+                                ))
+                                .await;
+
+                            if attempt >= 4 && lossless_count >= 5 {
+                                break;
+                            }
+                        }
+                    }
+
+                    let mut candidates: Vec<NicotineCandidate> = results
+                        .iter()
+                        .map(|r| NicotineCandidate {
+                            username: r.username.clone(),
+                            filename: r.filename.clone(),
+                            size_bytes: r.size,
+                            bitrate_kbps: r.bitrate,
+                            sample_rate: r.sample_rate,
+                            bit_depth: r.bit_depth,
+                            speed_kbps: r.upload_speed.map(|s| (s as f32) / 1024.0),
+                            in_queue: r.queue_length as usize,
+                            score: 0.0,
+                        })
+                        .collect();
+
+                    for c in &mut candidates {
+                        c.score = score_candidate(c);
+                    }
+                    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+                    let lossless: Vec<NicotineCandidate> = candidates
+                        .iter()
+                        .filter(|c| c.is_flac() || c.filename.to_lowercase().ends_with(".flac") || c.filename.to_lowercase().ends_with(".wav"))
+                        .cloned()
+                        .collect();
+
+                    if !lossless.is_empty() {
+                        let _ = tx
+                            .send((
+                                job_id,
+                                JobPhase::AwaitingSelection(lossless, results),
+                                25.0,
+                                "Select Quality".into(),
+                                "--:--".into(),
+                                Some(format!("Found lossless swarm versions for '{}'.", query)),
+                            ))
+                            .await;
+                    } else {
+                        let _ = tx
+                            .send((
+                                job_id,
+                                JobPhase::AwaitingQueryOverride(query.clone()),
+                                0.0,
+                                "Override Query".into(),
+                                "--:--".into(),
+                                Some(format!("Zero lossless seeds for '{}'. Try another query.", query)),
+                            ))
+                            .await;
+                    }
+                }
+                Err(err) => {
+                    let _ = tx
+                        .send((
+                            job_id,
+                            JobPhase::Failed(format!("Search failed: {}", err)),
+                            0.0,
+                            "Failed".into(),
+                            "--:--".into(),
+                            Some(format!("Soulseek search error: {}", err)),
+                        ))
+                        .await;
+                }
+            }
+        });
+    }
+
     pub fn handle_key(&mut self, code: KeyCode) {
+        if self.show_query_override_modal {
+            match code {
+                KeyCode::Enter => {
+                    let query = self.query_override_input.trim().to_string();
+                    if !query.is_empty() {
+                        if let Some(id) = self.query_override_job_id {
+                            self.rehunt_soulseek(id, query);
+                        }
+                    }
+                    self.show_query_override_modal = false;
+                }
+                KeyCode::Esc => {
+                    self.show_query_override_modal = false;
+                    if let Some(id) = self.query_override_job_id {
+                        if let Some(j) = self.jobs.iter_mut().find(|j| j.id == id) {
+                            j.phase = JobPhase::Failed("No lossless seeds found. Web fallback disabled.".into());
+                        }
+                    }
+                    self.status_message = "Cancelled Soulseek search query override.".to_string();
+                }
+                KeyCode::Backspace => {
+                    self.query_override_input.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.query_override_input.push(c);
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_lossless_selector {
             match code {
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -1664,7 +1841,49 @@ impl DownloaderState {
         // 3. Lossless Swarm Quality & Scope Selector Modal Overlay
         if self.show_lossless_selector {
             self.render_lossless_selector_modal(f, area, theme);
+        } else if self.show_query_override_modal {
+            self.render_query_override_modal(f, area, theme);
         }
+    }
+
+    fn render_query_override_modal(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
+        let popup_area = centered_rect(65, 30, area);
+        f.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .title(" SOULSEEK SWARM QUERY OVERRIDE (NO LOSSLESS SEEDS FOUND) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.warning));
+        let inner = block.inner(popup_area);
+        f.render_widget(block, popup_area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(2),
+            ])
+            .split(inner);
+
+        let info = Paragraph::new(vec![
+            Line::from(Span::styled("Initial automated Soulseek search returned 0 lossless seeds.", Style::default().fg(Color::Yellow))),
+            Line::from(Span::styled("Enter a refined or simplified search term below (e.g. track title only):", Style::default().fg(theme.text))),
+        ]);
+        f.render_widget(info, chunks[0]);
+
+        let input_box = Paragraph::new(format!("> {}_", self.query_override_input))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+            .block(Block::default().title(" CUSTOM SOULSEEK SEARCH QUERY ").borders(Borders::ALL).border_style(Style::default().fg(theme.accent)));
+        f.render_widget(input_box, chunks[1]);
+
+        let guide = Paragraph::new(Line::from(vec![
+            Span::styled(" [Enter] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("Re-hunt Swarm  |  ", Style::default().fg(theme.text)),
+            Span::styled(" [Esc] ", Style::default().fg(theme.text_dim).add_modifier(Modifier::BOLD)),
+            Span::styled("Cancel / Abort", Style::default().fg(theme.text_dim)),
+        ])).alignment(Alignment::Center);
+        f.render_widget(guide, chunks[2]);
     }
 
     fn render_lossless_selector_modal(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
@@ -2616,8 +2835,30 @@ mod tests {
     fn test_job_phase_labels() {
         assert_eq!(JobPhase::Queued.label(), "[QUEUING]");
         assert_eq!(JobPhase::Downloading.label(), "[DOWNLOADING]");
+        assert_eq!(JobPhase::AwaitingQueryOverride("test".into()).label(), "[OVERRIDE QUERY]");
         assert_eq!(JobPhase::Auditing.label(), "[AUDITING]");
         assert_eq!(JobPhase::Completed.label(), "[COMPLETE]");
         assert_eq!(JobPhase::Failed("Error".into()).label(), "[FAILED: Error]");
+    }
+
+    #[test]
+    fn test_query_override_modal_key_handling() {
+        let mut state = DownloaderState::new();
+        state.show_query_override_modal = true;
+        state.query_override_input = "hang".to_string();
+        state.query_override_job_id = Some(1);
+
+        // Typing character 'a' and 'r'
+        state.handle_key(KeyCode::Char('a'));
+        state.handle_key(KeyCode::Char('r'));
+        assert_eq!(state.query_override_input, "hangar");
+
+        // Backspace removes last character
+        state.handle_key(KeyCode::Backspace);
+        assert_eq!(state.query_override_input, "hanga");
+
+        // Esc cancels and closes modal
+        state.handle_key(KeyCode::Esc);
+        assert!(!state.show_query_override_modal);
     }
 }

@@ -5,7 +5,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 static BRACKETED_NOISE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)[\(\[\{]\s*(?:official\s+(?:music\s+)?video|official\s+audio|official\s+lyric\s+video|lyric\s+video|lyrics|audio|visualizer|hd|1080p|4k|hq|remastered|explicit|clean|prod\.[^\]\)]*|feat\.[^\]\)]*|ft\.[^\]\)]*)\s*[\)\]\}]").expect("valid regex")
+    Regex::new(r"(?i)[\(\[\{]\s*(?:official\s+(?:music\s+)?video|official\s+audio|official\s+lyric\s+video|lyric\s+video|lyrics|audio|visualizer|mv|pv|hd|1080p|4k|hq|remastered|explicit|clean|prod\.[^\]\)]*|feat\.[^\]\)]*|ft\.[^\]\)]*)\s*[\)\]\}]").expect("valid regex")
+});
+
+static UNBRACKETED_NOISE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\s*(?:\||//)\s*(?:official\s+(?:music\s+)?video|music\s+video|audio|lyrics?|visualizer).*$|\s+(?:feat\.|ft\.|featuring|prod\.|produced\s+by)\s+.*$").expect("valid regex")
 });
 
 static EXTRA_SPACES_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -23,19 +27,24 @@ pub fn clean_title(raw: &str) -> CleanedTrackMeta {
     // 1. Strip bracketed noise tags
     let without_noise = BRACKETED_NOISE_RE.replace_all(raw, " ").to_string();
 
-    // 2. Normalize whitespace
-    let normalized = EXTRA_SPACES_RE.replace_all(without_noise.trim(), " ").to_string();
+    // 2. Strip unbracketed trailing features or video markers
+    let without_trailing = UNBRACKETED_NOISE_RE.replace_all(&without_noise, " ").to_string();
 
-    // 3. Try splitting by common artist-title delimiters: " - ", " – ", " — ", " : "
+    // 3. Normalize whitespace
+    let normalized = EXTRA_SPACES_RE.replace_all(without_trailing.trim(), " ").to_string();
+
+    // 4. Try splitting by common artist-title delimiters: " - ", " – ", " — ", " : "
     let delimiters = [" - ", " – ", " — ", " : "];
     for delim in delimiters {
         if let Some((left, right)) = normalized.split_once(delim) {
             let artist = left.trim();
-            let title = right.trim();
+            let mut title = right.trim().to_string();
+            // Further clean title of unbracketed noise if present
+            title = UNBRACKETED_NOISE_RE.replace_all(&title, "").trim().to_string();
             if !artist.is_empty() && !title.is_empty() {
                 return CleanedTrackMeta {
                     artist: Some(artist.to_string()),
-                    title: title.to_string(),
+                    title,
                 };
             }
         }
@@ -78,5 +87,12 @@ mod tests {
         let meta = clean_title("Pink Floyd – Comfortably Numb (Live)");
         assert_eq!(meta.artist.as_deref(), Some("Pink Floyd"));
         assert_eq!(meta.title, "Comfortably Numb (Live)");
+    }
+
+    #[test]
+    fn test_clean_title_unbracketed_feat_and_pipe() {
+        let meta = clean_title("Kavinsky - Nightcall feat. Lovefoxxx | Official Video");
+        assert_eq!(meta.artist.as_deref(), Some("Kavinsky"));
+        assert_eq!(meta.title, "Nightcall");
     }
 }
