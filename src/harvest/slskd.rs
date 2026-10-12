@@ -26,6 +26,22 @@ pub struct SlskdDownloadStatus {
     pub state: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlskdServerStatus {
+    pub address: Option<String>,
+    pub ip_end_point: Option<String>,
+    pub state: Option<String>,
+    #[serde(default)]
+    pub is_connected: bool,
+    #[serde(default)]
+    pub is_connecting: bool,
+    #[serde(default)]
+    pub is_logged_in: bool,
+    #[serde(default)]
+    pub is_logging_in: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SlskdClient {
     client: reqwest::Client,
@@ -34,6 +50,24 @@ pub struct SlskdClient {
 }
 
 impl SlskdClient {
+    pub async fn check_server_health(&self) -> Result<SlskdServerStatus, String> {
+        let url = format!("{}/api/v0/server", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("slskd daemon unreachable: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("slskd server health query returned status {}", resp.status()));
+        }
+
+        resp.json::<SlskdServerStatus>()
+            .await
+            .map_err(|e| format!("Failed to parse server status: {}", e))
+    }
+
     pub fn new(base_url: &str, api_key: Option<String>) -> Self {
         let mut headers = HeaderMap::new();
         if let Some(ref key) = api_key {
@@ -272,5 +306,25 @@ mod tests {
     fn test_slskd_detect_local() {
         let client = SlskdClient::detect_local();
         assert_eq!(client.base_url, "http://localhost:5030");
+    }
+
+    #[test]
+    fn test_slskd_server_status_parsing() {
+        let sample = r#"{
+            "address": "vps.slsknet.org",
+            "ipEndPoint": "208.76.170.59:2271",
+            "state": "Connected, LoggedIn",
+            "isConnected": true,
+            "isConnecting": false,
+            "isLoggedIn": true,
+            "isLoggingIn": false
+        }"#;
+
+        let status: Result<SlskdServerStatus, _> = serde_json::from_str(sample);
+        assert!(status.is_ok());
+        let s = status.unwrap();
+        assert!(s.is_connected);
+        assert!(s.is_logged_in);
+        assert_eq!(s.address.as_deref(), Some("vps.slsknet.org"));
     }
 }

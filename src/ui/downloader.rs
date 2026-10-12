@@ -465,21 +465,81 @@ impl DownloaderState {
 
                 let slskd = SlskdClient::detect_local();
 
-                if let Ok(search_id) = slskd.start_search(&query).await {
-                    let _ = tx
-                        .send((
-                            id,
-                            JobPhase::Downloading,
-                            20.0,
-                            "P2P Swarm".into(),
-                            "--:--".into(),
-                            Some(format!("Searching Soulseek: {}", query)),
-                        ))
-                        .await;
+                // 1. Fallback Detector: Pre-flight Soulseek daemon & swarm connectivity ping
+                let _ = tx
+                    .send((
+                        id,
+                        JobPhase::Downloading,
+                        12.0,
+                        "Pre-Flight".into(),
+                        "--:--".into(),
+                        Some("Running Fallback Detector: Checking Soulseek daemon and swarm health...".into()),
+                    ))
+                    .await;
 
-                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+                match slskd.check_server_health().await {
+                    Ok(status) if status.is_logged_in => {
+                        // Swarm daemon connected and authenticated
+                    }
+                    Ok(status) => {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Failed("Soulseek server disconnected or not logged in. Web fallback disabled.".into()),
+                                0.0,
+                                "Disconnected".into(),
+                                "--:--".into(),
+                                Some(format!("Slskd daemon is connected locally, but Soulseek server state is: {:?}. Web fallback disabled.", status.state)),
+                            ))
+                            .await;
+                        return;
+                    }
+                    Err(err) => {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Failed(format!("Soulseek daemon unreachable ({}). Web fallback disabled.", err)),
+                                0.0,
+                                "Offline".into(),
+                                "--:--".into(),
+                                Some("Slskd daemon is offline on port 5030. Web fallback disabled.".into()),
+                            ))
+                            .await;
+                        return;
+                    }
+                }
 
-                    if let Ok(results) = slskd.get_search_results(&search_id).await {
+                // 2. Initiate search and run progressive polling
+                match slskd.start_search(&query).await {
+                    Ok(search_id) => {
+                        let mut results = Vec::new();
+
+                        // Progressive polling loop (up to 6 iterations of 1s each)
+                        for attempt in 1..=6 {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Downloading,
+                                    15.0 + (attempt as f32) * 2.0,
+                                    format!("Swarm ({}/6s)", attempt),
+                                    "--:--".into(),
+                                    Some(format!("Hunting Soulseek peers for '{}'...", query)),
+                                ))
+                                .await;
+
+                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                            if let Ok(current_results) = slskd.get_search_results(&search_id).await {
+                                let has_lossless = current_results.iter().any(|r| {
+                                    r.filename.to_lowercase().ends_with(".flac") || r.filename.to_lowercase().ends_with(".wav")
+                                });
+                                results = current_results;
+                                if attempt >= 3 && has_lossless && results.len() >= 5 {
+                                    break;
+                                }
+                            }
+                        }
+
                         let mut candidates: Vec<NicotineCandidate> = results
                             .iter()
                             .map(|r| NicotineCandidate {
@@ -519,43 +579,68 @@ impl DownloaderState {
                                     ))
                                     .await;
                                 return;
-                            }
-                        }
-
-                        if let Some(best) = candidates.first() {
-                            if best.is_flac() || best.score >= 40.0 {
-                                let _ = slskd.queue_download(&best.username, &best.filename, best.size_bytes).await;
+                            } else {
+                                // STRICT ZERO WEB FALLBACK FOR NICOTINE+/SOULSEEK
                                 let _ = tx
                                     .send((
                                         id,
-                                        JobPhase::Completed,
-                                        100.0,
-                                        "P2P Queued".into(),
-                                        "00:00".into(),
-                                        Some(format!("Queued lossless FLAC from peer '{}' (Score: {:.0}): {}", best.username, best.score, best.filename)),
+                                        JobPhase::Failed("No lossless FLAC/WAV seeds found in Soulseek swarm. Web fallback disabled.".into()),
+                                        0.0,
+                                        "No Seeds".into(),
+                                        "--:--".into(),
+                                        Some(format!("Searched Soulseek peers for '{}' but found zero lossless seeds. Web fallback disabled.", query)),
                                     ))
                                     .await;
                                 return;
                             }
                         }
+
+                        if policy == AcquisitionPolicy::BestAvailable {
+                            if let Some(best) = candidates.first() {
+                                if best.is_flac() || best.score >= 40.0 {
+                                    let _ = slskd.queue_download(&best.username, &best.filename, best.size_bytes).await;
+                                    let _ = tx
+                                        .send((
+                                            id,
+                                            JobPhase::Completed,
+                                            100.0,
+                                            "P2P Queued".into(),
+                                            "00:00".into(),
+                                            Some(format!("Queued lossless FLAC from peer '{}' (Score: {:.0}): {}", best.username, best.score, best.filename)),
+                                        ))
+                                        .await;
+                                    return;
+                                }
+                            }
+
+                            // STRICT ZERO WEB FALLBACK FOR BEST AVAILABLE
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Failed("No matching Soulseek seeds found. Web fallback disabled for Best Available.".into()),
+                                    0.0,
+                                    "No Seeds".into(),
+                                    "--:--".into(),
+                                    Some(format!("Soulseek hunt for '{}' yielded no qualifying peers. Web fallback disabled.", query)),
+                                ))
+                                .await;
+                            return;
+                        }
+                    }
+                    Err(err) => {
+                        let _ = tx
+                            .send((
+                                id,
+                                JobPhase::Failed(format!("Failed to start Soulseek search: {}. Web fallback disabled.", err)),
+                                0.0,
+                                "Search Error".into(),
+                                "--:--".into(),
+                                Some(format!("Soulseek query error for '{}'. Web fallback disabled.", query)),
+                            ))
+                            .await;
+                        return;
                     }
                 }
-
-                let notice = if policy == AcquisitionPolicy::BestAvailable {
-                    "Soulseek peer not found. Seamlessly falling back to high-bitrate Web stream..."
-                } else {
-                    "Soulseek daemon offline or no FLAC seeds. Falling back to high-bitrate Web stream..."
-                };
-                let _ = tx
-                    .send((
-                        id,
-                        JobPhase::Downloading,
-                        25.0,
-                        "Web Fallback".into(),
-                        "--:--".into(),
-                        Some(notice.into()),
-                    ))
-                    .await;
             } else {
                 let _ = tx
                     .send((

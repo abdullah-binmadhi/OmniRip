@@ -15,9 +15,17 @@ pub struct MusicBrainzMetadata {
     pub nicotine_query: String,
 }
 
-/// Builds an exact, high-confidence Nicotine+ search query from artist and title.
+/// Builds a high-confidence, clean Soulseek / Nicotine+ search query from artist and title.
+/// Avoids quote characters which break Soulseek peer substring matching.
 pub fn build_nicotine_query(artist: &str, title: &str) -> String {
-    format!("\"{}\" \"{}\" flac", artist.trim(), title.trim())
+    let clean_artist = artist.trim();
+    let clean_title = title.trim();
+
+    if clean_artist.is_empty() || clean_artist.eq_ignore_ascii_case("unknown") {
+        clean_title.to_string()
+    } else {
+        format!("{} {}", clean_artist, clean_title)
+    }
 }
 
 /// Asynchronously looks up canonical recording metadata on MusicBrainz.
@@ -164,7 +172,10 @@ mod tests {
     #[test]
     fn test_build_nicotine_query() {
         let q = build_nicotine_query("Radiohead", "Karma Police");
-        assert_eq!(q, "\"Radiohead\" \"Karma Police\" flac");
+        assert_eq!(q, "Radiohead Karma Police");
+
+        let q_unknown = build_nicotine_query("Unknown", "Track Title");
+        assert_eq!(q_unknown, "Track Title");
     }
 
     #[test]
@@ -199,7 +210,7 @@ mod tests {
         assert_eq!(meta.album.as_deref(), Some("OK Computer"));
         assert_eq!(meta.year, Some(1997));
         assert_eq!(meta.track_number, Some(6));
-        assert_eq!(meta.nicotine_query, "\"Radiohead\" \"Karma Police\" flac");
+        assert_eq!(meta.nicotine_query, "Radiohead Karma Police");
     }
 
     #[test]
