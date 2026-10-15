@@ -3,15 +3,21 @@
 pub mod biquad;
 pub mod enhancer;
 pub mod limiter;
+pub mod player;
 pub mod restoration;
 pub mod servo;
 pub mod streamer;
 pub mod telemetry;
 pub mod transport;
+pub mod volume_storage;
 
 pub use biquad::{BiquadFilter, BiquadFilterType, DualEngineCrossfader, FastSosFilter};
-pub use enhancer::{AudiophileEnhancer, CrossfeedMode};
+pub use enhancer::{
+    AcousticGearProfile, AudiophileEnhancer, CrossfeedMode, GearCoupling, GearEnclosure,
+    GearFormFactor, GearSourceAmp, GearTonalBalance, MasteringPreset,
+};
 pub use limiter::BrickwallLimiter;
+pub use player::{TrackInfo, TrackPlayer};
 pub use servo::{create_servo_ring_buffer, ServoReader, ServoWriter};
 pub use streamer::{AudioStreamer, SyncMode};
 pub use telemetry::TelemetryEngine;
@@ -92,6 +98,22 @@ impl AudioPipeline {
 
         // 6. Live Telemetry
         self.telemetry.update(buffer);
+    }
+
+    /// Apply an audiophile mastering preset recipe across enhancer and limiter.
+    pub fn apply_mastering_preset(&mut self, preset: &MasteringPreset) {
+        self.enhancer.apply_preset(preset);
+        self.limiter.threshold = 10.0f32.powf(preset.limiter_ceiling_dbfs / 20.0);
+    }
+
+    /// Apply an audiophile mastering preset recipe tailored with the acoustic gear profile.
+    pub fn apply_mastering_preset_with_gear(
+        &mut self,
+        preset: &MasteringPreset,
+        gear: &AcousticGearProfile,
+    ) {
+        self.enhancer.apply_preset_with_gear(preset, gear);
+        self.limiter.threshold = 10.0f32.powf(preset.limiter_ceiling_dbfs / 20.0);
     }
 }
 

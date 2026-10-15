@@ -1,0 +1,93 @@
+//! Persistent Volume Safety & Calibration Engine
+//!
+//! Preserves user-configured audio player volume percentage and system CoreAudio hardware volume
+//! across app launches, updates, and mode switches, preventing accidental 100% volume blasts.
+
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::PathBuf;
+
+const DEFAULT_PLAYER_VOLUME_PCT: usize = 50;
+const DEFAULT_SYSTEM_VOLUME_SCALAR: f32 = 0.5;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeConfig {
+    pub player_volume_pct: usize,
+    pub system_volume_scalar: f32,
+}
+
+impl Default for VolumeConfig {
+    fn default() -> Self {
+        Self {
+            player_volume_pct: DEFAULT_PLAYER_VOLUME_PCT,
+            system_volume_scalar: DEFAULT_SYSTEM_VOLUME_SCALAR,
+        }
+    }
+}
+
+pub fn volume_config_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".config").join("omnirip").join("volume.json")
+    } else if let Ok(profile) = std::env::var("USERPROFILE") {
+        PathBuf::from(profile).join(".config").join("omnirip").join("volume.json")
+    } else {
+        PathBuf::from(".config/omnirip/volume.json")
+    }
+}
+
+/// Loads persistent volume settings from disk. If missing or invalid, falls back to safe 50% defaults.
+pub fn load_volume_settings() -> (usize, f32) {
+    let path = volume_config_path();
+    if !path.exists() {
+        return (DEFAULT_PLAYER_VOLUME_PCT, DEFAULT_SYSTEM_VOLUME_SCALAR);
+    }
+
+    if let Ok(mut file) = File::open(&path) {
+        let mut contents = String::new();
+        if file.read_to_string(&mut contents).is_ok() {
+            if let Ok(cfg) = serde_json::from_str::<VolumeConfig>(&contents) {
+                let safe_pct = cfg.player_volume_pct.clamp(0, 100);
+                let safe_scalar = cfg.system_volume_scalar.clamp(0.0, 1.0);
+                return (safe_pct, safe_scalar);
+            }
+        }
+    }
+
+    (DEFAULT_PLAYER_VOLUME_PCT, DEFAULT_SYSTEM_VOLUME_SCALAR)
+}
+
+/// Saves current volume levels to disk.
+pub fn save_volume_settings(player_pct: usize, sys_scalar: f32) {
+    let path = volume_config_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let cfg = VolumeConfig {
+        player_volume_pct: player_pct.clamp(0, 100),
+        system_volume_scalar: sys_scalar.clamp(0.0, 1.0),
+    };
+
+    if let Ok(json) = serde_json::to_string_pretty(&cfg) {
+        if let Ok(mut file) = File::create(&path) {
+            let _ = file.write_all(json.as_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_volume_config_serialization_and_defaults() {
+        let default_cfg = VolumeConfig::default();
+        assert_eq!(default_cfg.player_volume_pct, 50);
+        assert!((default_cfg.system_volume_scalar - 0.5).abs() < 1e-4);
+
+        let json = serde_json::to_string(&default_cfg).unwrap();
+        let deserialized: VolumeConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.player_volume_pct, 50);
+    }
+}

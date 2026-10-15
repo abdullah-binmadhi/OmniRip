@@ -21,6 +21,7 @@ pub struct TelemetryEngine {
     pub lufs_short_term: f32,
     pub crest_factor_db: f32,
     pub spectrum_32: [f32; 32],
+    pub mid_side_ratio: (f32, f32),
 
     #[allow(dead_code)]
     sample_rate: f32,
@@ -43,6 +44,7 @@ impl std::fmt::Debug for TelemetryEngine {
             .field("lufs_momentary", &self.lufs_momentary)
             .field("lufs_short_term", &self.lufs_short_term)
             .field("crest_factor_db", &self.crest_factor_db)
+            .field("mid_side_ratio", &self.mid_side_ratio)
             .finish()
     }
 }
@@ -74,6 +76,7 @@ impl TelemetryEngine {
             lufs_short_term: -96.0,
             crest_factor_db: 0.0,
             spectrum_32: [-60.0; 32],
+            mid_side_ratio: (1.0, 0.0),
             sample_rate,
             k_filter,
             accum_frames: 0,
@@ -98,6 +101,8 @@ impl TelemetryEngine {
         let mut sum_dot = 0.0f32;
         let mut sum_l_sq = 0.0f32;
         let mut sum_r_sq = 0.0f32;
+        let mut sum_mid_sq = 0.0f32;
+        let mut sum_side_sq = 0.0f32;
 
         for frame in buffer.iter() {
             let l = frame[0];
@@ -113,6 +118,10 @@ impl TelemetryEngine {
             sum_dot += l * r;
             sum_l_sq += l * l;
             sum_r_sq += r * r;
+            let mid = (l + r) * 0.5;
+            let side = (l - r) * 0.5;
+            sum_mid_sq += mid * mid;
+            sum_side_sq += side * side;
         }
 
         self.peak_left_db = if max_l > 1e-5 {
@@ -132,6 +141,13 @@ impl TelemetryEngine {
             self.phase_correlation = (sum_dot / denom).clamp(-1.0, 1.0);
         } else {
             self.phase_correlation = 1.0;
+        }
+
+        // 3. Mid / Side Energy Ratio
+        let total_ms = sum_mid_sq + sum_side_sq;
+        if total_ms > 1e-8 {
+            let m_pct = (sum_mid_sq / total_ms).clamp(0.0, 1.0);
+            self.mid_side_ratio = (m_pct, 1.0 - m_pct);
         }
 
         // Throttling for heavy telemetry: every ~1024 frames (~47 Hz at 48kHz)

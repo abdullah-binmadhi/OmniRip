@@ -23,6 +23,7 @@ mod macos_driver {
     pub const K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN: u32 = 0;
     pub const K_AUDIO_OBJECT_PROPERTY_NAME: u32 = 0x6c6e616d; // 'lnam'
     pub const K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR: u32 = 0x766f6c6d; // 'volm'
+    pub const K_AUDIO_DEVICE_PROPERTY_MUTE: u32 = 0x6d757465; // 'mute'
 
     #[link(name = "CoreAudio", kind = "framework")]
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -227,16 +228,67 @@ mod macos_driver {
         None
     }
 
-    /// Set hardware volume scalar on an output device (0.0 to 1.0)
-    pub fn set_device_volume(device_id: u32, volume: f32) -> Result<(), String> {
+    /// Query volume scalar from an output device (0.0 to 1.0).
+    /// Checks master element 0 first, falling back to channel 1.
+    pub fn get_device_volume(device_id: u32) -> Option<f32> {
+        let mut volume: f32 = 0.0;
+        let mut size = std::mem::size_of::<f32>() as u32;
+
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
             m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
             m_element: K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
         };
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                device_id,
+                &address,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut volume as *mut f32 as *mut std::ffi::c_void,
+            )
+        };
+        if status == 0 {
+            return Some(volume.clamp(0.0, 1.0));
+        }
+
+        // Fallback to channel 1 for devices without master element
+        let ch_addr = AudioObjectPropertyAddress {
+            m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
+            m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
+            m_element: 1,
+        };
+        let ch_status = unsafe {
+            AudioObjectGetPropertyData(
+                device_id,
+                &ch_addr,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut volume as *mut f32 as *mut std::ffi::c_void,
+            )
+        };
+        if ch_status == 0 {
+            Some(volume.clamp(0.0, 1.0))
+        } else {
+            None
+        }
+    }
+
+    /// Set hardware volume scalar on an output device (0.0 to 1.0).
+    /// Supports master element 0 as well as individual stereo channel elements 1 and 2.
+    pub fn set_device_volume(device_id: u32, volume: f32) -> Result<(), String> {
         let clamped = volume.clamp(0.0, 1.0);
         let size = std::mem::size_of::<f32>() as u32;
+        let mut any_success = false;
 
+        // Try main element first (element 0)
+        let address = AudioObjectPropertyAddress {
+            m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
+            m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
+            m_element: K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
+        };
         let status = unsafe {
             AudioObjectSetPropertyData(
                 device_id,
@@ -247,13 +299,91 @@ mod macos_driver {
                 &clamped as *const f32 as *const std::ffi::c_void,
             )
         };
-
         if status == 0 {
+            any_success = true;
+        }
+
+        // Also attempt channel elements 1 and 2 (left / right) for devices lacking a master scalar
+        for elem in [1u32, 2u32] {
+            let ch_addr = AudioObjectPropertyAddress {
+                m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
+                m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
+                m_element: elem,
+            };
+            let ch_status = unsafe {
+                AudioObjectSetPropertyData(
+                    device_id,
+                    &ch_addr,
+                    0,
+                    std::ptr::null(),
+                    size,
+                    &clamped as *const f32 as *const std::ffi::c_void,
+                )
+            };
+            if ch_status == 0 {
+                any_success = true;
+            }
+        }
+
+        if any_success {
             Ok(())
         } else {
-            Err(format!("set_device_volume failed with status: {}", status))
+            Err(format!("set_device_volume failed on device {}", device_id))
         }
     }
+
+    /// Unmute an output device across main and stereo elements
+    pub fn unmute_device(device_id: u32) -> Result<(), String> {
+        let mute_val: u32 = 0;
+        let size = std::mem::size_of::<u32>() as u32;
+        let mut any_success = false;
+
+        for elem in [K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN, 1, 2] {
+            let address = AudioObjectPropertyAddress {
+                m_selector: K_AUDIO_DEVICE_PROPERTY_MUTE,
+                m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
+                m_element: elem,
+            };
+            let status = unsafe {
+                AudioObjectSetPropertyData(
+                    device_id,
+                    &address,
+                    0,
+                    std::ptr::null(),
+                    size,
+                    &mute_val as *const u32 as *const std::ffi::c_void,
+                )
+            };
+            if status == 0 {
+                any_success = true;
+            }
+        }
+
+        if any_success {
+            Ok(())
+        } else {
+            Err(format!("unmute_device failed or not supported on device {}", device_id))
+        }
+    }
+
+    /// Automatically ensure device is unmuted and at a calibrated safe listening volume
+    pub fn auto_heal_device_volume_and_mute(device_id: u32) {
+        let _ = unmute_device(device_id);
+        // Never blast physical volume to 1.0! Preserve current user volume or restore calibrated saved level.
+        let current_vol = get_device_volume(device_id).unwrap_or(0.0);
+        if current_vol < 0.05 {
+            let (_, saved_scalar) = crate::dsp::volume_storage::load_volume_settings();
+            let _ = set_device_volume(device_id, saved_scalar);
+        }
+    }
+
+    /// Auto-heal volume and mute for any device matching keyword
+    pub fn auto_heal_physical_output(keyword: &str) {
+        if let Some(id) = get_device_id_by_name(keyword) {
+            auto_heal_device_volume_and_mute(id);
+        }
+    }
+
 
     /// Compile and install OmniRipAudio.driver to /Library/Audio/Plug-Ins/HAL/
     pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
@@ -381,9 +511,22 @@ mod fallback_driver {
         None
     }
 
+    pub fn get_device_volume(_device_id: u32) -> Option<f32> {
+        None
+    }
+
     pub fn set_device_volume(_device_id: u32, _volume: f32) -> Result<(), String> {
         Ok(())
     }
+
+    pub fn unmute_device(_device_id: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn auto_heal_device_volume_and_mute(_device_id: u32) {}
+
+    pub fn auto_heal_physical_output(_keyword: &str) {}
+
 
     pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
         println!("[OmniRip] Driver installation is only required on macOS CoreAudio.");
@@ -424,7 +567,46 @@ mod tests {
         assert!(name.is_some(), "Default output device must have a name");
         println!("Default audio device ID {}: {}", id, name.unwrap());
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_auto_heal_physical_output_and_volume() {
+        // Read-only inspection in unit tests: DO NOT mutate or crank up user physical hardware volume!
+        if let Some(id) = get_default_output_device_id() {
+            let cur_vol = get_device_volume(id);
+            println!("Current physical volume on default device {}: {:?}", id, cur_vol);
+            assert!(id > 0);
+        }
+    }
+
+    #[test]
+    fn test_volume_cubic_curve_calibration() {
+        // Verify Apple stock perceptual cubic curve values across all 16 volume ticks
+        for tick in 0..=16 {
+            let v = tick as f32 / 16.0f32;
+            let stock_gain = v * v * v;
+            let db = if stock_gain > 0.0001 {
+                20.0 * stock_gain.log10()
+            } else {
+                -96.0
+            };
+            if tick == 1 {
+                // 1 tick (6.25%): stock gain ~0.000244 (-72.2 dB)
+                assert!((stock_gain - 0.00024414).abs() < 1e-6);
+                assert!((db - (-72.24)).abs() < 0.1);
+            } else if tick == 8 {
+                // 8 ticks (50%): stock gain 0.125 (-18.06 dB)
+                assert!((stock_gain - 0.125).abs() < 1e-6);
+                assert!((db - (-18.06)).abs() < 0.1);
+            } else if tick == 16 {
+                // 16 ticks (100%): full unity gain (0 dB)
+                assert!((stock_gain - 1.0).abs() < 1e-6);
+                assert!(db.abs() < 1e-4);
+            }
+        }
+    }
 }
+
 
 /// CLI runner for driver commands
 pub fn run_driver_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {

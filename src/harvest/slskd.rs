@@ -111,11 +111,18 @@ impl SlskdClient {
         let mut api_key = std::env::var("SLSKD_API_KEY").ok();
 
         if api_key.is_none() {
-            let candidates = [
+            let mut candidates = vec![
                 std::path::PathBuf::from("tools/slskd/slskd.local.yml"),
                 std::path::PathBuf::from("tools/slskd/slskd.yml"),
                 std::path::PathBuf::from("slskd.yml"),
             ];
+            if let Ok(home) = std::env::var("HOME") {
+                let home_p = std::path::PathBuf::from(home);
+                candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.local.yml"));
+                candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.yml"));
+                candidates.push(home_p.join("Library/Application Support/slskd/slskd.yml"));
+                candidates.push(home_p.join(".config/slskd/slskd.yml"));
+            }
             for path in candidates {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     for line in content.lines() {
@@ -223,6 +230,13 @@ impl SlskdClient {
         }
 
         Ok(results)
+    }
+
+    /// Deletes a search on the Soulseek network, stopping peer listening in slskd.
+    pub async fn delete_search(&self, search_id: &str) -> Result<(), String> {
+        let url = format!("{}/api/v0/searches/{}", self.base_url, search_id);
+        let _ = self.client.delete(&url).send().await;
+        Ok(())
     }
 
     /// Fetches all currently active download transfers across all peers.

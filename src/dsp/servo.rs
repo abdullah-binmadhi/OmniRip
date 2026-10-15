@@ -111,14 +111,14 @@ impl ServoReader {
         let avail = self.consumer.slots();
         let target = self.target_frames.load(Ordering::Relaxed) as f32;
 
-        // Auto-recovery: If buffer is starved below 16 frames while primed, re-prime cleanly
-        if self.primed && avail < 16 {
+        // Auto-recovery: If buffer is starved below 4 frames while primed, re-prime cleanly
+        if self.primed && avail < 4 {
             self.primed = false;
         }
 
-        // 1. Watermark pre-buffering: wait until buffer reaches target cushion
+        // 1. Watermark pre-buffering: wait until buffer reaches resilient target cushion
         if !self.primed {
-            let threshold = (target * 0.5).max(32.0);
+            let threshold = target;
             if (avail as f32) < threshold {
                 for frame in out.iter_mut() {
                     *frame = [0.0, 0.0];

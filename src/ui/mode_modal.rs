@@ -6,12 +6,14 @@ use crate::ui::theme::ThemePalette;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkstationMode {
     Downloader,
     SystemEq,
+    Archiver,
+    StreamingHub,
 }
 
 pub struct ModeModal {
@@ -32,10 +34,11 @@ impl ModeModal {
     }
 
     pub fn current_mode(&self) -> WorkstationMode {
-        if self.selected_index == 0 {
-            WorkstationMode::Downloader
-        } else {
-            WorkstationMode::SystemEq
+        match self.selected_index {
+            0 => WorkstationMode::Downloader,
+            1 => WorkstationMode::SystemEq,
+            2 => WorkstationMode::Archiver,
+            _ => WorkstationMode::StreamingHub,
         }
     }
 
@@ -44,9 +47,9 @@ impl ModeModal {
             return;
         }
 
-        // Center a modal card (width 74, height 17)
-        let popup_width = 74.min(area.width.saturating_sub(4));
-        let popup_height = 17.min(area.height.saturating_sub(2));
+        // Center a modal card (width 94, height 26)
+        let popup_width = 94.min(area.width.saturating_sub(2));
+        let popup_height = 26.min(area.height.saturating_sub(2));
 
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -83,6 +86,8 @@ impl ModeModal {
 
         let opt1_selected = self.selected_index == 0;
         let opt2_selected = self.selected_index == 1;
+        let opt3_selected = self.selected_index == 2;
+        let opt4_selected = self.selected_index == 3;
 
         let opt1_style = if opt1_selected {
             Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD)
@@ -96,8 +101,22 @@ impl ModeModal {
             Style::default().fg(theme.text)
         };
 
+        let opt3_style = if opt3_selected {
+            Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+
+        let opt4_style = if opt4_selected {
+            Style::default().fg(theme.secondary).bg(theme.surface).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+
         let opt1_prefix = if opt1_selected { "> " } else { "  " };
         let opt2_prefix = if opt2_selected { "> " } else { "  " };
+        let opt3_prefix = if opt3_selected { "> " } else { "  " };
+        let opt4_prefix = if opt4_selected { "> " } else { "  " };
 
         let lines = vec![
             Line::from(""),
@@ -109,28 +128,36 @@ impl ModeModal {
                 Span::styled(format!("{}[1] MP3 Downloader & Media Harvester", opt1_prefix), opt1_style),
             ]),
             Line::from(vec![
-                Span::styled("     Paste URLs, Soulseek P2P swarm hunt, yt-dlp ripping,", Style::default().fg(theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("     universal ID3 metadata tagging, and spectral cutoff quality check.", Style::default().fg(theme.text_dim)),
+                Span::styled("     Paste URLs, Soulseek P2P swarm hunt, yt-dlp ripping, ID3 tagging, spectral check.", Style::default().fg(theme.text_dim)),
             ]),
             Line::from(""),
             Line::from(vec![
                 Span::styled(format!("{}[2] System EQ & Audiophile Mastering Suite", opt2_prefix), opt2_style),
             ]),
             Line::from(vec![
-                Span::styled("     Zero-GIL CoreAudio loopback, 10-band graphic EQ, tube warmth,", Style::default().fg(theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("     3D soundstage widener, brickwall limiter, and AutoEQ headphone calibration.", Style::default().fg(theme.text_dim)),
+                Span::styled("     CoreAudio loopback, 10-band EQ, tube warmth, soundstage widener, AutoEQ calibration.", Style::default().fg(theme.text_dim)),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled(" [1 / 2] Select Directly   [Up/Down] Navigate   [Enter] Launch   [M] Toggle Modal", Style::default().fg(theme.accent)),
+                Span::styled(format!("{}[3] Cloud Playlist Archiver & Lossless Ingestion", opt3_prefix), opt3_style),
+            ]),
+            Line::from(vec![
+                Span::styled("     Spotify, Apple Music, and YouTube playlist ingestion, custom folder hierarchies, M3U8 export.", Style::default().fg(theme.text_dim)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(format!("{}[4] Cloud Streaming Hub & Universal Music Player", opt4_prefix), opt4_style),
+            ]),
+            Line::from(vec![
+                Span::styled("     Unified player for Spotify, Apple Music & YouTube Music via high-bitrate Opus streams & DSP.", Style::default().fg(theme.text_dim)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(" [1 / 2 / 3 / 4] Select Directly   [Up/Down] Navigate   [Enter] Launch   [M / Esc] Close", Style::default().fg(theme.accent)),
             ]),
         ];
 
-        let p = Paragraph::new(lines).alignment(Alignment::Left);
+        let p = Paragraph::new(lines).alignment(Alignment::Left).wrap(Wrap { trim: false });
         f.render_widget(p, inner);
     }
 }
@@ -141,8 +168,17 @@ mod tests {
 
     #[test]
     fn test_mode_modal_defaults() {
-        let modal = ModeModal::new();
+        let mut modal = ModeModal::new();
         assert!(modal.is_open);
         assert_eq!(modal.current_mode(), WorkstationMode::Downloader);
+
+        modal.selected_index = 1;
+        assert_eq!(modal.current_mode(), WorkstationMode::SystemEq);
+
+        modal.selected_index = 2;
+        assert_eq!(modal.current_mode(), WorkstationMode::Archiver);
+
+        modal.selected_index = 3;
+        assert_eq!(modal.current_mode(), WorkstationMode::StreamingHub);
     }
 }

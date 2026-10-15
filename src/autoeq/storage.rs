@@ -140,6 +140,29 @@ pub fn save_preset_to_disk(preset: &OmniRipPreset) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Save active acoustic gear profile to ~/.config/omnirip/active_gear.json
+pub fn save_active_gear_to_disk(gear: &crate::dsp::enhancer::AcousticGearProfile) -> Result<PathBuf, String> {
+    let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let path = base_dir.join("active_gear.json");
+    let json = serde_json::to_string_pretty(gear)
+        .map_err(|e| format!("Serialization error: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("File write error: {}", e))?;
+    Ok(path)
+}
+
+/// Load active acoustic gear profile from ~/.config/omnirip/active_gear.json
+pub fn load_active_gear_from_disk() -> Option<crate::dsp::enhancer::AcousticGearProfile> {
+    let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let path = base_dir.join("active_gear.json");
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+            return Some(gear);
+        }
+    }
+    None
+}
+
+
 /// Load all user presets from ~/.config/omnirip/presets/.
 pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OmniRipPreset, ParametricProfile)> {
     let dir = get_presets_dir();

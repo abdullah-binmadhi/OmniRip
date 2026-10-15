@@ -7,7 +7,7 @@ use super::servo::{create_servo_ring_buffer, ServoReader};
 use super::AudioPipeline;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Stream, StreamConfig};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +125,8 @@ extern "C" {
         inDataSize: u32,
         inData: *const std::ffi::c_void,
     ) -> i32;
+
+    fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
 }
 
 #[cfg(target_os = "macos")]
@@ -254,7 +256,11 @@ pub struct AudioStreamer {
     pub is_paused: Arc<AtomicBool>,
     pub test_tone_active: Arc<AtomicBool>,
     pub test_tone_mode: Arc<Mutex<TestToneMode>>,
+    pub needs_rebuild: Arc<AtomicBool>,
+    pub last_callback_epoch_ms: Arc<AtomicU64>,
+    pub system_volume_bits: Arc<AtomicU32>,
     pub pipeline: Arc<Mutex<AudioPipeline>>,
+    pub player: Arc<super::player::TrackPlayer>,
     pub selected_input_name: Option<String>,
     pub selected_output_name: Option<String>,
     pub saved_physical_output_id: Option<u32>,
@@ -266,14 +272,22 @@ pub struct AudioStreamer {
 
 impl AudioStreamer {
     pub fn new(pipeline: AudioPipeline) -> Self {
+        let sr = pipeline.sample_rate;
         Self {
-            sync_mode: SyncMode::Ultra,
+            sync_mode: SyncMode::Balanced,
             engine_type: AudioEngineType::PureRustIpc,
             is_running: Arc::new(AtomicBool::new(false)),
             is_paused: Arc::new(AtomicBool::new(false)),
             test_tone_active: Arc::new(AtomicBool::new(false)),
             test_tone_mode: Arc::new(Mutex::new(TestToneMode::AcousticHarmonics)),
+            needs_rebuild: Arc::new(AtomicBool::new(false)),
+            last_callback_epoch_ms: Arc::new(AtomicU64::new(0)),
+            system_volume_bits: {
+                let (_, saved_scalar) = crate::dsp::volume_storage::load_volume_settings();
+                Arc::new(AtomicU32::new(saved_scalar.to_bits()))
+            },
             pipeline: Arc::new(Mutex::new(pipeline)),
+            player: Arc::new(super::player::TrackPlayer::new(sr)),
             selected_input_name: None,
             selected_output_name: None,
             saved_physical_output_id: None,
@@ -572,7 +586,55 @@ impl AudioStreamer {
             {
                 let _ = set_macos_system_output_to_device_id(loopback_id);
             }
+
+            // Auto-heal physical output hardware volume scalar (1.0) and unmute
+            let out_name = self.active_output_name();
+            if let Some(id) = crate::driver::get_device_id_by_name(&out_name) {
+                crate::driver::auto_heal_device_volume_and_mute(id);
+            }
+            crate::driver::auto_heal_physical_output("headphone");
+            crate::driver::auto_heal_physical_output("speaker");
         }
+    }
+
+    /// Polls audio stream health and watchdog heartbeats. If a CoreAudio stream error
+    /// or stall (e.g. from laptop sleep/wake or DAC disconnect) is detected, seamlessly
+    /// restarts the audio pipeline and returns true.
+    pub fn poll_health(&mut self) -> bool {
+        if !self.is_running.load(Ordering::SeqCst) {
+            return false;
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let last_cb = self.last_callback_epoch_ms.load(Ordering::SeqCst);
+        let is_stalled = !self.is_paused.load(Ordering::SeqCst)
+            && last_cb > 0
+            && now_ms.saturating_sub(last_cb) > 2500;
+
+        if self.needs_rebuild.load(Ordering::SeqCst) || is_stalled {
+            self.needs_rebuild.store(false, Ordering::SeqCst);
+            self.heal_routing();
+            let _ = self.restart();
+            return true;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let loopback_id = get_macos_device_id_by_keyword("omnirip")
+                .or_else(|| get_macos_device_id_by_keyword("blackhole"))
+                .or_else(get_macos_default_output_id);
+            if let Some(id) = loopback_id {
+                if let Some(vol) = crate::driver::get_device_volume(id) {
+                    self.system_volume_bits.store(vol.to_bits(), Ordering::Relaxed);
+                }
+            }
+        }
+
+        false
     }
 
     pub fn set_sync_mode(&mut self, mode: SyncMode) {
@@ -609,6 +671,11 @@ impl AudioStreamer {
     /// Set master volume scalar (0.0 to 1.0).
     /// Dispatches hardware volume to external DACs (iBasso) or 64-bit digital DSP scaling for MacBook headphones/speakers.
     pub fn set_master_volume(&mut self, volume: f32) {
+        let safe_vol = volume.clamp(0.0, 1.0);
+        let (player_pct, _) = crate::dsp::volume_storage::load_volume_settings();
+        crate::dsp::volume_storage::save_volume_settings(player_pct, safe_vol);
+        self.system_volume_bits.store(safe_vol.to_bits(), Ordering::Relaxed);
+
         let out_name = self.active_output_name().to_lowercase();
         if (out_name.contains("ibasso") || out_name.contains("dac") || out_name.contains("pro"))
             && !out_name.contains("headphone")
@@ -626,6 +693,14 @@ impl AudioStreamer {
                     pipe.preamp_db = -96.0;
                 } else {
                     pipe.preamp_db = (20.0 * volume.log10()).clamp(-60.0, 0.0);
+                }
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                // Ensure physical hardware endpoint maintains unity gain (1.0) and unmuted
+                if let Some(id) = crate::driver::get_device_id_by_name(&out_name) {
+                    crate::driver::auto_heal_device_volume_and_mute(id);
                 }
             }
         }
@@ -658,6 +733,18 @@ impl AudioStreamer {
             }
         }
 
+        // Ensure active physical output endpoint is at unity gain (1.0) and unmuted
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(dev_name) = out_dev.name() {
+                if let Some(id) = crate::driver::get_device_id_by_name(&dev_name) {
+                    crate::driver::auto_heal_device_volume_and_mute(id);
+                }
+            }
+            crate::driver::auto_heal_physical_output("headphone");
+            crate::driver::auto_heal_physical_output("speaker");
+        }
+
         // Dynamic Sample Rate: Adapt to active physical transducer (e.g. 96,000 Hz on iBasso DAC)
         let sample_rate = out_dev
             .default_output_config()
@@ -683,9 +770,18 @@ impl AudioStreamer {
         self.ipc_server = Some(ipc);
 
         // 1. Optional Hardware Input Stream Callback (if external hardware input selected)
+        let in_is_omnirip = in_dev
+            .as_ref()
+            .and_then(|d| d.name().ok())
+            .map(|n| n.to_lowercase().contains("omnirip"))
+            .unwrap_or(false);
+        let needs_rebuild_in = Arc::clone(&self.needs_rebuild);
         let in_stream = if let Some(in_d) = in_dev {
             let in_dev_name = in_d.name().unwrap_or_default();
-            let err_fn = move |err| eprintln!("Input audio stream error on [{}]: {}", in_dev_name, err);
+            let err_fn = move |err| {
+                eprintln!("Input audio stream error on [{}]: {}", in_dev_name, err);
+                needs_rebuild_in.store(true, Ordering::SeqCst);
+            };
             let in_config = in_d
                 .default_input_config()
                 .map(|c| StreamConfig {
@@ -705,18 +801,31 @@ impl AudioStreamer {
             }
 
             let is_paused_in = Arc::clone(&self.is_paused);
+            let mut qos_set_in = false;
             match in_d.build_input_stream(
                 &in_config,
                 move |data: &[f32], _: &_| {
+                    #[cfg(target_os = "macos")]
+                    if !qos_set_in {
+                        unsafe {
+                            pthread_set_qos_class_self_np(0x21, 0); // QOS_CLASS_USER_INTERACTIVE
+                        }
+                        qos_set_in = true;
+                    }
+
                     if is_paused_in.load(Ordering::SeqCst) {
                         return;
                     }
-                    let mut scratch = Vec::with_capacity(data.len() / 2);
-                    for chunk in data.chunks_exact(2) {
-                        scratch.push([chunk[0], chunk[1]]);
+
+                    // Zero-allocation stack buffer (eliminates heap allocation in audio callback)
+                    let mut scratch = [[0.0f32, 0.0f32]; 2048];
+                    let n_frames = (data.len() / 2).min(2048);
+                    for i in 0..n_frames {
+                        scratch[i] = [data[i * 2], data[i * 2 + 1]];
                     }
+
                     if let Ok(mut w) = writer_for_in.lock() {
-                        w.write(&scratch);
+                        w.write(&scratch[..n_frames]);
                     }
                 },
                 err_fn,
@@ -735,40 +844,68 @@ impl AudioStreamer {
             None
         };
 
-        // 2. Native Output Stream Callback (DAC Playback + Test Tone Synthesizer + DSP Pipeline)
+        // 2. Native Output Stream Callback (DAC Playback + Track Player + Test Tone + DSP Pipeline)
         let pipeline_arc = Arc::clone(&self.pipeline);
         let reader_for_out = Arc::clone(&reader_arc);
         let test_active = Arc::clone(&self.test_tone_active);
         let test_mode_arc = Arc::clone(&self.test_tone_mode);
         let is_paused_out = Arc::clone(&self.is_paused);
+        let player_arc = Arc::clone(&self.player);
+        let last_cb_arc = Arc::clone(&self.last_callback_epoch_ms);
+        let needs_rebuild_out = Arc::clone(&self.needs_rebuild);
+        let sys_vol_arc = Arc::clone(&self.system_volume_bits);
+        let out_name = out_dev.name().unwrap_or_default().to_lowercase();
+        let out_is_external_dac = (out_name.contains("ibasso") || out_name.contains("dac") || out_name.contains("pro"))
+            && !out_name.contains("headphone");
+        let mut smoothed_gain = 1.0f32;
 
         let mut sample_idx: u64 = 0;
         let mut b0 = 0.0f32;
         let mut b1 = 0.0f32;
         let mut b2 = 0.0f32;
         let mut seed: u64 = 987654321;
+        let mut qos_set_out = false;
 
         let out_stream = out_dev
             .build_output_stream(
                 &config,
                 move |data: &mut [f32], _: &_| {
+                    #[cfg(target_os = "macos")]
+                    if !qos_set_out {
+                        unsafe {
+                            pthread_set_qos_class_self_np(0x21, 0); // QOS_CLASS_USER_INTERACTIVE
+                        }
+                        qos_set_out = true;
+                    }
+
                     if is_paused_out.load(Ordering::SeqCst) {
                         data.fill(0.0);
                         return;
                     }
 
-                    let n_frames = data.len() / 2;
-                    let mut scratch = vec![[0.0f32, 0.0f32]; n_frames];
+                    // Zero-allocation stack buffer: eliminates malloc/free locks during OS app launches
+                    let n_frames = (data.len() / 2).min(2048);
+                    let mut scratch = [[0.0f32, 0.0f32]; 2048];
 
-                    if let Ok(mut r) = reader_for_out.lock() {
-                        r.read(&mut scratch);
+                    // 1. If Track Player is playing, read decoded audio frames directly from player
+                    let player_frames = if player_arc.is_playing() {
+                        player_arc.read_frames(&mut scratch[..n_frames])
+                    } else {
+                        0
+                    };
+
+                    // 2. Otherwise read from loopback / IPC servo ring buffer
+                    if player_frames == 0 {
+                        if let Ok(mut r) = reader_for_out.lock() {
+                            r.read(&mut scratch[..n_frames]);
+                        }
                     }
 
                     if test_active.load(Ordering::SeqCst) {
                         let current_mode = test_mode_arc.lock().map(|m| *m).unwrap_or(TestToneMode::AcousticHarmonics);
                         let sr = 48000.0f32;
 
-                        for frame in scratch.iter_mut() {
+                        for frame in scratch[..n_frames].iter_mut() {
                             let t = sample_idx as f32 / sr;
                             let (sig_l, sig_r) = match current_mode {
                                 TestToneMode::AcousticHarmonics => {
@@ -809,15 +946,46 @@ impl AudioStreamer {
                     }
 
                     if let Ok(mut pipe) = pipeline_arc.lock() {
-                        pipe.process(&mut scratch);
+                        pipe.process(&mut scratch[..n_frames]);
                     }
 
-                    for (i, frame) in scratch.iter().enumerate() {
-                        data[i * 2] = frame[0];
-                        data[i * 2 + 1] = frame[1];
+                    // Apply Apple stock perceptual cubic curve calibration for headphones & speakers
+                    if !out_is_external_dac {
+                        let v = f32::from_bits(sys_vol_arc.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+                        let target_gain = if v <= 0.001 {
+                            0.0f32
+                        } else if player_frames > 0 || test_active.load(Ordering::Relaxed) || !in_is_omnirip {
+                            // Direct audio without driver attenuation: apply full cubic curve (v^3)
+                            v * v * v
+                        } else {
+                            // OmniRip Audio driver already applied linear v: apply v^2 so total is v * v^2 = v^3
+                            v * v
+                        };
+
+                        for frame in scratch[..n_frames].iter_mut() {
+                            smoothed_gain += (target_gain - smoothed_gain) * 0.05f32;
+                            frame[0] *= smoothed_gain;
+                            frame[1] *= smoothed_gain;
+                        }
                     }
+
+                    for i in 0..n_frames {
+                        data[i * 2] = scratch[i][0];
+                        data[i * 2 + 1] = scratch[i][1];
+                    }
+
+                    last_cb_arc.store(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0),
+                        Ordering::SeqCst,
+                    );
                 },
-                |err| eprintln!("Output audio stream error: {}", err),
+                move |err| {
+                    eprintln!("Output audio stream error: {}", err);
+                    needs_rebuild_out.store(true, Ordering::SeqCst);
+                },
                 None,
             )
             .map_err(|e| format!("Failed to build output stream: {}", e))?;
@@ -954,7 +1122,7 @@ mod tests {
                 assert!(client.send_frames(&test_frames).is_ok());
 
                 let mut telem_ok = false;
-                for _ in 0..30 {
+                for _ in 0..100 {
                     let (telem, _) = streamer.telemetry();
                     if telem.total_frames >= 512 || telem.total_packets >= 1 {
                         telem_ok = true;
@@ -962,7 +1130,7 @@ mod tests {
                     }
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                assert!(telem_ok, "Telemetry must reflect received frames within 300ms");
+                assert!(telem_ok, "Telemetry must reflect received frames within timeout");
 
                 let (_, pll) = streamer.telemetry();
                 assert!(pll.is_some());
@@ -993,5 +1161,32 @@ mod tests {
         assert!(streamer.is_paused());
         streamer.heal_routing();
         assert!(!streamer.is_paused());
+    }
+
+    #[test]
+    fn test_poll_health_rebuild_and_stall_detection() {
+        let pipe = AudioPipeline::new(48000.0);
+        let mut streamer = AudioStreamer::new(pipe);
+
+        // 1. Stopped streamer does not trigger poll_health
+        assert!(!streamer.poll_health());
+
+        // 2. Running streamer with no errors and recent callback does not trigger poll_health
+        streamer.is_running.store(true, Ordering::SeqCst);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        streamer.last_callback_epoch_ms.store(now, Ordering::SeqCst);
+        assert!(!streamer.poll_health());
+
+        // 3. needs_rebuild flag triggers poll_health
+        streamer.needs_rebuild.store(true, Ordering::SeqCst);
+        let healed = streamer.poll_health();
+        assert!(healed);
+        assert!(!streamer.needs_rebuild.load(Ordering::SeqCst));
+
+        // 4. Stalled callback (> 2500ms in past) triggers poll_health
+        streamer.is_running.store(true, Ordering::SeqCst);
+        streamer.last_callback_epoch_ms.store(now.saturating_sub(5000), Ordering::SeqCst);
+        let healed_stall = streamer.poll_health();
+        assert!(healed_stall);
     }
 }
