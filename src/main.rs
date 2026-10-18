@@ -23,6 +23,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
+    if args.len() > 1 && args[1] == "mic" {
+        return dsp::streamer::run_mic_cli(&args[2..]);
+    }
+
+    if args.iter().any(|a| a == "--no-mic") {
+        dsp::volume_storage::save_mic_setting(false);
+    } else {
+        // Guarantee system loopback capture is active on launch so sound engine works immediately
+        dsp::volume_storage::save_mic_setting(true);
+    }
 
     let mut app = ui::App::new();
     app.run().await

@@ -568,8 +568,10 @@ impl NicotineModal {
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() > max_len {
+        let prefix: String = chars.into_iter().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", prefix)
     } else {
         s.to_string()
     }

@@ -6,7 +6,8 @@
 
 use super::servo::ServoWriter;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -105,53 +106,57 @@ impl IpcAudioServer {
             return Ok(());
         }
 
-        let socket_path = Path::new(OMNIRIP_SOCKET_PATH);
-        let _ = fs::remove_file(socket_path);
-
-        let listener = UnixListener::bind(socket_path)?;
-        listener.set_nonblocking(true)?;
-
         self.is_running.store(true, Ordering::SeqCst);
-        let running_flag = Arc::clone(&self.is_running);
-        let writer_arc = Arc::clone(&self.writer);
-        let clients_arc = Arc::clone(&self.active_clients);
-        let packets_arc = Arc::clone(&self.total_packets);
-        let frames_arc = Arc::clone(&self.total_frames);
 
-        thread::Builder::new()
-            .name("omnirip-ipc-transport".to_string())
-            .spawn(move || {
-                let mut header_buf = [0u8; AudioPacketHeader::SIZE];
-                let mut payload_buf = vec![0u8; 16384 * 8]; // max buffer for large bursts
+        #[cfg(unix)]
+        {
+            let socket_path = Path::new(OMNIRIP_SOCKET_PATH);
+            let _ = fs::remove_file(socket_path);
 
-                while running_flag.load(Ordering::SeqCst) {
-                    match listener.accept() {
-                        Ok((mut stream, _)) => {
-                            let _ = stream.set_nonblocking(false);
-                            clients_arc.fetch_add(1, Ordering::SeqCst);
-                            Self::handle_client(
-                                &mut stream,
-                                &writer_arc,
-                                &running_flag,
-                                &packets_arc,
-                                &frames_arc,
-                                &mut header_buf,
-                                &mut payload_buf,
-                            );
-                            clients_arc.fetch_sub(1, Ordering::SeqCst);
-                        }
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::Interrupted => {
-                            thread::sleep(std::time::Duration::from_millis(5));
-                        }
-                        Err(e) => {
-                            eprintln!("omnirip-ipc-transport accept error: {}", e);
-                            break;
-                        }
-                    }
-                }
+            if let Ok(listener) = UnixListener::bind(socket_path) {
+                let _ = listener.set_nonblocking(true);
+                let running_flag = Arc::clone(&self.is_running);
+                let writer_arc = Arc::clone(&self.writer);
+                let clients_arc = Arc::clone(&self.active_clients);
+                let packets_arc = Arc::clone(&self.total_packets);
+                let frames_arc = Arc::clone(&self.total_frames);
 
-                let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
-            })?;
+                let _ = thread::Builder::new()
+                    .name("omnirip-ipc-transport".to_string())
+                    .spawn(move || {
+                        let mut header_buf = [0u8; AudioPacketHeader::SIZE];
+                        let mut payload_buf = vec![0u8; 16384 * 8]; // max buffer for large bursts
+
+                        while running_flag.load(Ordering::SeqCst) {
+                            match listener.accept() {
+                                Ok((mut stream, _)) => {
+                                    let _ = stream.set_nonblocking(false);
+                                    clients_arc.fetch_add(1, Ordering::SeqCst);
+                                    Self::handle_client(
+                                        &mut stream,
+                                        &writer_arc,
+                                        &running_flag,
+                                        &packets_arc,
+                                        &frames_arc,
+                                        &mut header_buf,
+                                        &mut payload_buf,
+                                    );
+                                    clients_arc.fetch_sub(1, Ordering::SeqCst);
+                                }
+                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::Interrupted => {
+                                    thread::sleep(std::time::Duration::from_millis(5));
+                                }
+                                Err(e) => {
+                                    eprintln!("omnirip-ipc-transport accept error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+
+                        let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
+                    });
+            }
+        }
 
         // Also bind local TCP listener on 127.0.0.1:49152 for web browser and network bridges
         if let Ok(tcp_listener) = std::net::TcpListener::bind(format!("127.0.0.1:{}", OMNIRIP_TCP_PORT)) {
@@ -258,17 +263,51 @@ impl Drop for IpcAudioServer {
     }
 }
 
+pub enum ClientStream {
+    #[cfg(unix)]
+    Unix(UnixStream),
+    Tcp(std::net::TcpStream),
+}
+
+impl Write for ClientStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            #[cfg(unix)]
+            ClientStream::Unix(s) => s.write(buf),
+            ClientStream::Tcp(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            #[cfg(unix)]
+            ClientStream::Unix(s) => s.flush(),
+            ClientStream::Tcp(s) => s.flush(),
+        }
+    }
+}
+
 pub struct IpcAudioClient {
-    stream: UnixStream,
+    stream: ClientStream,
     sequence: u32,
     sample_rate: u32,
 }
 
 impl IpcAudioClient {
     pub fn connect() -> io::Result<Self> {
-        let stream = UnixStream::connect(OMNIRIP_SOCKET_PATH)?;
+        #[cfg(unix)]
+        {
+            if let Ok(stream) = UnixStream::connect(OMNIRIP_SOCKET_PATH) {
+                return Ok(Self {
+                    stream: ClientStream::Unix(stream),
+                    sequence: 0,
+                    sample_rate: 48000,
+                });
+            }
+        }
+        let tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", OMNIRIP_TCP_PORT))?;
         Ok(Self {
-            stream,
+            stream: ClientStream::Tcp(tcp),
             sequence: 0,
             sample_rate: 48000,
         })

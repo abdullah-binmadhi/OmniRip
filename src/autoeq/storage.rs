@@ -140,6 +140,113 @@ pub fn save_preset_to_disk(preset: &OmniRipPreset) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Retrieve canonical filename for an acoustic gear profile based on form factor.
+pub fn gear_filename_for_form_factor(form_factor: crate::dsp::enhancer::GearFormFactor) -> &'static str {
+    match form_factor {
+        crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers => "active_gear_speaker.json",
+        crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers => "active_gear_bookshelf.json",
+        _ => "active_gear_headphone.json",
+    }
+}
+
+/// Save active acoustic gear profile to disk, routing to transducer-specific file.
+pub fn save_gear_for_transducer(gear: &crate::dsp::enhancer::AcousticGearProfile) -> Result<PathBuf, String> {
+    let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let filename = gear_filename_for_form_factor(gear.form_factor);
+    let path = base_dir.join(filename);
+    let json = serde_json::to_string_pretty(gear)
+        .map_err(|e| format!("Serialization error: {}", e))?;
+    fs::write(&path, &json).map_err(|e| format!("File write error: {}", e))?;
+
+    // Also sync to active_gear.json for backward compatibility
+    let legacy_path = base_dir.join("active_gear.json");
+    let _ = fs::write(&legacy_path, json);
+    Ok(path)
+}
+
+/// Load active acoustic gear profile tailored to the current output transducer.
+pub fn load_gear_for_transducer(
+    transducer: crate::dsp::hardware_detect::TransducerType,
+    bookshelf_preferred: bool,
+) -> Option<crate::dsp::enhancer::AcousticGearProfile> {
+    let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+
+    match transducer {
+        crate::dsp::hardware_detect::TransducerType::BuiltinSpeakers => {
+            let path = base_dir.join("active_gear_speaker.json");
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                    return Some(gear);
+                }
+            }
+            Some(crate::dsp::enhancer::AcousticGearProfile::default_builtin_speakers("MacBook Air"))
+        }
+        crate::dsp::hardware_detect::TransducerType::HeadphoneJack3_5mm
+        | crate::dsp::hardware_detect::TransducerType::BluetoothA2dp => {
+            let path = base_dir.join("active_gear_headphone.json");
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                    return Some(gear);
+                }
+            }
+            // Backward compatibility fallback to active_gear.json (e.g. KATO IEMs)
+            let legacy_path = base_dir.join("active_gear.json");
+            if let Ok(content) = fs::read_to_string(&legacy_path) {
+                if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                    return Some(gear);
+                }
+            }
+            Some(crate::dsp::enhancer::AcousticGearProfile::default())
+        }
+        crate::dsp::hardware_detect::TransducerType::UsbDacLineOut => {
+            if bookshelf_preferred {
+                let path = base_dir.join("active_gear_bookshelf.json");
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                        return Some(gear);
+                    }
+                }
+                Some(crate::dsp::enhancer::AcousticGearProfile::default_bookshelf_speakers())
+            } else {
+                let path = base_dir.join("active_gear_headphone.json");
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                        return Some(gear);
+                    }
+                }
+                let legacy_path = base_dir.join("active_gear.json");
+                if let Ok(content) = fs::read_to_string(&legacy_path) {
+                    if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+                        return Some(gear);
+                    }
+                }
+                Some(crate::dsp::enhancer::AcousticGearProfile::default())
+            }
+        }
+        _ => {
+            load_active_gear_from_disk().or_else(|| Some(crate::dsp::enhancer::AcousticGearProfile::default()))
+        }
+    }
+}
+
+/// Save active acoustic gear profile to ~/.config/omnirip/active_gear.json (legacy wrapper).
+pub fn save_active_gear_to_disk(gear: &crate::dsp::enhancer::AcousticGearProfile) -> Result<PathBuf, String> {
+    save_gear_for_transducer(gear)
+}
+
+/// Load active acoustic gear profile from ~/.config/omnirip/active_gear.json (legacy wrapper).
+pub fn load_active_gear_from_disk() -> Option<crate::dsp::enhancer::AcousticGearProfile> {
+    let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let path = base_dir.join("active_gear.json");
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(gear) = serde_json::from_str::<crate::dsp::enhancer::AcousticGearProfile>(&content) {
+            return Some(gear);
+        }
+    }
+    None
+}
+
+
 /// Load all user presets from ~/.config/omnirip/presets/.
 pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OmniRipPreset, ParametricProfile)> {
     let dir = get_presets_dir();
@@ -262,5 +369,24 @@ mod tests {
         let decoded: OmniRipPreset = serde_json::from_str(&json).expect("Deserialization failed");
 
         assert_eq!(preset, decoded);
+    }
+
+    #[test]
+    fn test_gear_transducer_filename_and_routing() {
+        use crate::dsp::enhancer::{GearFormFactor, AcousticGearProfile};
+
+        // Filename mapping
+        assert_eq!(gear_filename_for_form_factor(GearFormFactor::BuiltinLaptopSpeakers), "active_gear_speaker.json");
+        assert_eq!(gear_filename_for_form_factor(GearFormFactor::DesktopBookshelfSpeakers), "active_gear_bookshelf.json");
+        assert_eq!(gear_filename_for_form_factor(GearFormFactor::InEar), "active_gear_headphone.json");
+        assert_eq!(gear_filename_for_form_factor(GearFormFactor::OverEar), "active_gear_headphone.json");
+
+        // Speaker default profile creation
+        let spk = AcousticGearProfile::default_builtin_speakers("MacBook Pro");
+        assert_eq!(spk.form_factor, GearFormFactor::BuiltinLaptopSpeakers);
+        assert!(spk.name.contains("MacBook Pro"));
+
+        let book = AcousticGearProfile::default_bookshelf_speakers();
+        assert_eq!(book.form_factor, GearFormFactor::DesktopBookshelfSpeakers);
     }
 }

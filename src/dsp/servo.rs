@@ -37,6 +37,37 @@ pub fn sinc_interp_16(history: &[[f32; 2]; 16], frac: f32) -> [f32; 2] {
     [sum_l * norm, sum_r * norm]
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResamplingMode {
+    #[default]
+    AudiophileSinc,
+    FastHermite,
+}
+
+/// 4-point Hermite cubic polynomial interpolator (Catmull-Rom).
+/// Executes in nanoseconds with zero trigonometric calculations.
+#[inline(always)]
+pub fn hermite_interp_4(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], p3: [f32; 2], frac: f32) -> [f32; 2] {
+    let f2 = frac * frac;
+    let f3 = f2 * frac;
+
+    let c0 = p1;
+    let c1 = [0.5 * (p2[0] - p0[0]), 0.5 * (p2[1] - p0[1])];
+    let c2 = [
+        p0[0] - 2.5 * p1[0] + 2.0 * p2[0] - 0.5 * p3[0],
+        p0[1] - 2.5 * p1[1] + 2.0 * p2[1] - 0.5 * p3[1],
+    ];
+    let c3 = [
+        0.5 * (p3[0] - p0[0]) + 1.5 * (p1[0] - p2[0]),
+        0.5 * (p3[1] - p0[1]) + 1.5 * (p1[1] - p2[1]),
+    ];
+
+    [
+        c3[0] * f3 + c2[0] * f2 + c1[0] * frac + c0[0],
+        c3[1] * f3 + c2[1] * f2 + c1[1] * frac + c0[1],
+    ]
+}
+
 pub struct ServoWriter {
     producer: rtrb::Producer<[f32; 2]>,
 }
@@ -72,6 +103,7 @@ pub struct ServoReader {
     history: [[f32; 2]; 16],
     phase: f64,
     primed: bool,
+    pub resampling_mode: ResamplingMode,
 }
 
 impl ServoReader {
@@ -81,6 +113,14 @@ impl ServoReader {
 
     pub fn set_nominal_ratio(&mut self, ratio: f64) {
         self.nominal_ratio = ratio.clamp(0.1, 10.0);
+    }
+
+    pub fn set_resampling_mode(&mut self, mode: ResamplingMode) {
+        self.resampling_mode = mode;
+    }
+
+    pub fn resampling_mode(&self) -> ResamplingMode {
+        self.resampling_mode
     }
 
     pub fn available(&self) -> usize {
@@ -100,7 +140,7 @@ impl ServoReader {
         self.drift_ppm = 0.0;
     }
 
-    /// Read requested `frames` into `out`, dynamically applying continuous-phase 16-point Sinc resampling.
+    /// Read requested `frames` into `out`, dynamically applying continuous-phase resampling.
     #[inline]
     pub fn read(&mut self, out: &mut [[f32; 2]]) -> usize {
         let needed = out.len();
@@ -111,14 +151,14 @@ impl ServoReader {
         let avail = self.consumer.slots();
         let target = self.target_frames.load(Ordering::Relaxed) as f32;
 
-        // Auto-recovery: If buffer is starved below 16 frames while primed, re-prime cleanly
-        if self.primed && avail < 16 {
+        // Auto-recovery: If buffer is starved below 4 frames while primed, re-prime cleanly
+        if self.primed && avail < 4 {
             self.primed = false;
         }
 
-        // 1. Watermark pre-buffering: wait until buffer reaches target cushion
+        // 1. Watermark pre-buffering: wait until buffer reaches resilient target cushion
         if !self.primed {
-            let threshold = (target * 0.5).max(32.0);
+            let threshold = target;
             if (avail as f32) < threshold {
                 for frame in out.iter_mut() {
                     *frame = [0.0, 0.0];
@@ -148,7 +188,7 @@ impl ServoReader {
         let ratio = (self.nominal_ratio * (1.0 + control as f64)).clamp(self.nominal_ratio * 0.95, self.nominal_ratio * 1.05);
         self.drift_ppm = (control * 1_000_000.0).clamp(-5000.0, 5000.0);
 
-        // 3. Continuous-phase 16-point Blackman-Harris windowed sinc interpolation
+        // 3. Continuous-phase resampling (Audiophile Sinc or Zero-Trig Fast Hermite)
         for out_frame in out.iter_mut() {
             while self.phase >= 1.0 {
                 // Shift history buffer left
@@ -166,7 +206,13 @@ impl ServoReader {
             }
 
             let frac = self.phase as f32;
-            *out_frame = sinc_interp_16(&self.history, frac);
+            *out_frame = match self.resampling_mode {
+                ResamplingMode::AudiophileSinc => sinc_interp_16(&self.history, frac),
+                ResamplingMode::FastHermite => {
+                    // Central 4 points around sample index
+                    hermite_interp_4(self.history[6], self.history[7], self.history[8], self.history[9], frac)
+                }
+            };
 
             self.phase += ratio;
         }
@@ -194,6 +240,7 @@ pub fn create_servo_ring_buffer(
         history: [[0.0, 0.0]; 16],
         phase: 0.0,
         primed: false,
+        resampling_mode: ResamplingMode::AudiophileSinc,
     };
 
     (writer, reader)
@@ -312,5 +359,32 @@ mod tests {
         }
 
         assert!(max_boundary_jump <= 0.14, "Max boundary jump was {:.4}", max_boundary_jump);
+    }
+
+    #[test]
+    fn test_hermite_interp_4_accuracy_and_fast_mode() {
+        // DC Test: constant signal input should yield identical output across all fractions
+        let p = [0.85f32, 0.85f32];
+        for step in 0..10 {
+            let frac = step as f32 / 10.0;
+            let out = hermite_interp_4(p, p, p, p, frac);
+            assert!((out[0] - 0.85).abs() < 1e-5);
+            assert!((out[1] - 0.85).abs() < 1e-5);
+        }
+
+        // Linear Ramp Test: interpolation between 1.0 and 2.0 at frac 0.5 should yield 1.5
+        let p0 = [0.0f32, 0.0f32];
+        let p1 = [1.0f32, 1.0f32];
+        let p2 = [2.0f32, 2.0f32];
+        let p3 = [3.0f32, 3.0f32];
+        let mid = hermite_interp_4(p0, p1, p2, p3, 0.5);
+        assert!((mid[0] - 1.5).abs() < 1e-5);
+        assert!((mid[1] - 1.5).abs() < 1e-5);
+
+        // Reader FastHermite Mode Switch Test
+        let (_, mut reader) = create_servo_ring_buffer(4096, 512);
+        assert_eq!(reader.resampling_mode(), ResamplingMode::AudiophileSinc);
+        reader.set_resampling_mode(ResamplingMode::FastHermite);
+        assert_eq!(reader.resampling_mode(), ResamplingMode::FastHermite);
     }
 }
