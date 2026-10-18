@@ -430,10 +430,11 @@ mod tests {
             "Airbag",
             AudioFormat::Mp3,
         );
-        assert_eq!(
-            path.to_str().unwrap(),
-            "/tmp/Music/Radiohead/OK Computer/01 - Airbag.mp3"
-        );
+        let expected = std::path::PathBuf::from("/tmp/Music")
+            .join("Radiohead")
+            .join("OK Computer")
+            .join("01 - Airbag.mp3");
+        assert_eq!(path, expected);
     }
 
     #[test]

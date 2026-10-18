@@ -293,71 +293,85 @@ impl AudioStreamer {
     }
 
     pub fn available_input_names() -> Vec<String> {
-        let mut list = Vec::new();
-        let host = cpal::default_host();
-        if let Ok(devs) = host.devices() {
-            for d in devs {
-                if let Ok(name) = d.name() {
-                    let n = name.to_lowercase();
-                    // Global system loopback drivers (OmniRip Audio, BlackHole) and hardware line inputs (microphones strictly excluded)
-                    if (n.contains("omnirip") || n.contains("blackhole") || n.contains("line") || n.contains("usb") || n.contains("capture"))
-                        && !n.contains("mic")
-                    {
-                        if !list.contains(&name) {
-                            list.push(name);
+        #[cfg(target_os = "windows")]
+        {
+            return vec!["Pure Rust IPC Transport (/tmp/omnirip_audio.sock)".to_string()];
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut list = Vec::new();
+            let host = cpal::default_host();
+            if let Ok(devs) = host.devices() {
+                for d in devs {
+                    if let Ok(name) = d.name() {
+                        let n = name.to_lowercase();
+                        // Global system loopback drivers (OmniRip Audio, BlackHole) and hardware line inputs (microphones strictly excluded)
+                        if (n.contains("omnirip") || n.contains("blackhole") || n.contains("line") || n.contains("usb") || n.contains("capture"))
+                            && !n.contains("mic")
+                        {
+                            if !list.contains(&name) {
+                                list.push(name);
+                            }
                         }
                     }
                 }
             }
+            list.push("Pure Rust IPC Transport (/tmp/omnirip_audio.sock)".to_string());
+            // Priority 1: OmniRip Audio (ground-up driver), Priority 2: BlackHole, Priority 3: Other
+            list.sort_by_key(|name| {
+                let n = name.to_lowercase();
+                if n.contains("omnirip") {
+                    0
+                } else if n.contains("blackhole") {
+                    1
+                } else {
+                    2
+                }
+            });
+            list
         }
-        list.push("Pure Rust IPC Transport (/tmp/omnirip_audio.sock)".to_string());
-        // Priority 1: OmniRip Audio (ground-up driver), Priority 2: BlackHole, Priority 3: Other
-        list.sort_by_key(|name| {
-            let n = name.to_lowercase();
-            if n.contains("omnirip") {
-                0
-            } else if n.contains("blackhole") {
-                1
-            } else {
-                2
-            }
-        });
-        list
     }
 
     pub fn available_output_names() -> Vec<String> {
-        let host = cpal::default_host();
-        let mut list = Vec::new();
-        if let Ok(devs) = host.devices() {
-            for d in devs {
-                if let Ok(name) = d.name() {
-                    let n = name.to_lowercase();
-                    // Physical transducers: DACs, headphones, speakers (excluding virtual loopbacks and mics)
-                    if (n.contains("speaker") || n.contains("ibasso") || n.contains("dac") || n.contains("headphone") || n.contains("built-in"))
-                        && !n.contains("blackhole") && !n.contains("omnirip") && !n.contains("stream") && !n.contains("mic")
-                    {
-                        if !list.contains(&name) {
-                            list.push(name);
+        #[cfg(target_os = "windows")]
+        {
+            return vec!["Default Audio Output".to_string()];
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let host = cpal::default_host();
+            let mut list = Vec::new();
+            if let Ok(devs) = host.devices() {
+                for d in devs {
+                    if let Ok(name) = d.name() {
+                        let n = name.to_lowercase();
+                        // Physical transducers: DACs, headphones, speakers (excluding virtual loopbacks and mics)
+                        if (n.contains("speaker") || n.contains("ibasso") || n.contains("dac") || n.contains("headphone") || n.contains("built-in"))
+                            && !n.contains("blackhole") && !n.contains("omnirip") && !n.contains("stream") && !n.contains("mic")
+                        {
+                            if !list.contains(&name) {
+                                list.push(name);
+                            }
                         }
                     }
                 }
             }
+            // Dynamic Transducer Priority:
+            // Priority 1: External DAC (iBasso-DC03-Pro / USB DAC)
+            // Priority 2: 3.5mm Headphone Jack (External Headphones / Headphones)
+            // Priority 3: Built-in Speakers (MacBook Air Speakers / Internal)
+            list.sort_by_key(|name| {
+                let n = name.to_lowercase();
+                if n.contains("ibasso") || n.contains("dac") || n.contains("fiio") {
+                    0
+                } else if n.contains("headphone") {
+                    1
+                } else {
+                    2
+                }
+            });
+            list
         }
-        // Dynamic Transducer Priority:
-        // Priority 1: External DAC (iBasso-DC03-Pro / USB DAC)
-        // Priority 2: 3.5mm Headphone Jack (External Headphones / Headphones)
-        // Priority 3: Built-in Speakers (MacBook Air Speakers / Internal)
-        list.sort_by_key(|name| {
-            let n = name.to_lowercase();
-            if n.contains("ibasso") || n.contains("dac") || n.contains("fiio") {
-                0
-            } else if n.contains("headphone") {
-                1
-            } else {
-                2
-            }
-        });
-        list
     }
 
     pub fn cycle_input_device(&mut self) -> String {
@@ -446,95 +460,102 @@ impl AudioStreamer {
 
     /// Discover physical DAC, headphones, or MacBook speakers with 3-tier priority.
     pub fn find_devices(&self) -> (Option<Device>, Option<Device>) {
-        let host = cpal::default_host();
-        let mut in_dev = None;
-        let mut out_dev = None;
+        #[cfg(target_os = "windows")]
+        {
+            return (None, None);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let host = cpal::default_host();
+            let mut in_dev = None;
+            let mut out_dev = None;
 
-        let all_devs: Vec<Device> = host.devices().map(|iter| iter.collect()).unwrap_or_default();
+            let all_devs: Vec<Device> = host.devices().map(|iter| iter.collect()).unwrap_or_default();
 
-        // 1. Resolve Input Capture Device (OmniRip Audio prioritized; microphones strictly forbidden)
-        if let Some(ref target) = self.selected_input_name {
-            in_dev = all_devs.iter().find(|d| {
-                if let Ok(name) = d.name() {
-                    let n = name.to_lowercase();
-                    !n.contains("mic") && name == target.as_str()
-                } else {
-                    false
-                }
-            }).cloned();
-        }
-        if in_dev.is_none() {
-            // Priority 1: OmniRip Audio proprietary HAL driver
-            for dev in &all_devs {
-                if let Ok(name) = dev.name() {
-                    let n = name.to_lowercase();
-                    if n.contains("omnirip") && !n.contains("mic") {
-                        in_dev = Some(dev.clone());
-                        break;
+            // 1. Resolve Input Capture Device (OmniRip Audio prioritized; microphones strictly forbidden)
+            if let Some(ref target) = self.selected_input_name {
+                in_dev = all_devs.iter().find(|d| {
+                    if let Ok(name) = d.name() {
+                        let n = name.to_lowercase();
+                        !n.contains("mic") && name == target.as_str()
+                    } else {
+                        false
+                    }
+                }).cloned();
+            }
+            if in_dev.is_none() {
+                // Priority 1: OmniRip Audio proprietary HAL driver
+                for dev in &all_devs {
+                    if let Ok(name) = dev.name() {
+                        let n = name.to_lowercase();
+                        if n.contains("omnirip") && !n.contains("mic") {
+                            in_dev = Some(dev.clone());
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if in_dev.is_none() {
-            // Priority 2: BlackHole 2ch fallback loopback
-            for dev in &all_devs {
-                if let Ok(name) = dev.name() {
-                    let n = name.to_lowercase();
-                    if n.contains("blackhole") && !n.contains("mic") {
-                        in_dev = Some(dev.clone());
-                        break;
+            if in_dev.is_none() {
+                // Priority 2: BlackHole 2ch fallback loopback
+                for dev in &all_devs {
+                    if let Ok(name) = dev.name() {
+                        let n = name.to_lowercase();
+                        if n.contains("blackhole") && !n.contains("mic") {
+                            in_dev = Some(dev.clone());
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        // 2. Resolve Output Playback Device with Dynamic Transducer Priority
-        if let Some(ref target) = self.selected_output_name {
-            out_dev = all_devs.iter().find(|d| d.name().ok().as_deref() == Some(target.as_str())).cloned();
-        }
-        if out_dev.is_none() {
-            // Priority 1: External USB DAC (iBasso-DC03-Pro, FiiO, Chord, AudioQuest, etc.)
-            for dev in &all_devs {
-                if let Ok(name) = dev.name() {
-                    let n = name.to_lowercase();
-                    if (n.contains("ibasso") || n.contains("dac") || n.contains("fiio") || n.contains("pro"))
-                        && !n.contains("stream") && !n.contains("mic")
-                    {
-                        out_dev = Some(dev.clone());
-                        break;
+            // 2. Resolve Output Playback Device with Dynamic Transducer Priority
+            if let Some(ref target) = self.selected_output_name {
+                out_dev = all_devs.iter().find(|d| d.name().ok().as_deref() == Some(target.as_str())).cloned();
+            }
+            if out_dev.is_none() {
+                // Priority 1: External USB DAC (iBasso-DC03-Pro, FiiO, Chord, AudioQuest, etc.)
+                for dev in &all_devs {
+                    if let Ok(name) = dev.name() {
+                        let n = name.to_lowercase();
+                        if (n.contains("ibasso") || n.contains("dac") || n.contains("fiio") || n.contains("pro"))
+                            && !n.contains("stream") && !n.contains("mic")
+                        {
+                            out_dev = Some(dev.clone());
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if out_dev.is_none() {
-            // Priority 2: MacBook 3.5mm Headphone Jack (External Headphones)
-            for dev in &all_devs {
-                if let Ok(name) = dev.name() {
-                    let n = name.to_lowercase();
-                    if n.contains("headphone") && !n.contains("mic") {
-                        out_dev = Some(dev.clone());
-                        break;
+            if out_dev.is_none() {
+                // Priority 2: MacBook 3.5mm Headphone Jack (External Headphones)
+                for dev in &all_devs {
+                    if let Ok(name) = dev.name() {
+                        let n = name.to_lowercase();
+                        if n.contains("headphone") && !n.contains("mic") {
+                            out_dev = Some(dev.clone());
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if out_dev.is_none() {
-            // Priority 3: Built-in MacBook Speakers
-            for dev in &all_devs {
-                if let Ok(name) = dev.name() {
-                    let n = name.to_lowercase();
-                    if (n.contains("speaker") || n.contains("built-in")) && !n.contains("mic") {
-                        out_dev = Some(dev.clone());
-                        break;
+            if out_dev.is_none() {
+                // Priority 3: Built-in MacBook Speakers
+                for dev in &all_devs {
+                    if let Ok(name) = dev.name() {
+                        let n = name.to_lowercase();
+                        if (n.contains("speaker") || n.contains("built-in")) && !n.contains("mic") {
+                            out_dev = Some(dev.clone());
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if out_dev.is_none() {
-            out_dev = host.default_output_device();
-        }
+            if out_dev.is_none() {
+                out_dev = host.default_output_device();
+            }
 
-        (in_dev, out_dev)
+            (in_dev, out_dev)
+        }
     }
 
     pub fn restart(&mut self) -> Result<(), String> {
