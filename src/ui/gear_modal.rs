@@ -73,6 +73,8 @@ impl GearWizardModal {
             GearFormFactor::InEar => "IEM",
             GearFormFactor::Earbuds => "Earbuds",
             GearFormFactor::BoneConduction => "Bone Conduction",
+            GearFormFactor::BuiltinLaptopSpeakers => "Built-in Speakers",
+            GearFormFactor::DesktopBookshelfSpeakers => "Desktop Bookshelf Monitors",
         };
         let mut d_types = Vec::new();
         if self.drivers[0] { d_types.push("DD"); }
@@ -156,7 +158,9 @@ impl GearWizardModal {
                             1 => GearFormFactor::OnEar,
                             2 => GearFormFactor::InEar,
                             3 => GearFormFactor::Earbuds,
-                            _ => GearFormFactor::BoneConduction,
+                            4 => GearFormFactor::BoneConduction,
+                            5 => GearFormFactor::BuiltinLaptopSpeakers,
+                            _ => GearFormFactor::DesktopBookshelfSpeakers,
                         };
                         self.current_step = 1;
                         self.selected_option = 0;
@@ -246,6 +250,8 @@ impl GearWizardModal {
                 ("In-Ear Monitors (IEM)", "Sealed acoustic canal coupling bypassing the pinna."),
                 ("Earbuds / Open-Fit", "Rest in concha without deep acoustic ear-canal seal."),
                 ("Bone Conduction", "Tactile transducers vibrating the temporal bone."),
+                ("Built-in Laptop Speakers", "Integrated micro-drivers firing upward or via keyboard vents."),
+                ("Desktop Bookshelf Speakers", "Near-field 2-way / 3-way stereo active or passive monitors."),
             ],
             1 => vec![
                 ("Open-Back Enclosure", "Acoustically transparent grilles, zero internal backwave pressure."),

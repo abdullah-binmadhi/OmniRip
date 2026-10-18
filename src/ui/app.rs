@@ -33,6 +33,74 @@ const FREQS_10_BAND: [f32; 10] = [
     31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 ];
 
+#[derive(Debug, Clone, Default)]
+pub struct CommandBarState {
+    pub is_open: bool,
+    pub input: String,
+    pub cursor_pos: usize,
+}
+
+impl CommandBarState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn open(&mut self) {
+        self.is_open = true;
+        self.input.clear();
+        self.cursor_pos = 0;
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+        self.input.clear();
+        self.cursor_pos = 0;
+    }
+
+    pub fn handle_key(&mut self, code: KeyCode) -> Option<String> {
+        match code {
+            KeyCode::Esc => {
+                self.close();
+                None
+            }
+            KeyCode::Enter => {
+                let cmd = self.input.trim().to_string();
+                self.close();
+                if cmd.is_empty() {
+                    None
+                } else {
+                    Some(cmd)
+                }
+            }
+            KeyCode::Char(c) => {
+                self.input.insert(self.cursor_pos, c);
+                self.cursor_pos += 1;
+                None
+            }
+            KeyCode::Backspace => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                    self.input.remove(self.cursor_pos);
+                }
+                None
+            }
+            KeyCode::Left => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                }
+                None
+            }
+            KeyCode::Right => {
+                if self.cursor_pos < self.input.len() {
+                    self.cursor_pos += 1;
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
 pub struct App {
     pub active_tab: usize,
     pub selected_band: usize,
@@ -60,6 +128,7 @@ pub struct App {
     pub gear_modal: GearWizardModal,
     pub gear_profile: AcousticGearProfile,
     pub autoeq_view_mode: usize,
+    pub command_bar: CommandBarState,
 }
 
 impl App {
@@ -91,7 +160,11 @@ impl App {
         let mut streamer = AudioStreamer::new(pipeline);
         // Start Pure Rust Audio Engine automatically on launch
         let status = match streamer.start() {
-            Ok(()) => "Pure Rust Audio Engine ready on /tmp/omnirip_audio.sock & TCP 49152".to_string(),
+            Ok(()) => {
+                let in_name = streamer.active_input_name();
+                let out_name = streamer.active_output_name();
+                format!("OmniRip Sound Engine ACTIVE: [{}] -> DSP -> [{}]", in_name, out_name)
+            }
             Err(e) => format!("Engine notice: {}", e),
         };
 
@@ -103,6 +176,10 @@ impl App {
 
         let mut streaming_hub = crate::ui::StreamingHubState::new();
         streaming_hub.player = Some(std::sync::Arc::clone(&streamer.player));
+
+        let detected = streamer.hardware_chip_profile().transducer;
+        let gear_profile = crate::autoeq::storage::load_gear_for_transducer(detected, false)
+            .unwrap_or_default();
 
         let mut app = Self {
             active_tab: 0,
@@ -129,9 +206,9 @@ impl App {
             active_mastering_preset_idx: 0,
             selected_mastering_preset_idx: 0,
             gear_modal: GearWizardModal::new(),
-            gear_profile: crate::autoeq::storage::load_active_gear_from_disk()
-                .unwrap_or_default(),
+            gear_profile,
             autoeq_view_mode: 1,
+            command_bar: CommandBarState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -200,6 +277,7 @@ impl App {
             gear_modal: GearWizardModal::new(),
             gear_profile: AcousticGearProfile::default(),
             autoeq_view_mode: 1,
+            command_bar: CommandBarState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -209,6 +287,191 @@ impl App {
     pub fn set_status(&mut self, msg: &str) {
         self.status_message = msg.to_string();
         self.status_time = Instant::now();
+    }
+
+    pub fn is_capturing_text_input(&self) -> bool {
+        self.downloader.is_capturing_input()
+            || self.archiver.is_capturing_input()
+            || self.streaming_hub.is_editing_search
+            || self.gear_modal.is_open
+            || self.preset_modal.is_active()
+            || self.nicotine_modal.is_open
+    }
+
+    pub fn execute_command(&mut self, cmd: &str) {
+        let trimmed = cmd.trim().trim_start_matches(':');
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+            return;
+        }
+        let command = parts[0].to_lowercase();
+        match command.as_str() {
+            "mic" => {
+                let sub = parts.get(1).map(|s| *s).unwrap_or("toggle");
+                match sub {
+                    "on" | "enable" | "1" => {
+                        let (_, msg) = self.streamer.set_input_capture(true);
+                        self.set_status(&msg);
+                    }
+                    "off" | "disable" | "0" => {
+                        let (_, msg) = self.streamer.set_input_capture(false);
+                        self.set_status(&msg);
+                    }
+                    "status" => {
+                        let st = if self.streamer.is_input_capture_enabled() { "ON" } else { "OFF" };
+                        self.set_status(&format!("Microphone status: [{}] (Use :mic on or :mic off)", st));
+                    }
+                    _ => {
+                        let (_, msg) = self.streamer.toggle_input_capture();
+                        self.set_status(&msg);
+                    }
+                }
+            }
+            "game" | "gaming" => {
+                let sub = parts.get(1).map(|s| *s).unwrap_or("toggle");
+                match sub {
+                    "on" | "enable" | "1" => {
+                        let (_, msg) = self.streamer.set_game_mode(true);
+                        self.set_status(&msg);
+                    }
+                    "off" | "disable" | "0" => {
+                        let (_, msg) = self.streamer.set_game_mode(false);
+                        self.set_status(&msg);
+                    }
+                    "status" => {
+                        let st = if self.streamer.is_game_mode_enabled() { "ON (512 frames / 10.6ms cushion)" } else { "OFF (Audiophile Sinc)" };
+                        self.set_status(&format!("Low-Latency Game Mode: [{}]", st));
+                    }
+                    _ => {
+                        let (_, msg) = self.streamer.toggle_game_mode();
+                        self.set_status(&msg);
+                    }
+                }
+            }
+            "dac" | "mimic" | "flavor" => {
+                let sub = parts.get(1).map(|s| *s).unwrap_or("cycle");
+                match sub {
+                    "cycle" | "next" => {
+                        let new_flavor = self.streamer.cycle_dac_flavor();
+                        self.set_status(&format!("DAC Mimicker switched to: {}", new_flavor.label()));
+                    }
+                    "prev" | "back" => {
+                        let new_flavor = self.streamer.cycle_dac_flavor_reverse();
+                        self.set_status(&format!("DAC Mimicker switched to: {}", new_flavor.label()));
+                    }
+                    "status" | "current" => {
+                        let cur = self.streamer.current_dac_flavor();
+                        self.set_status(&format!("Active DAC Mimicker: {} - {}", cur.label(), cur.description()));
+                    }
+                    "list" | "all" => {
+                        self.set_status("Flavors: :dac oem | :dac ifi | :dac ibasso | :dac chord | :dac schiit | :dac cycle");
+                    }
+                    flavor_str => {
+                        if let Some(flavor) = crate::dsp::enhancer::DacHardwareFlavor::from_str_loose(flavor_str) {
+                            self.streamer.set_dac_flavor(flavor);
+                            self.set_status(&format!("DAC Mimicker: {} ({})", flavor.label(), flavor.short_label()));
+                        } else {
+                            self.set_status(&format!("Unknown DAC flavor: '{}'. Use :dac list for available models.", flavor_str));
+                        }
+                    }
+                }
+            }
+            "chip" | "hardware" | "codec" => {
+                let sub = parts.get(1).map(|s| *s).unwrap_or("status");
+                match sub {
+                    "rescan" | "reload" | "detect" => {
+                        let active_dev = self.streamer.selected_output_name.as_deref();
+                        let updated = crate::dsp::hardware_detect::HardwareChipProfile::detect(active_dev);
+                        self.streamer.update_chip_profile(updated.clone());
+                        self.set_status(&format!("Hardware Rescanned: {}", updated.summary_line()));
+                    }
+                    _ => {
+                        let prof = self.streamer.hardware_chip_profile();
+                        self.set_status(&format!("Audio Hardware: {}", prof.summary_line()));
+                    }
+                }
+            }
+            "gear" | "transducer" => {
+                let sub = parts.get(1).map(|s| *s).unwrap_or("status");
+                match sub {
+                    "speaker" | "speakers" | "laptop" | "builtin" => {
+                        let prof = crate::autoeq::storage::load_gear_for_transducer(
+                            crate::dsp::hardware_detect::TransducerType::BuiltinSpeakers,
+                            false,
+                        ).unwrap_or_else(|| crate::dsp::enhancer::AcousticGearProfile::default_builtin_speakers("MacBook Air"));
+                        self.gear_profile = prof;
+                        self.apply_mastering_preset_index(self.active_mastering_preset_idx);
+                        self.set_status(&format!("Acoustic Gear Profile set to: [{}]", self.gear_profile.name));
+                    }
+                    "bookshelf" | "monitor" | "monitors" | "desktop" => {
+                        let prof = crate::autoeq::storage::load_gear_for_transducer(
+                            crate::dsp::hardware_detect::TransducerType::UsbDacLineOut,
+                            true,
+                        ).unwrap_or_else(crate::dsp::enhancer::AcousticGearProfile::default_bookshelf_speakers);
+                        self.gear_profile = prof;
+                        self.apply_mastering_preset_index(self.active_mastering_preset_idx);
+                        self.set_status(&format!("Acoustic Gear Profile set to: [{}]", self.gear_profile.name));
+                    }
+                    "headphone" | "headphones" | "iem" | "kato" => {
+                        let prof = crate::autoeq::storage::load_gear_for_transducer(
+                            crate::dsp::hardware_detect::TransducerType::HeadphoneJack3_5mm,
+                            false,
+                        ).unwrap_or_default();
+                        self.gear_profile = prof;
+                        self.apply_mastering_preset_index(self.active_mastering_preset_idx);
+                        self.set_status(&format!("Acoustic Gear Profile set to: [{}]", self.gear_profile.name));
+                    }
+                    "sync" | "detect" | "auto" => {
+                        self.sync_active_transducer_gear();
+                        self.set_status(&format!("Acoustic Gear auto-synced to active transducer: [{}]", self.gear_profile.name));
+                    }
+                    _ => {
+                        self.set_status(&format!(
+                            "Active Gear: \"{}\" [Form: {}] [Amp: {}]. Options: :gear [speaker|headphone|bookshelf|sync]",
+                            self.gear_profile.name,
+                            self.gear_profile.form_factor_label(),
+                            self.gear_profile.source_amp_label()
+                        ));
+                    }
+                }
+            }
+            "q" | "quit" | "exit" => {
+                self.streamer.terminate();
+                std::process::exit(0);
+            }
+            "help" => {
+                self.set_status("Commands: :gear [speaker|headphone|bookshelf|sync]  :dac [oem|ifi|ibasso|chord|schiit|cycle]  :chip [status|rescan]  :mic [on|off|toggle]  :bypass  :resync  :q");
+            }
+            "bypass" => {
+                let new_st = if let Ok(mut pipe) = self.streamer.pipeline.lock() {
+                    pipe.bypass = !pipe.bypass;
+                    Some(pipe.bypass)
+                } else {
+                    None
+                };
+                if let Some(bp) = new_st {
+                    let st = if bp { "ON" } else { "OFF" };
+                    self.set_status(&format!("Bypass mode: {}", st));
+                }
+            }
+            "resync" => {
+                self.streamer.force_resync();
+                self.set_status("Pure Rust Master Clock PLL forced re-sync");
+            }
+            unknown => {
+                self.set_status(&format!("Unknown command: :{}. Type :help for commands.", unknown));
+            }
+        }
+    }
+
+    /// Automatically synchronizes the active acoustic gear profile to match the detected physical output transducer.
+    pub fn sync_active_transducer_gear(&mut self) {
+        let detected = self.streamer.hardware_chip_profile().transducer;
+        if let Some(matching_gear) = crate::autoeq::storage::load_gear_for_transducer(detected, false) {
+            self.gear_profile = matching_gear;
+            self.apply_mastering_preset_index(self.active_mastering_preset_idx);
+            self.sync_dsp_telemetry();
+        }
     }
 
     pub fn apply_mastering_preset_index(&mut self, idx: usize) {
@@ -665,6 +928,14 @@ impl App {
                             continue;
                         }
 
+                        // 0. If Command Bar is open, intercept command line keys
+                        if self.command_bar.is_open {
+                            if let Some(cmd) = self.command_bar.handle_key(key.code) {
+                                self.execute_command(&cmd);
+                            }
+                            continue;
+                        }
+
                         // 1. If Preset Modal is active, intercept all modal keys
                         if self.preset_modal.is_active() {
                             let action = self.preset_modal.handle_key(key);
@@ -691,7 +962,7 @@ impl App {
                         // 1b. If Acoustic Gear Profiling Wizard modal is open, intercept wizard keys
                         if self.gear_modal.is_open {
                             if let Some(profile) = self.gear_modal.handle_key(key.code) {
-                                let _ = crate::autoeq::storage::save_active_gear_to_disk(&profile);
+                                let _ = crate::autoeq::storage::save_gear_for_transducer(&profile);
                                 self.gear_profile = profile;
                                 self.apply_mastering_preset_index(self.active_mastering_preset_idx);
                                 self.set_status(&format!(
@@ -817,6 +1088,17 @@ impl App {
                             break;
                         }
 
+                        // Global DAC Mimicker Hotkey: Ctrl+D (Forward) / Ctrl+Shift+D (Reverse)
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('d') || key.code == KeyCode::Char('D')) {
+                            let new_flavor = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                self.streamer.cycle_dac_flavor_reverse()
+                            } else {
+                                self.streamer.cycle_dac_flavor()
+                            };
+                            self.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
+                            continue;
+                        }
+
                         // Preset Management Hotkeys (Shift+S, Shift+I, Shift+D, Shift+R)
                         // Active only in SystemEq mode to prevent overriding Downloader keys (such as 'S' for Advanced Search)
                         if self.active_mode == WorkstationMode::SystemEq {
@@ -851,8 +1133,32 @@ impl App {
                                 self.streamer.terminate();
                                 break;
                             }
-                            KeyCode::Char('m') | KeyCode::Char('M') => {
+                            KeyCode::Char('x') | KeyCode::Char('X') if !self.is_capturing_text_input() => {
+                                let (_, msg) = self.streamer.toggle_input_capture();
+                                self.set_status(&msg);
+                                continue;
+                            }
+                            KeyCode::Char('G') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                let (_, msg) = self.streamer.toggle_game_mode();
+                                self.set_status(&msg);
+                                continue;
+                            }
+                            KeyCode::Char('M') => {
+                                let (_, msg) = self.streamer.toggle_input_capture();
+                                self.set_status(&msg);
+                                continue;
+                            }
+                            KeyCode::Char('m') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                let (_, msg) = self.streamer.toggle_input_capture();
+                                self.set_status(&msg);
+                                continue;
+                            }
+                            KeyCode::Char('m') if !key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 self.mode_modal.toggle();
+                                continue;
+                            }
+                            KeyCode::Char(':') if !self.is_capturing_text_input() => {
+                                self.command_bar.open();
                                 continue;
                             }
                             KeyCode::F(4) => {
@@ -957,7 +1263,8 @@ impl App {
                             }
                             KeyCode::Char('d') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 let dev = self.streamer.cycle_output_device();
-                                self.set_status(&format!("Output Playback Device switched to: [{}]", dev));
+                                self.sync_active_transducer_gear();
+                                self.set_status(&format!("Output Playback Device switched to: [{}] (Acoustic Gear: {})", dev, self.gear_profile.name));
                                 continue;
                             }
                             KeyCode::Char('a') | KeyCode::Char('A') if self.active_mode == WorkstationMode::SystemEq => {
@@ -1069,15 +1376,41 @@ impl App {
                     self.selected_mastering_idx = self.selected_mastering_idx.saturating_sub(1);
                 }
                 KeyCode::Down => {
-                    if self.selected_mastering_idx < 15 {
+                    if self.selected_mastering_idx < 19 {
                         self.selected_mastering_idx += 1;
                     }
                 }
-                KeyCode::Enter | KeyCode::Right => {
-                    self.cycle_mastering_control(true);
+                KeyCode::Tab => {
+                    if self.selected_mastering_idx < 10 {
+                        self.selected_mastering_idx = (self.selected_mastering_idx + 10).min(19);
+                    } else {
+                        self.selected_mastering_idx = self.selected_mastering_idx.saturating_sub(10);
+                    }
+                }
+                KeyCode::Right => {
+                    // If continuous slider or multistage processor, cycle forward
+                    if matches!(self.selected_mastering_idx, 0 | 1 | 2 | 3 | 8 | 10 | 15) {
+                        self.cycle_mastering_control(true);
+                    } else if self.selected_mastering_idx < 10 {
+                        // Jump from Column A to Column B
+                        self.selected_mastering_idx = (self.selected_mastering_idx + 10).min(19);
+                    } else {
+                        self.cycle_mastering_control(true);
+                    }
                 }
                 KeyCode::Left => {
-                    self.cycle_mastering_control(false);
+                    // If continuous slider or multistage processor, cycle backward
+                    if matches!(self.selected_mastering_idx, 0 | 1 | 2 | 3 | 8 | 10 | 15) {
+                        self.cycle_mastering_control(false);
+                    } else if self.selected_mastering_idx >= 10 {
+                        // Jump from Column B to Column A
+                        self.selected_mastering_idx = self.selected_mastering_idx.saturating_sub(10);
+                    } else {
+                        self.cycle_mastering_control(false);
+                    }
+                }
+                KeyCode::Enter => {
+                    self.cycle_mastering_control(true);
                 }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     self.reset_all_settings();
@@ -1169,6 +1502,17 @@ impl App {
     }
 
     fn cycle_mastering_control(&mut self, forward: bool) {
+        if self.selected_mastering_idx == 16 {
+            let (_, msg) = self.streamer.toggle_input_capture();
+            self.set_status(&msg);
+            return;
+        }
+        if self.selected_mastering_idx == 17 {
+            let (_, msg) = self.streamer.toggle_game_mode();
+            self.set_status(&msg);
+            return;
+        }
+        let mut status_msg: Option<&str> = None;
         if let Ok(mut pipe) = self.streamer.pipeline.lock() {
             match self.selected_mastering_idx {
                 0 => {
@@ -1311,8 +1655,30 @@ impl App {
                     }
                     pipe.enhancer.rebuild_filters();
                 }
+                18 => {
+                    // Footstep & Ability Radar EQ
+                    pipe.enhancer.radar_eq = !pipe.enhancer.radar_eq;
+                    pipe.enhancer.rebuild_filters();
+                    status_msg = Some(if pipe.enhancer.radar_eq {
+                        "Esports Radar EQ: ON (+4.5dB footsteps/reloads/spells, 45Hz sub rumble cut)."
+                    } else {
+                        "Esports Radar EQ: OFF."
+                    });
+                }
+                19 => {
+                    // Explosive Spike Ear Shield
+                    pipe.enhancer.spike_shield = !pipe.enhancer.spike_shield;
+                    status_msg = Some(if pipe.enhancer.spike_shield {
+                        "Explosive Spike Ear Shield: ON (-6dB instantaneous soft-knee burst clamp)."
+                    } else {
+                        "Explosive Spike Ear Shield: OFF."
+                    });
+                }
                 _ => {}
             }
+        }
+        if let Some(msg) = status_msg {
+            self.set_status(msg);
         }
     }
 
@@ -1480,6 +1846,20 @@ impl App {
         } else {
             Span::styled(" [0 CLIPS] ", Style::default().fg(Color::DarkGray))
         };
+        let mic_badge = if self.streamer.is_input_capture_enabled() {
+            Span::styled(" [MIC: ON] ", Style::default().fg(Color::Black).bg(Color::LightRed).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [MIC: OFF] ", Style::default().fg(Color::DarkGray))
+        };
+        let cur_dac = self.streamer.current_dac_flavor();
+        let dac_badge = match cur_dac {
+            crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus => {
+                Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(self.theme.text))
+            }
+            _ => {
+                Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+            }
+        };
 
         let peak_str = format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r);
         let phase_str = format!("Phase: {:+.2}", phase);
@@ -1490,10 +1870,12 @@ impl App {
             Span::styled("OMNIRIP ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             mode_badge,
             theme_badge,
+            dac_badge,
             sync_badge,
             test_tone_badge,
             bypass_badge,
             clip_badge,
+            mic_badge,
             Span::raw(" | "),
             Span::styled(peak_str, Style::default().fg(self.theme.text)),
             Span::raw(" | "),
@@ -1649,17 +2031,86 @@ impl App {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
+        let dac_card_height = if inner.height >= 26 { 4 } else if inner.height >= 20 { 3 } else { 2 };
         let v_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(8), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(dac_card_height),
+                Constraint::Min(8),
+                Constraint::Length(1),
+            ])
             .split(inner);
+
+        // Render Top Audiophile DAC/Amp Hardware Mimicker & Sound Chip Profile Card
+        let cur_dac = self.streamer.current_dac_flavor();
+        let chip_prof = self.streamer.hardware_chip_profile();
+        let dac_color = match cur_dac {
+            crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus => self.theme.text,
+            _ => self.theme.secondary,
+        };
+
+        let mut dac_lines = Vec::new();
+        let line1 = Line::from(vec![
+            Span::styled(" MIMICKER: ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(format!("< {} >", cur_dac.label()), Style::default().fg(dac_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Ctrl+D to Cycle]", Style::default().fg(self.theme.accent)),
+            Span::raw("   |   "),
+            Span::styled("Host Sound Chip: ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(&chip_prof.chip_name, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+        ]);
+        dac_lines.push(line1);
+
+        let high_z_tag = if chip_prof.high_impedance_amp_sensing {
+            Span::styled(" [High-Z: 3.0V RMS (500Ω) Ready] ", Style::default().fg(Color::Black).bg(Color::LightGreen).add_modifier(Modifier::BOLD))
+        } else if chip_prof.smart_amp_excursion_protection {
+            Span::styled(" [SmartAmp Guard: Active] ", Style::default().fg(Color::Black).bg(Color::LightCyan).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [Direct Output: Active] ", Style::default().fg(self.theme.text_dim))
+        };
+
+        let line2 = Line::from(vec![
+            Span::styled(" Output: ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(format!("{} ({})", chip_prof.transducer.label(), chip_prof.chassis_tier.label()), Style::default().fg(self.theme.text)),
+            Span::raw("   |   "),
+            high_z_tag,
+            Span::raw(" | "),
+            Span::styled(format!("Native: {}kHz/{}-bit", chip_prof.max_sample_rate_khz, chip_prof.bit_depth), Style::default().fg(self.theme.text_dim)),
+            Span::raw(" | "),
+            Span::styled(cur_dac.description(), Style::default().fg(self.theme.secondary)),
+        ]);
+        dac_lines.push(line2);
+
+        if dac_card_height >= 4 {
+            let line3 = Line::from(vec![
+                Span::styled(" Quick Commands: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(":dac oem", Style::default().fg(self.theme.accent)),
+                Span::raw(" (Stock OEM+)  "),
+                Span::styled(":dac ifi", Style::default().fg(self.theme.accent)),
+                Span::raw(" (Burr-Brown TrueBass)  "),
+                Span::styled(":dac ibasso", Style::default().fg(self.theme.accent)),
+                Span::raw(" (Dual CS43131 Air)  "),
+                Span::styled(":dac chord", Style::default().fg(self.theme.accent)),
+                Span::raw(" (WTA Sinc)  "),
+                Span::styled(":dac schiit", Style::default().fg(self.theme.accent)),
+                Span::raw(" (R2R Slam)  "),
+                Span::styled(":chip status", Style::default().fg(self.theme.primary)),
+            ]);
+            dac_lines.push(line3);
+        }
+
+        let dac_block = Block::default()
+            .title(" AUDIOPHILE DAC/AMP HARDWARE MIMICKER & SOUND CHIP ARCHITECTURE ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.primary));
+        let p_dac = Paragraph::new(dac_lines).block(dac_block);
+        f.render_widget(p_dac, v_chunks[0]);
 
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
-            .split(v_chunks[0]);
+            .split(v_chunks[1]);
 
-        let (w, t, a, b, mono_bass, mono_freq, cf, tape, tape_drive, pultec, pultec_air, pultec_freq, pultec_low, trans, trans_atk, de, comp, comp_gr, bf, lim, loudness_contour, ms_matrix, telem) = if let Ok(pipe) = self.streamer.pipeline.lock() {
+        let (w, t, a, b, mono_bass, mono_freq, cf, tape, tape_drive, pultec, pultec_air, _pultec_freq, pultec_low, trans, trans_atk, de, comp, comp_gr, bf, lim, loudness_contour, ms_matrix, radar_eq, spike_shield, telem) = if let Ok(pipe) = self.streamer.pipeline.lock() {
             (
                 pipe.enhancer.spatial_width,
                 pipe.enhancer.tube_warmth,
@@ -1683,27 +2134,16 @@ impl App {
                 pipe.limiter.enabled,
                 pipe.enhancer.loudness_contour,
                 pipe.enhancer.ms_matrix_enabled,
+                pipe.enhancer.radar_eq,
+                pipe.enhancer.spike_shield,
                 pipe.telemetry.clone(),
             )
         } else {
-            (1.0, 0.0, 0.0, 0.0, false, 85.0, CrossfeedMode::Off, false, 0.0, false, 0.0, 16000.0, 0.0, false, 0.0, false, false, 0.0, true, true, false, false, crate::dsp::TelemetryEngine::new(48000.0))
+            (1.0, 0.0, 0.0, 0.0, false, 85.0, CrossfeedMode::Off, false, 0.0, false, 0.0, 16000.0, 0.0, false, 0.0, false, false, 0.0, true, true, false, false, false, false, crate::dsp::TelemetryEngine::new(48000.0))
         };
 
-        // Left Pane: Analog Vintage Rack & Dynamic Processors
-        let left_block = Block::default()
-            .title(" ANALOG VINTAGE RACK & DYNAMICS PROCESSORS ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let left_inner = left_block.inner(h_chunks[0]);
-        f.render_widget(left_block, h_chunks[0]);
-
-        let left_split = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(16),
-                Constraint::Length(7),
-            ])
-            .split(left_inner);
+        let game_mode = self.streamer.is_game_mode_enabled();
+        let mic_enabled = self.streamer.is_input_capture_enabled();
 
         let make_slider = |val: f32, min: f32, max: f32, width: usize| -> String {
             let ratio = ((val - min) / (max - min)).clamp(0.0, 1.0);
@@ -1712,41 +2152,84 @@ impl App {
             format!("[{}{}]", "=".repeat(filled), "-".repeat(empty))
         };
 
-        let items = vec![
-            format!("1.  3D Soundstage Width:       {}  {:.0}%", make_slider(w, 0.5, 2.0, 12), w * 100.0),
-            format!("2.  Class-A Tube Warmth:       {}  {}", make_slider(t, 0.0, 0.6, 12), match t { x if x > 0.25 => "Lush Triode (+0.30)", x if x > 0.05 => "Warm Vinyl (+0.15)", _ => "Off (Bypassed)" }),
-            format!("3.  Aural Air & Sheen (12kHz): {}  {:+.1} dB", make_slider(a, 0.0, 6.0, 12), a),
-            format!("4.  Sub-Bass Punch (<60Hz):    {}  {:+.1} dB", make_slider(b, 0.0, 6.0, 12), b),
-            format!("5.  Sub-Bass Mono Consolidation: {}", if mono_bass { format!("[ ON (<{:.0}Hz Mono) ]", mono_freq) } else { "[ OFF (Stereo) ]".to_string() }),
-            format!("6.  Headphone Crossfeed:       {}", match cf { CrossfeedMode::Standard => "[ STANDARD (Bauer HRTF) ]", CrossfeedMode::Subtle => "[ SUBTLE (Meier) ]", CrossfeedMode::Off => "[ OFF ]" }),
-            format!("7.  1/2-Inch Master Tape:      {}", if tape { format!("[ ON (15 IPS +{:.1}dB Drive) ]", tape_drive) } else { "[ OFF ]".to_string() }),
-            format!("8.  Pultec EQP-1A Velvet Air:  {}", if pultec { format!("[ ON (+{:.1}dB @ {:.0}kHz) ]", pultec_air, pultec_freq / 1000.0) } else { "[ OFF ]".to_string() }),
-            format!("9.  Transient Attack & Punch:  {}", if trans { format!("[ ON (Atk {:+.1}dB) ]", trans_atk) } else { "[ OFF ]".to_string() }),
-            format!("10. Dynamic De-Harsh/De-Ess:   {}", if de { "[ ACTIVE (Resonance Clamp ON) ]" } else { "[ OFF (Bypassed) ]" }),
-            format!("11. Dual-Stage Bus Compressor: {}", if comp { "[ ACTIVE (Opto+VCA Musical Glue) ]" } else { "[ OFF (Bypassed) ]" }),
-            format!("12. Boundary Guard Filters:    {}", if bf { "[ ON (18Hz HPF + 21kHz LPF) ]" } else { "[ OFF (Bypassed) ]" }),
-            format!("13. True-Peak Limiter:         {}", if lim { "[ ON (-0.2 dBFS Protection Ceiling) ]" } else { "[ OFF (Unprotected) ]" }),
-            format!("14. Dynamic Loudness Contour:  {}", if loudness_contour { "[ ON (Dynamic ISO 226 Curve) ]" } else { "[ OFF (Flat Monitor) ]" }),
-            format!("15. Mid/Side Spatial Matrix:   {}", if ms_matrix { "[ ACTIVE (Center/Ambience Split) ]" } else { "[ OFF (Standard Stereo) ]" }),
-            format!("16. Pultec Low-End Exciter:    {}  {:+.1} dB", make_slider(pultec_low, 0.0, 5.0, 12), pultec_low),
+        let col_a_items = vec![
+            (0, format!("1.  Soundstage Width:  {} {:>3.0}%", make_slider(w, 0.5, 2.0, 7), w * 100.0)),
+            (1, format!("2.  Class-A Tube:      {} {}", make_slider(t, 0.0, 0.6, 7), match t { x if x > 0.25 => "Triode (+0.3)", x if x > 0.05 => "Vinyl (+0.15)", _ => "Off" })),
+            (2, format!("3.  Aural Air (12k):   {} {:>+4.1}dB", make_slider(a, 0.0, 6.0, 7), a)),
+            (3, format!("4.  Sub-Bass (<60Hz):  {} {:>+4.1}dB", make_slider(b, 0.0, 6.0, 7), b)),
+            (4, format!("5.  Mono Bass (<{:.0}Hz): {}", mono_freq, if mono_bass { "[ ON ]" } else { "[ OFF ]" })),
+            (5, format!("6.  Crossfeed (HRTF):  {}", match cf { CrossfeedMode::Standard => "[ BAUER ]", CrossfeedMode::Subtle => "[ MEIER ]", CrossfeedMode::Off => "[ OFF ]" })),
+            (6, format!("7.  1/2\" Master Tape:  {}", if tape { format!("[ ON +{:.1}dB ]", tape_drive) } else { "[ OFF ]".to_string() })),
+            (7, format!("8.  Pultec Velvet Air: {}", if pultec { format!("[ ON +{:.1}dB ]", pultec_air) } else { "[ OFF ]".to_string() })),
+            (8, format!("9.  Transient Attack:  {}", if trans { format!("[ ON +{:.1}dB ]", trans_atk) } else { "[ OFF ]".to_string() })),
+            (9, format!("10. De-Harsh/De-Ess:   {}", if de { "[ ON Clamped ]" } else { "[ OFF ]" })),
         ];
 
-        let mut rack_lines = Vec::new();
-        rack_lines.push(Line::from(""));
-        for (i, item) in items.iter().enumerate() {
-            let is_selected = i == self.selected_mastering_idx;
+        let col_b_items = vec![
+            (10, format!("11. Bus Compressor:    {}", if comp { "[ ON Opto+VCA ]" } else { "[ OFF ]" })),
+            (11, format!("12. Boundary Guards:   {}", if bf { "[ ON 18H-21k ]" } else { "[ OFF ]" })),
+            (12, format!("13. True-Peak Limiter: {}", if lim { "[ ON -0.2dB ]" } else { "[ OFF ]" })),
+            (13, format!("14. Dynamic Loudness:  {}", if loudness_contour { "[ ON ISO226 ]" } else { "[ OFF ]" })),
+            (14, format!("15. Mid/Side Matrix:   {}", if ms_matrix { "[ ON Split ]" } else { "[ OFF ]" })),
+            (15, format!("16. Pultec Low Boost:  {} {:>+4.1}dB", make_slider(pultec_low, 0.0, 5.0, 7), pultec_low)),
+            (16, format!("17. Microphone Stream: {}", if mic_enabled { "[ ON Live ]" } else { "[ OFF Muted ]" })),
+            (17, format!("18. Esports Game Mode: {}", if game_mode { "[ ACTIVE 10ms ]" } else { "[ OFF Studio ]" })),
+            (18, format!("19. Radar Footstep EQ: {}", if radar_eq { "[ ON +4.5dB ]" } else { "[ OFF ]" })),
+            (19, format!("20. Spike Ear Shield:  {}", if spike_shield { "[ ON -6dB ]" } else { "[ OFF ]" })),
+        ];
+
+        // Left Pane: Analog Vintage Rack & Dynamic Processors
+        let left_block = Block::default()
+            .title(format!(" ANALOG VINTAGE RACK & DYNAMICS PROCESSORS [Item {}/20 | Tab/Arrows to Switch Column] ", self.selected_mastering_idx + 1))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.border));
+        let left_inner = left_block.inner(h_chunks[0]);
+        f.render_widget(left_block, h_chunks[0]);
+
+        let guide_h = if left_inner.height < 18 { 4 } else if left_inner.height < 24 { 5 } else { 6 };
+        let left_split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(10),
+                Constraint::Length(guide_h),
+            ])
+            .split(left_inner);
+
+        let rack_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Percentage(50),
+            ])
+            .split(left_split[0]);
+
+        // Render Column A
+        let mut col_a_lines = Vec::new();
+        for (idx, text) in col_a_items {
+            let is_selected = idx == self.selected_mastering_idx;
             let style = if is_selected {
                 Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(self.theme.text)
             };
             let prefix = if is_selected { " > " } else { "   " };
-            rack_lines.push(Line::from(vec![Span::styled(format!("{}{}", prefix, item), style)]));
-            rack_lines.push(Line::from(""));
+            col_a_lines.push(Line::from(vec![Span::styled(format!("{}{}", prefix, text), style)]));
         }
+        f.render_widget(Paragraph::new(col_a_lines), rack_cols[0]);
 
-        let p_rack = Paragraph::new(rack_lines);
-        f.render_widget(p_rack, left_split[0]);
+        // Render Column B
+        let mut col_b_lines = Vec::new();
+        for (idx, text) in col_b_items {
+            let is_selected = idx == self.selected_mastering_idx;
+            let style = if is_selected {
+                Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(self.theme.text)
+            };
+            let prefix = if is_selected { " > " } else { "   " };
+            col_b_lines.push(Line::from(vec![Span::styled(format!("{}{}", prefix, text), style)]));
+        }
+        f.render_widget(Paragraph::new(col_b_lines), rack_cols[1]);
 
         // Bottom Card: Module Circuit & Acoustic Guide
         let guide_info: (&str, &str, &str, &str) = match self.selected_mastering_idx {
@@ -1846,6 +2329,30 @@ impl App {
                 "Gives acoustic kick drums and upright bass massive physical body",
                 "Jazz Bass, Soul, Reggae, Organ & Double Bass",
             ),
+            16 => (
+                "Hardware Microphone & Acoustic Line Capture",
+                "Full-duplex low-latency audio capture stream with live peak metering",
+                "Press [Enter] or [x] to toggle mic on/off across all workstations",
+                "Live Voice Analysis, Acoustic Room Calibration, Podcast Monitoring",
+            ),
+            17 => (
+                "Hermite Cubic Direct Resampler & 10.6ms Real-Time Buffer",
+                "Switches to 4-point Hermite cubic interpolation with 512-sample cushion",
+                "Reduces DSP CPU load by 98% and eliminates game stutter / device lag",
+                "League of Legends, CS2, Valorant, Fast-Paced Competitive Games",
+            ),
+            18 => (
+                "Esports Tactical Acoustic Radar Equalizer (2.4 kHz Peaking)",
+                "Boosts footsteps, reloads, spell cues (+4.5dB) and cuts 45Hz sub rumble",
+                "Maximizes acoustic clarity and enemy positioning in chaotic teamfights",
+                "Competitive Tactical Shooters, MOBAs, Battle Royales",
+            ),
+            19 => (
+                "Instantaneous Soft-Knee Acoustic Ear-Damage Limiter (-6.0 dB)",
+                "Clamps deafening ults, flashbangs, grenade bursts, and screamers",
+                "Prevents hearing fatigue and ear ringing without crushing normal audio",
+                "Explosive Shooters, Discord Voice Chat, Late-Night Gaming",
+            ),
             _ => (
                 "Studio Mastering Hardware Processor",
                 "Active signal conditioning module in the master processing chain",
@@ -1874,7 +2381,7 @@ impl App {
         ];
 
         let guide_block = Block::default()
-            .title(format!(" MODULE CIRCUIT & ACOUSTIC GUIDE [Item {}/16] ", self.selected_mastering_idx + 1))
+            .title(format!(" MODULE CIRCUIT & ACOUSTIC GUIDE [Item {}/17] ", (self.selected_mastering_idx + 1).min(17)))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.secondary));
         let p_guide = Paragraph::new(guide_lines).block(guide_block);
@@ -2177,9 +2684,9 @@ impl App {
         f.render_widget(p_tele, right_inner);
 
         // Footer helper
-        let help = Paragraph::new(" [P] Next Preset  [Shift+P] Prev Preset  [Up/Down] Select Module  [Left/Right] Adjust  [Enter] Toggle  [Space] Play/Pause")
+        let help = Paragraph::new(" [Ctrl+D] Cycle DAC Mimicker  [P/Shift+P] Preset  [Up/Down] Module  [Left/Right] Adjust  [Enter] Toggle  [Space] Play/Pause  [:dac / :chip] Commands")
             .style(Style::default().fg(self.theme.accent));
-        f.render_widget(help, v_chunks[1]);
+        f.render_widget(help, v_chunks[2]);
     }
 
     fn render_routing(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -3286,18 +3793,35 @@ impl App {
     }
 
     fn render_footer(&self, f: &mut ratatui::Frame, area: Rect) {
+        if self.command_bar.is_open {
+            let cmd_text = format!(" :{}█  (Press [Enter] to run, [Esc] to cancel)", self.command_bar.input);
+            let p = Paragraph::new(cmd_text).style(Style::default().bg(Color::Rgb(20, 25, 35)).fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            f.render_widget(p, area);
+            return;
+        }
+
+        let mic_label = if self.streamer.is_input_capture_enabled() {
+            "[x] Mic: ON"
+        } else {
+            "[x] Mic: OFF"
+        };
+        let game_label = if self.streamer.is_game_mode_enabled() {
+            "[Shift+G] Game: ON"
+        } else {
+            "[Shift+G] Game: OFF"
+        };
         let help = match self.active_mode {
             WorkstationMode::Downloader => {
-                " [M] Mode Select  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download/Convert  [Tab] Inputs  [Arrows] Select  [Q] Quit"
+                format!(" [m] Mode  {}  {}  [:] Command  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download  [Tab] Inputs  [Q] Quit", mic_label, game_label)
             }
             WorkstationMode::SystemEq => {
-                " [M] Mode  [T] Theme  [V] Visuals  [Shift+S] Save Preset  [Shift+I] Import  [Shift+D] Download  [Shift+R] Reset  [Space] Pause/Play  [Q] Quit"
+                format!(" [m] Mode  {}  {}  [:] Command  [T] Theme  [V] Visuals  [Shift+S] Save  [Shift+R] Reset  [Space] Play  [Q] Quit", mic_label, game_label)
             }
             WorkstationMode::Archiver => {
-                " [M] Mode Select  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [A] All  [B] Batch  [I] Inspect  [Q] Quit"
+                format!(" [m] Mode  {}  {}  [:] Command  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [Q] Quit", mic_label, game_label)
             }
             WorkstationMode::StreamingHub => {
-                " [M] Mode  [S] Search/Paste  [L] Link Accounts  [Enter] Play  [Space] Pause  [U] Lossless  [+/-] Vol  [N] Next  [P] Prev  [D] Remove  [Q] Quit"
+                format!(" [m] Mode  {}  {}  [:] Command  [S] Search  [L] Accounts  [Enter] Play  [Space] Pause  [+/-] Vol  [Q] Quit", mic_label, game_label)
             }
         };
         let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
@@ -3589,7 +4113,7 @@ mod tests {
     #[test]
     fn test_mastering_suite_presets_and_module_controls() {
         let mut app = App::new_test();
-        assert_eq!(app.mastering_presets.len(), 20);
+        assert_eq!(app.mastering_presets.len(), 21);
         assert_eq!(app.active_mastering_preset_idx, 0);
 
         // Advance to Preset 2: HD600/650
@@ -3815,6 +4339,288 @@ mod tests {
         app.cycle_mastering_preset(true);
         assert_eq!(app.active_mastering_preset_idx, 3);
         assert_eq!(app.streaming_hub.dsp_telemetry.active_preset_name, "Planar Magnetic Fast Slam & Tactile Impact");
+    }
+
+    #[test]
+    fn test_command_bar_execution_and_mic_commands() {
+        let mut app = App::new_test();
+        assert!(app.streamer.is_input_capture_enabled());
+
+        // Test :mic off command
+        app.execute_command(":mic off");
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
+
+        // Test :mic on command
+        app.execute_command(":mic on");
+        assert!(app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[ON]"));
+
+        // Test :mic toggle command
+        app.execute_command(":mic toggle");
+        assert!(!app.streamer.is_input_capture_enabled());
+        app.execute_command(":mic");
+        assert!(app.streamer.is_input_capture_enabled());
+
+        // Test CommandBarState typing and handling
+        let mut bar = CommandBarState::new();
+        bar.open();
+        assert!(bar.is_open);
+        bar.handle_key(KeyCode::Char('m'));
+        bar.handle_key(KeyCode::Char('i'));
+        bar.handle_key(KeyCode::Char('c'));
+        bar.handle_key(KeyCode::Char(' '));
+        bar.handle_key(KeyCode::Char('o'));
+        bar.handle_key(KeyCode::Char('n'));
+        assert_eq!(bar.input, "mic on");
+
+        let res = bar.handle_key(KeyCode::Enter);
+        assert_eq!(res, Some("mic on".to_string()));
+        assert!(!bar.is_open);
+    }
+
+    #[test]
+    fn test_unassigned_key_x_and_mastering_rack_item17_mic_toggle() {
+        let mut app = App::new_test();
+        assert!(app.streamer.is_input_capture_enabled());
+
+        // 1. Direct toggle to OFF
+        let (enabled1, msg1) = app.streamer.toggle_input_capture();
+        assert!(!enabled1);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(msg1.contains("[OFF]"));
+
+        let (enabled2, msg2) = app.streamer.toggle_input_capture();
+        assert!(enabled2);
+        assert!(app.streamer.is_input_capture_enabled());
+        assert!(msg2.contains("[ON]"));
+
+        // 2. Workstation 2 (SystemEq), Tab 1 (Mastering Suite) navigation to Item 17 (idx 16)
+        app.active_mode = WorkstationMode::SystemEq;
+        app.active_tab = 1;
+        app.selected_mastering_idx = 15;
+
+        // Down arrow should advance to item 17 (idx 16)
+        app.handle_tab_key(KeyCode::Down);
+        assert_eq!(app.selected_mastering_idx, 16);
+
+        // Enter key on item 17 toggles microphone off
+        app.handle_tab_key(KeyCode::Enter);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
+
+        // Enter key on item 17 toggles microphone back on
+        app.handle_tab_key(KeyCode::Enter);
+        assert!(app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[ON]"));
+
+        // Advance to items 18, 19, 20
+        app.handle_tab_key(KeyCode::Down);
+        assert_eq!(app.selected_mastering_idx, 17); // Game Mode
+        app.handle_tab_key(KeyCode::Down);
+        assert_eq!(app.selected_mastering_idx, 18); // Radar EQ
+        app.handle_tab_key(KeyCode::Down);
+        assert_eq!(app.selected_mastering_idx, 19); // Spike Shield
+        // Clamped at 19
+        app.handle_tab_key(KeyCode::Down);
+        assert_eq!(app.selected_mastering_idx, 19);
+
+        // Tab switches columns (19 -> 9)
+        app.handle_tab_key(KeyCode::Tab);
+        assert_eq!(app.selected_mastering_idx, 9);
+        // Tab switches back (9 -> 19)
+        app.handle_tab_key(KeyCode::Tab);
+        assert_eq!(app.selected_mastering_idx, 19);
+    }
+
+    #[test]
+    fn test_game_mode_command_and_dsp_toggle() {
+        let mut app = App::new_test();
+        assert!(!app.streamer.is_game_mode_enabled());
+
+        // Test :game on command
+        app.execute_command(":game on");
+        assert!(app.streamer.is_game_mode_enabled());
+        assert!(app.status_message.contains("[ON]"));
+
+        // Test :game off command
+        app.execute_command(":game off");
+        assert!(!app.streamer.is_game_mode_enabled());
+        assert!(app.status_message.contains("[OFF]"));
+
+        // Test :game toggle command
+        app.execute_command(":game");
+        assert!(app.streamer.is_game_mode_enabled());
+
+        // Test Workstation 2 mastering rack item 18 (Game mode, idx 17)
+        app.active_mode = WorkstationMode::SystemEq;
+        app.active_tab = 1;
+        app.selected_mastering_idx = 17;
+        app.handle_tab_key(KeyCode::Enter);
+        assert!(!app.streamer.is_game_mode_enabled());
+
+        // Test item 19 (Radar EQ, idx 18)
+        app.selected_mastering_idx = 18;
+        app.handle_tab_key(KeyCode::Enter);
+        let is_radar = app.streamer.pipeline.lock().unwrap().enhancer.radar_eq;
+        assert!(is_radar);
+
+        // Test item 20 (Spike Shield, idx 19)
+        app.selected_mastering_idx = 19;
+        app.handle_tab_key(KeyCode::Enter);
+        let is_spike = app.streamer.pipeline.lock().unwrap().enhancer.spike_shield;
+        assert!(is_spike);
+    }
+
+    #[test]
+    fn test_dac_mimicker_commands_and_shortcuts() {
+        let mut app = App::new_test();
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus);
+
+        // Test :dac ifi command
+        app.execute_command(":dac ifi");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IfiZenDac);
+        assert!(app.status_message.contains("iFi Zen DAC V2"));
+
+        // Test :dac ibasso command
+        app.execute_command(":dac ibasso");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+
+        // Test :dac chord command
+        app.execute_command(":dac chord");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::ChordMojo2);
+
+        // Test :dac schiit command
+        app.execute_command(":dac schiit");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::SchiitMultibit);
+
+        // Test :dac oem command
+        app.execute_command(":dac oem");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus);
+
+        // Test :dac cycle command
+        app.execute_command(":dac cycle");
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IfiZenDac);
+
+        // Test :dac status command
+        app.execute_command(":dac status");
+        assert!(app.status_message.contains("Active DAC Mimicker"));
+
+        // Test :dac list command
+        app.execute_command(":dac list");
+        assert!(app.status_message.contains("Flavors:"));
+
+        // Test global shortcut simulation: Ctrl+D cycles forward
+        let key_ctrl_d = crossterm::event::KeyEvent::new(KeyCode::Char('d'), crossterm::event::KeyModifiers::CONTROL);
+        if key_ctrl_d.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+            && (key_ctrl_d.code == KeyCode::Char('d') || key_ctrl_d.code == KeyCode::Char('D'))
+        {
+            let new_flavor = if key_ctrl_d.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                app.streamer.cycle_dac_flavor_reverse()
+            } else {
+                app.streamer.cycle_dac_flavor()
+            };
+            app.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
+        }
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+
+        // Test global shortcut simulation: Ctrl+Shift+D cycles reverse
+        let key_ctrl_shift_d = crossterm::event::KeyEvent::new(
+            KeyCode::Char('D'),
+            crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+        );
+        if key_ctrl_shift_d.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+            && (key_ctrl_shift_d.code == KeyCode::Char('d') || key_ctrl_shift_d.code == KeyCode::Char('D'))
+        {
+            let new_flavor = if key_ctrl_shift_d.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                app.streamer.cycle_dac_flavor_reverse()
+            } else {
+                app.streamer.cycle_dac_flavor()
+            };
+            app.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
+        }
+        assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IfiZenDac);
+    }
+
+    #[test]
+    fn test_chip_detection_command_and_profile() {
+        let mut app = App::new_test();
+        let prof = app.streamer.hardware_chip_profile();
+        assert!(!prof.chip_name.is_empty());
+        assert!(!prof.hardware_model.is_empty());
+
+        // Test :chip status command
+        app.execute_command(":chip");
+        assert!(app.status_message.contains("Audio Hardware:"));
+        assert!(app.status_message.contains(&prof.hardware_model));
+
+        // Test :chip rescan command
+        app.streamer.selected_output_name = Some("iBasso DC03 Pro".to_string());
+        app.execute_command(":chip rescan");
+        assert!(app.status_message.contains("Hardware Rescanned:"));
+        assert!(app.status_message.contains("iBasso Audio"));
+        assert_eq!(app.streamer.hardware_chip_profile().recommended_flavor, crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+    }
+
+    #[test]
+    fn test_mastering_suite_dac_card_rendering() {
+        let mut app = App::new_test();
+        app.active_mode = WorkstationMode::SystemEq;
+        app.active_tab = 1; // Mastering Suite
+
+        // Test rendering across different terminal heights (standard, compact, tall)
+        for (w, h) in [(140, 36), (100, 22), (180, 50)] {
+            let backend = ratatui::backend::TestBackend::new(w, h);
+            let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+            for flavor in crate::dsp::enhancer::DacHardwareFlavor::all() {
+                app.streamer.set_dac_flavor(*flavor);
+                let draw_res = terminal.draw(|f| {
+                    app.render(f);
+                });
+                assert!(draw_res.is_ok(), "Rendering failed for flavor {:?} at {}x{}", flavor, w, h);
+            }
+        }
+    }
+
+    #[test]
+    fn test_transducer_aware_gear_commands_and_switching() {
+        let mut app = App::new_test();
+
+        // 1. Switch to laptop speakers via command
+        app.execute_command(":gear speaker");
+        assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers);
+        assert!(app.status_message.contains("Built-in Speakers"));
+
+        // 2. Switch to desktop bookshelf monitors via command
+        app.execute_command(":gear bookshelf");
+        assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
+        assert!(app.status_message.contains("Bookshelf"));
+
+        // 3. Switch back to headphones / IEMs
+        app.execute_command(":gear headphone");
+        assert!(app.gear_profile.form_factor != crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers);
+        assert!(app.gear_profile.form_factor != crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
+
+        // 4. Test :gear status command
+        app.execute_command(":gear");
+        assert!(app.status_message.contains("Active Gear:"));
+
+        // 5. Test Step 0 wizard options include 7 choices
+        let mut wizard = crate::ui::gear_modal::GearWizardModal::new();
+        wizard.open(&app.gear_profile);
+        assert_eq!(wizard.current_step, 0);
+
+        // Select option 5 (Built-in Laptop Speakers)
+        wizard.selected_option = 5;
+        let _ = wizard.handle_key(ratatui::crossterm::event::KeyCode::Enter);
+        assert_eq!(wizard.form_factor, crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers);
+
+        // Reset and select option 6 (Desktop Bookshelf Speakers)
+        wizard.current_step = 0;
+        wizard.selected_option = 6;
+        let _ = wizard.handle_key(ratatui::crossterm::event::KeyCode::Enter);
+        assert_eq!(wizard.form_factor, crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
     }
 }
 

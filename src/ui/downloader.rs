@@ -4066,9 +4066,14 @@ impl DownloaderState {
         let hpf_str = if self.hpf_30hz { "ON (Sub-bass Cut)" } else { "OFF" };
         let air_str = if self.air_boost { "ON (+3dB @ 16kHz)" } else { "OFF" };
 
+        let dac_flavor = crate::dsp::volume_storage::load_dac_flavor_setting();
+
         let status_spans = vec![
             Span::styled(" MASTER EQ STATUS: ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
             Span::styled(bypass_str, Style::default().fg(bypass_color).add_modifier(Modifier::BOLD)),
+            Span::raw("   |   "),
+            Span::styled("DAC: ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("[{}]", dac_flavor.short_label()), Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
             Span::raw("   |   "),
             Span::styled("30Hz HPF: ", Style::default().fg(theme.text_dim)),
             Span::styled(hpf_str, Style::default().fg(if self.hpf_30hz { theme.accent } else { theme.text_dim })),
@@ -4076,7 +4081,7 @@ impl DownloaderState {
             Span::styled("Air Boost: ", Style::default().fg(theme.text_dim)),
             Span::styled(air_str, Style::default().fg(if self.air_boost { theme.accent } else { theme.text_dim })),
             Span::raw("   |   "),
-            Span::styled(format!("Focus Band: {}", FREQ_LABELS[self.selected_band]), Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Focus Band: {}", FREQ_LABELS[self.selected_band]), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
         ];
 
         let p_status = Paragraph::new(Line::from(status_spans))

@@ -1040,9 +1040,12 @@ impl StreamingHubState {
             Span::styled(" [D] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
             Span::raw("Remove Track  "),
             Span::styled(" [C] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-            Span::raw("Clear Queue  "),
-            Span::styled(" [M] ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
-            Span::raw("Mode Select"),
+            Span::styled(" [m] ", Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD)),
+            Span::raw("Mode  "),
+            Span::styled(" [x] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw("Mic Toggle  "),
+            Span::styled(" [:] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Command"),
         ]);
 
         let p = Paragraph::new(vec![line1, line2])

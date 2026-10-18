@@ -2,6 +2,7 @@
 
 pub mod biquad;
 pub mod enhancer;
+pub mod hardware_detect;
 pub mod limiter;
 pub mod player;
 pub mod restoration;
@@ -13,8 +14,11 @@ pub mod volume_storage;
 
 pub use biquad::{BiquadFilter, BiquadFilterType, DualEngineCrossfader, FastSosFilter};
 pub use enhancer::{
-    AcousticGearProfile, AudiophileEnhancer, CrossfeedMode, GearCoupling, GearEnclosure,
-    GearFormFactor, GearSourceAmp, GearTonalBalance, MasteringPreset,
+    AcousticGearProfile, AudiophileEnhancer, CrossfeedMode, DacHardwareFlavor, DacMimickerEngine,
+    GearCoupling, GearEnclosure, GearFormFactor, GearSourceAmp, GearTonalBalance, MasteringPreset,
+};
+pub use hardware_detect::{
+    ChassisAcousticTier, HardwareChipProfile, SoundChipArchitecture, TransducerType,
 };
 pub use limiter::BrickwallLimiter;
 pub use player::{TrackInfo, TrackPlayer};
@@ -31,6 +35,7 @@ pub struct AudioPipeline {
     pub volume_boost_db: f32,
     pub balance: f32,
     pub bypass: bool,
+    pub dac_mimicker: DacMimickerEngine,
     pub crossfader: DualEngineCrossfader,
     pub enhancer: AudiophileEnhancer,
     pub limiter: BrickwallLimiter,
@@ -45,6 +50,7 @@ impl AudioPipeline {
             volume_boost_db: 0.0,
             balance: 0.0,
             bypass: false,
+            dac_mimicker: DacMimickerEngine::new(sample_rate),
             crossfader: DualEngineCrossfader::new(),
             enhancer: AudiophileEnhancer::new(sample_rate),
             limiter: BrickwallLimiter::new(sample_rate),
@@ -64,7 +70,10 @@ impl AudioPipeline {
             return;
         }
 
-        // 1. Preamp & Volume Boost Gain
+        // 1. DAC/Amp Mimicker Stage (Hardware Filter Profile & Analog Stage Emulation)
+        self.dac_mimicker.process(buffer);
+
+        // 2. Preamp & Volume Boost Gain
         let preamp_mult = 10.0f32.powf(self.preamp_db / 20.0);
         let boost_mult = 10.0f32.powf(self.volume_boost_db / 20.0);
         let total_gain = preamp_mult * boost_mult;
@@ -76,7 +85,7 @@ impl AudioPipeline {
             }
         }
 
-        // 2. Stereo Pan Balance
+        // 3. Stereo Pan Balance
         let bal = self.balance;
         if bal.abs() > 1e-4 {
             let left_mult = if bal > 0.0 { 1.0 - bal } else { 1.0 };
@@ -87,17 +96,32 @@ impl AudioPipeline {
             }
         }
 
-        // 3. Cascaded Biquad EQ (with clickless 15ms crossfade)
+        // 4. Cascaded Biquad EQ (with clickless 15ms crossfade)
         self.crossfader.process(buffer);
 
-        // 4. Studio Audiophile Enhancer Suite
+        // 5. Studio Audiophile Enhancer Suite
         self.enhancer.process(buffer);
 
-        // 5. Brickwall Peak Limiter (-0.2 dBFS ceiling)
+        // 6. Brickwall Peak Limiter (-0.2 dBFS ceiling)
         self.limiter.process(buffer);
 
-        // 6. Live Telemetry
+        // 7. Live Telemetry
         self.telemetry.update(buffer);
+    }
+
+    /// Set the DAC/Amp mimicker flavor.
+    pub fn set_dac_flavor(&mut self, flavor: DacHardwareFlavor) {
+        self.dac_mimicker.set_flavor(flavor);
+    }
+
+    /// Cycle to the next DAC/Amp mimicker flavor.
+    pub fn cycle_dac_flavor(&mut self) -> DacHardwareFlavor {
+        self.dac_mimicker.cycle_flavor()
+    }
+
+    /// Get current target DAC/Amp mimicker flavor.
+    pub fn current_dac_flavor(&self) -> DacHardwareFlavor {
+        self.dac_mimicker.target_flavor
     }
 
     /// Apply an audiophile mastering preset recipe across enhancer and limiter.

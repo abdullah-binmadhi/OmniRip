@@ -560,11 +560,10 @@ impl LibrarySyncEngine {
     /// Ingests tracks from a collection URL or local library into parsed tracks.
     pub fn fetch_tracks_for_collection(collection: &DiscoveredCollection, browser: &str) -> Result<Vec<ParsedTrack>, String> {
         // 1. Local Apple Music (macOS Music.app IPC)
+        #[cfg(target_os = "macos")]
         if collection.url.starts_with("local://music.app/") {
             let playlist_name = collection.url.trim_start_matches("local://music.app/");
-            #[cfg(target_os = "macos")]
-            {
-                let script = format!(
+            let script = format!(
                     "tell application \"Music\"\nset out to \"\"\nrepeat with t in tracks of playlist \"{}\"\nset out to out & (name of t) & \"\\t\" & (artist of t) & \"\\t\" & (album of t) & \"\\t\" & (duration of t as integer) & \"\\n\"\nend repeat\nreturn out\nend tell",
                     playlist_name.replace('\"', "\\\"")
                 );
@@ -609,7 +608,6 @@ impl LibrarySyncEngine {
                     }
                 }
             }
-        }
 
         // 2. Web URLs (Spotify, Apple Music, YouTube Music)
         if collection.url.starts_with("http://") || collection.url.starts_with("https://") {
