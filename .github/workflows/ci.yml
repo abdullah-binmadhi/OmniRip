@@ -24,6 +24,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config
 
+      - name: Start Windows Audio Service
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Set-Service -Name audiosrv -StartupType Automatic -ErrorAction SilentlyContinue
+          Start-Service audiosrv -ErrorAction SilentlyContinue
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -34,4 +41,4 @@ jobs:
         run: cargo check --verbose
 
       - name: Cargo Test
-        run: cargo test --verbose
+        run: cargo test --verbose -- --test-threads=1
