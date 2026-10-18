@@ -598,10 +598,12 @@ impl AudioStreamer {
                 drop(s);
             }
             #[cfg(target_os = "macos")]
-            if let Some(saved_id) = self.saved_physical_output_id.take() {
-                let _ = set_macos_system_output_to_device_id(saved_id);
-            } else {
-                let _ = set_macos_system_output_to_hardware();
+            {
+                if let Some(saved_id) = self.saved_physical_output_id.take() {
+                    let _ = set_macos_system_output_to_device_id(saved_id);
+                } else {
+                    let _ = set_macos_system_output_to_hardware();
+                }
             }
             (false, "Microphone & Input Capture: [OFF] (Stream stopped, macOS mic indicator dismissed)".to_string())
         } else {
@@ -1303,6 +1305,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_input_capture_toggle_and_mic_control() {
         let pipe = AudioPipeline::new(48000.0);
         let mut streamer = AudioStreamer::new(pipe);

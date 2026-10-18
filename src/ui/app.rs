@@ -4475,6 +4475,7 @@ mod tests {
     #[test]
     fn test_dac_mimicker_commands_and_shortcuts() {
         let mut app = App::new_test();
+        app.streamer.set_dac_flavor(crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus);
         assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus);
 
         // Test :dac ifi command
