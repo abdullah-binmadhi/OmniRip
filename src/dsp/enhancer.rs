@@ -41,6 +41,10 @@ pub enum GearEnclosure {
     SemiOpen,
     ClosedBack,
     Anc,
+    PortedRear,
+    PortedFront,
+    SealedSuspension,
+    PassiveRadiator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -49,6 +53,9 @@ pub enum GearCoupling {
     MemoryFoam,
     CustomMolded,
     OpenAir,
+    VelourPads,
+    LeatherPads,
+    HybridPads,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -66,6 +73,28 @@ pub enum GearSourceAmp {
     DesktopSolidState,
     TubeAmp,
     BluetoothWireless,
+    ActivePoweredMonitors,
+    PassiveWithStereoAmp,
+    BalancedAudioInterface,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SpeakerPlacement {
+    #[default]
+    DeskSurface,
+    ElevatedStand,
+    SoftSurfaceOrLap,
+    NearWallCorner,
+    FreeField,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SpeakerCalibrationTarget {
+    #[default]
+    VocalClarity,
+    SpatialExpansion,
+    BassProtection,
+    FlatReference,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -77,6 +106,10 @@ pub struct AcousticGearProfile {
     pub coupling: GearCoupling,
     pub tonal_balance: GearTonalBalance,
     pub source_amp: GearSourceAmp,
+    #[serde(default)]
+    pub speaker_placement: SpeakerPlacement,
+    #[serde(default)]
+    pub speaker_target: SpeakerCalibrationTarget,
 }
 
 impl Default for AcousticGearProfile {
@@ -89,6 +122,8 @@ impl Default for AcousticGearProfile {
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::DeskSurface,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 }
@@ -115,6 +150,8 @@ impl AcousticGearProfile {
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::DeskSurface,
+            speaker_target: SpeakerCalibrationTarget::VocalClarity,
         }
     }
 
@@ -122,11 +159,13 @@ impl AcousticGearProfile {
         Self {
             name: "Desktop Bookshelf Monitors".to_string(),
             form_factor: GearFormFactor::DesktopBookshelfSpeakers,
-            enclosure: GearEnclosure::OpenBack,
+            enclosure: GearEnclosure::PortedRear,
             drivers: [true, false, false, false, false, false],
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
-            source_amp: GearSourceAmp::DesktopSolidState,
+            source_amp: GearSourceAmp::ActivePoweredMonitors,
+            speaker_placement: SpeakerPlacement::ElevatedStand,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 
@@ -136,6 +175,10 @@ impl AcousticGearProfile {
             GearEnclosure::SemiOpen => "Semi-Open",
             GearEnclosure::ClosedBack => "Closed-Back",
             GearEnclosure::Anc => "ANC Chamber",
+            GearEnclosure::PortedRear => "Rear-Ported",
+            GearEnclosure::PortedFront => "Front-Ported",
+            GearEnclosure::SealedSuspension => "Sealed Acoustic",
+            GearEnclosure::PassiveRadiator => "Passive Radiator",
         }
     }
 
@@ -166,12 +209,46 @@ impl AcousticGearProfile {
         }
     }
 
+    pub fn coupling_label(&self) -> &'static str {
+        match self.coupling {
+            GearCoupling::Silicone => "Silicone Tips",
+            GearCoupling::MemoryFoam => "Memory Foam",
+            GearCoupling::CustomMolded => "Custom Molded",
+            GearCoupling::OpenAir => "Open-Air",
+            GearCoupling::VelourPads => "Velour Pads",
+            GearCoupling::LeatherPads => "Leather Pads",
+            GearCoupling::HybridPads => "Hybrid Pads",
+        }
+    }
+
+    pub fn speaker_placement_label(&self) -> &'static str {
+        match self.speaker_placement {
+            SpeakerPlacement::DeskSurface => "Desk Surface",
+            SpeakerPlacement::ElevatedStand => "Elevated Stand",
+            SpeakerPlacement::SoftSurfaceOrLap => "Lap/Soft Surface",
+            SpeakerPlacement::NearWallCorner => "Near Wall/Corner",
+            SpeakerPlacement::FreeField => "Free-Field",
+        }
+    }
+
+    pub fn speaker_target_label(&self) -> &'static str {
+        match self.speaker_target {
+            SpeakerCalibrationTarget::VocalClarity => "Vocal Clarity",
+            SpeakerCalibrationTarget::SpatialExpansion => "Spatial Expansion",
+            SpeakerCalibrationTarget::BassProtection => "Bass Protection",
+            SpeakerCalibrationTarget::FlatReference => "Flat Reference",
+        }
+    }
+
     pub fn source_amp_label(&self) -> &'static str {
         match self.source_amp {
             GearSourceAmp::PortableDongle => "Portable Dongle",
             GearSourceAmp::DesktopSolidState => "Desktop Solid-State",
             GearSourceAmp::TubeAmp => "Vacuum Tube",
             GearSourceAmp::BluetoothWireless => "Bluetooth Wireless",
+            GearSourceAmp::ActivePoweredMonitors => "Active Powered",
+            GearSourceAmp::PassiveWithStereoAmp => "Passive + Stereo Amp",
+            GearSourceAmp::BalancedAudioInterface => "Balanced Studio Interface",
         }
     }
 
@@ -1314,6 +1391,34 @@ impl AudiophileEnhancer {
                 self.subsonic_freq = 45.0;
                 // 4. Do not engage IEM de-harshing or mono-bass clamping
                 self.mono_bass = false;
+
+                // 5. Dynamic Placement adaptations
+                match gear.speaker_placement {
+                    SpeakerPlacement::ElevatedStand => {
+                        self.spatial_width = (self.spatial_width * 1.05).clamp(1.15, 1.65);
+                    }
+                    SpeakerPlacement::SoftSurfaceOrLap => {
+                        self.air_clarity_db = (self.air_clarity_db + 0.8).min(6.0);
+                    }
+                    _ => {}
+                }
+
+                // 6. Dynamic Calibration Target adaptations
+                match gear.speaker_target {
+                    SpeakerCalibrationTarget::VocalClarity => {
+                        self.air_clarity_db = (self.air_clarity_db + 1.0).min(6.0);
+                        self.deharsh_enabled = true;
+                        self.deharsh_amount = (self.deharsh_amount + 0.10).min(1.0);
+                    }
+                    SpeakerCalibrationTarget::SpatialExpansion => {
+                        self.spatial_width = (self.spatial_width * 1.10).clamp(1.20, 1.70);
+                    }
+                    SpeakerCalibrationTarget::BassProtection => {
+                        self.subsonic_freq = 52.0;
+                        self.tube_warmth = (self.tube_warmth + 0.08).min(0.5);
+                    }
+                    SpeakerCalibrationTarget::FlatReference => {}
+                }
             }
             GearFormFactor::DesktopBookshelfSpeakers => {
                 // Desktop Bookshelf Speakers:
@@ -1326,6 +1431,14 @@ impl AudiophileEnhancer {
                 self.subsonic_freq = 35.0;
                 // 4. Leave natural stereo bass intact for stereo sub-bass imaging
                 self.mono_bass = false;
+
+                // 5. Enclosure and boundary adaptations
+                if gear.enclosure == GearEnclosure::PortedRear && gear.speaker_placement == SpeakerPlacement::NearWallCorner {
+                    self.bass_punch_db = (self.bass_punch_db - 1.0).max(0.0);
+                }
+                if gear.speaker_placement == SpeakerPlacement::DeskSurface {
+                    self.deharsh_enabled = true;
+                }
             }
             GearFormFactor::InEar => {
                 // IEMs bypass pinna: enforce tighter sub-bass mono and gentle spatial cap
@@ -1341,6 +1454,9 @@ impl AudiophileEnhancer {
                 if gear.enclosure == GearEnclosure::ClosedBack {
                     self.spatial_width = (self.spatial_width * 1.15).clamp(0.5, 2.0);
                     self.deharsh_enabled = true;
+                }
+                if gear.coupling == GearCoupling::VelourPads {
+                    self.bass_punch_db = (self.bass_punch_db + 0.5).min(6.0);
                 }
             }
             GearFormFactor::BoneConduction => {
@@ -2371,6 +2487,8 @@ mod tests {
             coupling: GearCoupling::Silicone,
             tonal_balance: GearTonalBalance::AnalyticalBright,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::default(),
+            speaker_target: SpeakerCalibrationTarget::default(),
         };
         enh.apply_preset_with_gear(&preset, &iem_gear);
         assert!(enh.spatial_width <= 1.25, "IEM must cap spatial width <= 1.25: got {}", enh.spatial_width);
@@ -2378,5 +2496,47 @@ mod tests {
         assert!(enh.mono_bass_freq >= 85.0, "IEM mono bass frequency must be at least 85Hz");
         assert!(enh.deesser_enabled, "IEM should engage de-esser");
     }
+
+    #[test]
+    fn test_dynamic_speaker_placement_and_target_dsp_adaptations() {
+        let mut enh = AudiophileEnhancer::new(48000.0);
+        let preset = MasteringPreset::all()[0].clone();
+
+        // 1. Laptop on elevated stand with spatial expansion target
+        let mut laptop_gear = AcousticGearProfile::default_builtin_speakers("MacBook Pro");
+        laptop_gear.speaker_placement = SpeakerPlacement::ElevatedStand;
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::SpatialExpansion;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert!(enh.spatial_width >= 1.20, "Elevated stand + spatial expansion should widen stage: got {}", enh.spatial_width);
+        assert_eq!(enh.crossfeed, CrossfeedMode::Off);
+
+        // 2. Laptop on desk with vocal clarity target
+        laptop_gear.speaker_placement = SpeakerPlacement::DeskSurface;
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::VocalClarity;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert!(enh.deharsh_enabled, "Vocal clarity target should engage deharsh filter to tame boxiness");
+        assert!(enh.air_clarity_db >= 1.0, "Vocal clarity should lift upper speech presence");
+
+        // 3. Laptop with bass protection target
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::BassProtection;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert_eq!(enh.subsonic_freq, 52.0, "Bass protection target must engage tighter 52Hz subsonic guard");
+
+        // 4. Bookshelf speakers: rear ported close to wall corner
+        let mut bookshelf = AcousticGearProfile::default_bookshelf_speakers();
+        bookshelf.enclosure = GearEnclosure::PortedRear;
+        bookshelf.speaker_placement = SpeakerPlacement::NearWallCorner;
+        enh.apply_preset_with_gear(&preset, &bookshelf);
+        assert_eq!(enh.crossfeed, CrossfeedMode::Off);
+
+        // 5. Over-Ear with Velour pads
+        let mut overear = AcousticGearProfile::default();
+        overear.form_factor = GearFormFactor::OverEar;
+        overear.coupling = GearCoupling::VelourPads;
+        let baseline_bass = preset.bass_punch_db;
+        enh.apply_preset_with_gear(&preset, &overear);
+        assert!(enh.bass_punch_db >= baseline_bass, "Velour pads should gently compensate for porous seal");
+    }
 }
+
 
