@@ -702,31 +702,46 @@ impl GearWizardModal {
                 let marker = if self.is_multi_select_step() {
                     if is_checked { "[X] " } else { "[ ] " }
                 } else if is_sel {
-                    " ▸ "
+                    "(*) "
                 } else {
-                    "   "
+                    "( ) "
+                };
+
+                let marker_style = if is_sel {
+                    Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.text_dim)
                 };
 
                 let item_style = if is_sel {
-                    Style::default().fg(theme.accent).bg(theme.surface).add_modifier(Modifier::BOLD)
+                    Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(theme.text)
                 };
-
-                lines.push(Line::from(vec![
-                    Span::styled(marker, item_style),
-                    Span::styled(*label, item_style),
-                ]));
 
                 let desc_style = if is_sel {
                     Style::default().fg(theme.primary)
                 } else {
                     Style::default().fg(theme.text_dim)
                 };
-                lines.push(Line::from(vec![
-                    Span::styled("       └─ ", desc_style),
-                    Span::styled(*desc, desc_style),
-                ]));
+
+                if modal_w >= 80 {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!(" {} ", marker), marker_style),
+                        Span::styled(format!("{:<34} ", *label), item_style),
+                        Span::styled(format!("- {}", *desc), desc_style),
+                    ]));
+                    lines.push(Line::from(""));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!(" {} ", marker), marker_style),
+                        Span::styled(*label, item_style),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("       └─ ", desc_style),
+                        Span::styled(*desc, desc_style),
+                    ]));
+                }
             }
 
             let p_opts = Paragraph::new(lines);
