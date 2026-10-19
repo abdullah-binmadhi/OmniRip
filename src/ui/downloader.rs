@@ -3938,15 +3938,43 @@ impl DownloaderState {
                 };
 
                 let prefix = if is_sel { "> " } else { "  " };
-                let bar_width = 16;
+                let avail_w = table_inner.width as usize;
+                let (bar_width, title_col_w) = if avail_w < 95 {
+                    (10, avail_w.saturating_sub(74).clamp(14, 30))
+                } else if avail_w < 120 {
+                    (14, avail_w.saturating_sub(78).clamp(20, 36))
+                } else {
+                    (16, avail_w.saturating_sub(82).clamp(24, 48))
+                };
                 let filled = ((j.progress / 100.0) * bar_width as f32) as usize;
                 let bar = format!("[{}{}]", "=".repeat(filled.min(bar_width)), " ".repeat(bar_width.saturating_sub(filled)));
 
+                let disp_chars: Vec<char> = j.display_name.chars().collect();
+                let display_title = if disp_chars.len() <= title_col_w {
+                    format!("{:<w$}", j.display_name, w = title_col_w)
+                } else {
+                    // Stock tape marquee ticker for long titles
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    let tape_content = format!("{}    ***    ", j.display_name);
+                    let chars: Vec<char> = tape_content.chars().collect();
+                    let tape_len = chars.len();
+                    let step = (now_ms / 200) as usize;
+                    let offset = step % tape_len;
+                    let mut window = String::with_capacity(title_col_w);
+                    for k in 0..title_col_w {
+                        window.push(chars[(offset + k) % tape_len]);
+                    }
+                    window
+                };
+
                 let main_line = format!(
-                    "{}#{:<2} {:<30} {:<12} {:<14} {:>4.0}% {} {:<10} ETA: {}",
+                    "{}#{:<2} {} {:<12} {:<14} {:>4.0}% {} {:<10} ETA: {}",
                     prefix,
                     j.id,
-                    j.display_name,
+                    display_title,
                     j.quality.label(),
                     j.phase.short_label(),
                     j.progress,
@@ -6006,5 +6034,76 @@ mod tests {
         state.handle_key(KeyCode::Char('m'));
         assert_eq!(state.player.volume_pct(), 100);
         assert!(state.status_message.contains("UNMUTED"));
+    }
+
+    #[test]
+    fn test_active_downloads_queue_stock_tape_ticker_and_width_bounds() {
+        // Test width calculation bounds
+        let calculate_widths = |avail_w: usize| -> (usize, usize) {
+            if avail_w < 95 {
+                (10, avail_w.saturating_sub(74).clamp(14, 30))
+            } else if avail_w < 120 {
+                (14, avail_w.saturating_sub(78).clamp(20, 36))
+            } else {
+                (16, avail_w.saturating_sub(82).clamp(24, 48))
+            }
+        };
+
+        // Narrow terminal (80 cols)
+        let (bar_w_narrow, title_w_narrow) = calculate_widths(80);
+        assert_eq!(bar_w_narrow, 10);
+        assert_eq!(title_w_narrow, 14);
+
+        // Medium terminal (110 cols)
+        let (bar_w_med, title_w_med) = calculate_widths(110);
+        assert_eq!(bar_w_med, 14);
+        assert_eq!(title_w_med, 32);
+
+        // Wide terminal (160 cols)
+        let (bar_w_wide, title_w_wide) = calculate_widths(160);
+        assert_eq!(bar_w_wide, 16);
+        assert_eq!(title_w_wide, 48);
+
+        // Test ticker generation for short title vs long title
+        let short_title = "Short Track";
+        let long_title = "Unknown - High Forever (Marlon Hoffstadt Remix) | Cyberpunk: Edgerunners 2 (Original Series Soundtrack)";
+
+        let format_title = |name: &str, title_col_w: usize, now_ms: u64| -> String {
+            let disp_chars: Vec<char> = name.chars().collect();
+            if disp_chars.len() <= title_col_w {
+                format!("{:<w$}", name, w = title_col_w)
+            } else {
+                let tape_content = format!("{}    ***    ", name);
+                let chars: Vec<char> = tape_content.chars().collect();
+                let tape_len = chars.len();
+                let step = (now_ms / 200) as usize;
+                let offset = step % tape_len;
+                let mut window = String::with_capacity(title_col_w);
+                for k in 0..title_col_w {
+                    window.push(chars[(offset + k) % tape_len]);
+                }
+                window
+            }
+        };
+
+        // Short title stays exact column width and padded
+        let formatted_short = format_title(short_title, 24, 1000);
+        assert_eq!(formatted_short.chars().count(), 24);
+        assert!(formatted_short.starts_with("Short Track"));
+
+        // Long title ticker window matches title_col_w exactly
+        let formatted_long_step0 = format_title(long_title, 30, 0);
+        assert_eq!(formatted_long_step0.chars().count(), 30);
+        assert_eq!(formatted_long_step0, &long_title[..30]);
+
+        // Long title scrolls after time steps without overflowing width
+        let formatted_long_step5 = format_title(long_title, 30, 1000); // 1000ms / 200 = 5 steps
+        assert_eq!(formatted_long_step5.chars().count(), 30);
+        assert_eq!(formatted_long_step5, &long_title[5..35]);
+
+        // Multibyte unicode safety check
+        let unicode_title = "東京 ♫  — Cyber City [Lossless 24-bit/96kHz]";
+        let formatted_unicode = format_title(unicode_title, 20, 400);
+        assert_eq!(formatted_unicode.chars().count(), 20);
     }
 }
