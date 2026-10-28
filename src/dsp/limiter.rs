@@ -43,7 +43,6 @@ impl BrickwallLimiter {
 
         let thresh = self.threshold;
         let knee_start = thresh * 0.85; // 1.5 dB soft knee
-        let att_rate = 1.0 - (-1.0 / (self.sample_rate * 0.0015)).exp(); // 1.5 ms smooth attack
         let rel_rate = 1.0 - (-1.0 / (self.sample_rate * 0.050)).exp();  // 50 ms smooth release
         let mut max_in_peak = 0.0f32;
 
@@ -64,9 +63,9 @@ impl BrickwallLimiter {
                 1.0
             };
 
-            // Smooth attack and release filter (no single-sample step discontinuities)
+            // Instant attack capture with smooth exponential release for transparent peak control
             if target_gain < self.gain {
-                self.gain += (target_gain - self.gain) * att_rate;
+                self.gain = target_gain;
             } else {
                 self.gain += (target_gain - self.gain) * rel_rate;
             }

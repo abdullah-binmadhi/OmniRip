@@ -1,5 +1,6 @@
-use crate::harvest::library_sync::{DiscoveredCollection, DiscoveredTrackItem, LibrarySyncEngine, LibrarySyncProgress, LinkedAccountsConfig};
+use crate::harvest::library_sync::{DiscoveredCollection, DiscoveredTrackItem, LibrarySyncEngine, LibrarySyncProgress, LinkedAccountsConfig, TrackSortMode};
 use crate::harvest::StreamingService;
+use crate::ui::streaming_hub::{pad_display_str, truncate_display_str};
 use crate::ui::theme::ThemePalette;
 use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -9,20 +10,13 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use std::collections::{HashMap, HashSet};
 
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else if max_len > 1 {
-        let prefix: String = s.chars().take(max_len.saturating_sub(1)).collect();
-        format!("{}…", prefix)
-    } else {
-        s.chars().take(max_len).collect()
-    }
+    truncate_display_str(s, max_len)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AccountModalAction {
-    ImportCollections(Vec<DiscoveredCollection>, bool, bool),
-    ImportTracks(Vec<DiscoveredTrackItem>, bool, bool),
+    ImportCollections(Vec<DiscoveredCollection>, bool, TrackSortMode),
+    ImportTracks(Vec<DiscoveredTrackItem>, bool, TrackSortMode),
     Close,
 }
 
@@ -34,7 +28,7 @@ pub struct AccountSyncModal {
     pub youtube_input: String,
     pub youtube_browser: String,
     pub deduplicate: bool,
-    pub sort_by_artist: bool,
+    pub sort_mode: TrackSortMode,
     pub discovered_collections: Vec<DiscoveredCollection>,
     pub collection_list_state: ListState,
     pub selected_collection_idx: usize,
@@ -66,26 +60,39 @@ impl Default for AccountSyncModal {
 
 impl AccountSyncModal {
     pub fn new() -> Self {
-        let cfg = LinkedAccountsConfig::load();
-        let default_browser = if LibrarySyncEngine::detect_zen_browser_profiles().is_some() {
+        Self::new_with_config(LinkedAccountsConfig::load())
+    }
+
+    pub fn new_clean() -> Self {
+        Self::new_with_config(LinkedAccountsConfig::default())
+    }
+
+    pub fn new_with_config(cfg: LinkedAccountsConfig) -> Self {
+        let default_browser = if !cfg.youtube_browser.is_empty() {
+            cfg.youtube_browser.clone()
+        } else if LibrarySyncEngine::detect_zen_browser_profiles().is_some() {
             "zen".to_string()
-        } else if !cfg.youtube_browser.is_empty() {
-            cfg.youtube_browser
         } else {
             "chrome".to_string()
         };
 
+        let spotify_input = if !cfg.spotify_sources.is_empty() {
+            cfg.spotify_sources.join(", ")
+        } else {
+            cfg.spotify_profile.clone()
+        };
+
         let (loader_tx, loader_rx) = std::sync::mpsc::channel();
 
-        Self {
+        let modal = Self {
             is_open: false,
             focused_field: 0,
-            spotify_input: cfg.spotify_profile,
+            spotify_input,
             apple_input: cfg.apple_profile,
             youtube_input: cfg.youtube_profile,
             youtube_browser: default_browser,
             deduplicate: cfg.deduplicate,
-            sort_by_artist: cfg.sort_by_artist,
+            sort_mode: cfg.sort_mode,
             discovered_collections: Vec::new(),
             collection_list_state: ListState::default(),
             selected_collection_idx: 0,
@@ -105,30 +112,15 @@ impl AccountSyncModal {
             spotify_status: "Idle".to_string(),
             sync_progress_pct: 0,
             active_fetches: HashSet::new(),
-        }
+        };
+
+        modal
     }
 
     pub fn toggle(&mut self) {
         self.is_open = !self.is_open;
-        if self.is_open {
-            let cfg = LinkedAccountsConfig::load();
-            if self.spotify_input.is_empty() { self.spotify_input = cfg.spotify_profile; }
-            if self.apple_input.is_empty() { self.apple_input = cfg.apple_profile; }
-            if self.youtube_input.is_empty() { self.youtube_input = cfg.youtube_profile; }
-            if self.youtube_browser.is_empty() {
-                self.youtube_browser = if LibrarySyncEngine::detect_zen_browser_profiles().is_some() {
-                    "zen".to_string()
-                } else {
-                    cfg.youtube_browser
-                };
-            }
-            self.deduplicate = cfg.deduplicate;
-            self.sort_by_artist = cfg.sort_by_artist;
-
-            // Auto-detect on open if collections list is currently empty
-            if self.discovered_collections.is_empty() {
-                self.auto_detect();
-            }
+        if self.is_open && self.discovered_collections.is_empty() {
+            self.scan_accounts();
         }
     }
 
@@ -143,8 +135,12 @@ impl AccountSyncModal {
         }
         match self.focused_field {
             0 => {
-                self.spotify_input = clean.to_string();
-                self.status_message = format!("Pasted Spotify Profile URL: {}", clean);
+                if !self.spotify_input.trim().is_empty() && !self.spotify_input.contains(clean) {
+                    self.spotify_input = format!("{}, {}", self.spotify_input.trim(), clean);
+                } else {
+                    self.spotify_input = clean.to_string();
+                }
+                self.status_message = format!("Pasted Spotify URL: {}", clean);
             }
             1 => {
                 self.apple_input = clean.to_string();
@@ -155,9 +151,13 @@ impl AccountSyncModal {
                 self.status_message = format!("Pasted YouTube URL: {}", clean);
             }
             _ => {
-                if clean.contains("spotify.com") {
-                    self.spotify_input = clean.to_string();
-                    self.status_message = format!("Pasted Spotify Profile URL: {}", clean);
+                if clean.contains("spotify.com") || clean.starts_with("spotify:") {
+                    if !self.spotify_input.trim().is_empty() && !self.spotify_input.contains(clean) {
+                        self.spotify_input = format!("{}, {}", self.spotify_input.trim(), clean);
+                    } else {
+                        self.spotify_input = clean.to_string();
+                    }
+                    self.status_message = format!("Pasted Spotify URL: {}", clean);
                 } else if clean.contains("apple.com") || clean.contains("itunes.apple.com") {
                     self.apple_input = clean.to_string();
                     self.status_message = format!("Pasted Apple Music URL: {}", clean);
@@ -168,16 +168,32 @@ impl AccountSyncModal {
             }
         }
         self.save_config();
+        if clean.starts_with("http://") || clean.starts_with("https://") || clean.starts_with("spotify:") {
+            self.scan_accounts();
+        }
     }
 
     pub fn save_config(&self) {
+        let spotify_sources: Vec<String> = self.spotify_input
+            .split(&[',', ';', '\n'][..])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let first_spotify = spotify_sources.first().cloned().unwrap_or_else(|| self.spotify_input.trim().to_string());
+
+        let existing = LinkedAccountsConfig::load();
         let cfg = LinkedAccountsConfig {
-            spotify_profile: self.spotify_input.clone(),
+            spotify_profile: first_spotify,
+            spotify_sources,
             apple_profile: self.apple_input.clone(),
             youtube_profile: self.youtube_input.clone(),
             youtube_browser: self.youtube_browser.clone(),
             deduplicate: self.deduplicate,
-            sort_by_artist: self.sort_by_artist,
+            sort_mode: self.sort_mode,
+            sort_by_artist: None,
+            divider_platform_priority: existing.divider_platform_priority,
+            divider_sub_sort: existing.divider_sub_sort,
         };
         cfg.save();
     }
@@ -264,7 +280,9 @@ impl AccountSyncModal {
                         }
                         if let Some(col) = self.discovered_collections.get(self.selected_collection_idx) {
                             if col.id == collection_id {
-                                self.current_tracks = tracks;
+                                let mut sorted = tracks;
+                                LibrarySyncEngine::sort_track_items(&mut sorted, self.sort_mode);
+                                self.current_tracks = sorted;
                                 self.is_loading_tracks = false;
                                 self.selected_track_idx = 0;
                                 self.track_list_state.select(if self.current_tracks.is_empty() { None } else { Some(0) });
@@ -298,11 +316,16 @@ impl AccountSyncModal {
                     self.tracks_cache.insert(col_id.clone(), items.clone());
                     if let Some(col) = self.discovered_collections.iter_mut().find(|c| c.id == col_id) {
                         col.track_count = items.len();
+                        if !items[0].album.is_empty() && items[0].album != "Spotify Collection" && items[0].album != "Spotify Target Playlist" {
+                            col.title = items[0].album.clone();
+                        }
                     }
                 }
                 if let Some(col) = self.discovered_collections.get(self.selected_collection_idx) {
                     if col.id == col_id {
-                        self.current_tracks = items;
+                        let mut sorted = items;
+                        LibrarySyncEngine::sort_track_items(&mut sorted, self.sort_mode);
+                        self.current_tracks = sorted;
                         self.is_loading_tracks = false;
                         self.selected_track_idx = 0;
                         self.track_list_state.select(if self.current_tracks.is_empty() { None } else { Some(0) });
@@ -320,9 +343,31 @@ impl AccountSyncModal {
         self.tracks_cache.clear();
         self.current_tracks.clear();
 
-        // 1. Spotify
-        if let Ok(mut cols) = LibrarySyncEngine::scan_spotify(&self.spotify_input) {
-            self.discovered_collections.append(&mut cols);
+        // 1. Spotify (support multiple comma-, semicolon-, or newline-separated URLs or configured sources)
+        let mut spotify_urls: Vec<String> = self.spotify_input
+            .split(&[',', ';', '\n'][..])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let cfg = LinkedAccountsConfig::load();
+        for src in &cfg.spotify_sources {
+            let trimmed = src.trim().to_string();
+            if !trimmed.is_empty() && !spotify_urls.contains(&trimmed) {
+                spotify_urls.push(trimmed);
+            }
+        }
+        if !cfg.spotify_profile.trim().is_empty() && !spotify_urls.contains(&cfg.spotify_profile.trim().to_string()) {
+            spotify_urls.push(cfg.spotify_profile.trim().to_string());
+        }
+
+        let mut seen_spotify = HashSet::new();
+        for sp_url in &spotify_urls {
+            if seen_spotify.insert(sp_url.clone()) {
+                if let Ok(mut cols) = LibrarySyncEngine::scan_spotify(sp_url) {
+                    self.discovered_collections.append(&mut cols);
+                }
+            }
         }
 
         // 2. Apple Music
@@ -339,9 +384,8 @@ impl AccountSyncModal {
         self.selected_collection_idx = 0;
         if !self.discovered_collections.is_empty() {
             self.collection_list_state.select(Some(0));
-            self.focused_field = 6;
             self.load_tracks_for_selected_collection();
-            self.status_message = format!("Found {} library collections. Use [Right] to drill down into songs.", self.discovered_collections.len());
+            self.status_message = format!("Found {} library collections. Press [Tab] to drill down into songs.", self.discovered_collections.len());
         } else {
             self.status_message = "No library collections discovered. Verify URLs or browser selection.".to_string();
         }
@@ -352,7 +396,9 @@ impl AccountSyncModal {
         if let Some(col) = self.discovered_collections.get(self.selected_collection_idx) {
             let col_id = col.id.clone();
             if let Some(cached) = self.tracks_cache.get(&col_id) {
-                self.current_tracks = cached.clone();
+                let mut sorted = cached.clone();
+                LibrarySyncEngine::sort_track_items(&mut sorted, self.sort_mode);
+                self.current_tracks = sorted;
                 self.is_loading_tracks = false;
                 self.selected_track_idx = 0;
                 self.track_list_state.select(if self.current_tracks.is_empty() { None } else { Some(0) });
@@ -386,6 +432,77 @@ impl AccountSyncModal {
             KeyCode::Esc => {
                 self.is_open = false;
                 return Some(AccountModalAction::Close);
+            }
+            KeyCode::Enter => {
+                if self.focused_field <= 2 {
+                    self.scan_accounts();
+                } else if self.focused_field == 3 {
+                    self.youtube_browser = match self.youtube_browser.as_str() {
+                        "zen" => "chrome".to_string(),
+                        "chrome" => "safari".to_string(),
+                        "safari" => "edge".to_string(),
+                        "edge" => "brave".to_string(),
+                        "brave" => "firefox".to_string(),
+                        _ => "zen".to_string(),
+                    };
+                    self.save_config();
+                } else if self.focused_field == 4 {
+                    self.deduplicate = !self.deduplicate;
+                    self.save_config();
+                } else if self.focused_field == 5 {
+                    self.sort_mode = self.sort_mode.next();
+                    LibrarySyncEngine::sort_track_items(&mut self.current_tracks, self.sort_mode);
+                    self.status_message = format!("Track sort mode: {}", self.sort_mode.label());
+                    self.save_config();
+                } else if self.focused_field == 6 {
+                    if !self.current_tracks.is_empty() {
+                        self.focused_field = 7;
+                    } else if !self.discovered_collections.is_empty() {
+                        self.load_tracks_for_selected_collection();
+                    }
+                } else if self.focused_field == 7 && !self.current_tracks.is_empty() {
+                    let mut tracks_to_import = Vec::new();
+                    if let Some(col) = self.discovered_collections.get(self.selected_collection_idx) {
+                        self.tracks_cache.insert(col.id.clone(), self.current_tracks.clone());
+                    }
+                    for col in &self.discovered_collections {
+                        if col.is_selected {
+                            let col_tracks: Vec<DiscoveredTrackItem> = if let Some(cached) = self.tracks_cache.get(&col.id) {
+                                cached.iter().filter(|t| t.is_selected).cloned().collect()
+                            } else {
+                                let items = LibrarySyncEngine::fetch_track_items_for_collection(col, &self.youtube_browser);
+                                items.into_iter().filter(|t| t.is_selected).collect()
+                            };
+                            let n = col_tracks.len();
+                            for (idx, mut t) in col_tracks.into_iter().enumerate() {
+                                t.library_name = col.title.clone();
+                                t.service = col.service;
+                                t.added_order = if n > 0 { ((idx as u64 + 1) * 1_000_000) / (n as u64) } else { 0 };
+                                tracks_to_import.push(t);
+                            }
+                        }
+                    }
+                    if tracks_to_import.is_empty() && !self.current_tracks.is_empty() {
+                        let col = self.discovered_collections.get(self.selected_collection_idx);
+                        let lib_title = col.map(|c| c.title.clone()).unwrap_or_else(|| "Imported Library".to_string());
+                        let lib_service = col.map(|c| c.service).unwrap_or(StreamingService::Unknown);
+
+                        let selected: Vec<DiscoveredTrackItem> = self.current_tracks.iter().filter(|t| t.is_selected).cloned().collect();
+                        let raw = if selected.is_empty() { self.current_tracks.clone() } else { selected };
+                        let n = raw.len();
+                        for (idx, mut t) in raw.into_iter().enumerate() {
+                            t.library_name = lib_title.clone();
+                            t.service = lib_service;
+                            t.added_order = if n > 0 { ((idx as u64 + 1) * 1_000_000) / (n as u64) } else { 0 };
+                            tracks_to_import.push(t);
+                        }
+                    }
+                    LibrarySyncEngine::sort_track_items(&mut tracks_to_import, self.sort_mode);
+                    if !tracks_to_import.is_empty() {
+                        self.is_open = false;
+                        return Some(AccountModalAction::ImportTracks(tracks_to_import, self.deduplicate, self.sort_mode));
+                    }
+                }
             }
             KeyCode::Tab => {
                 self.focused_field = (self.focused_field + 1) % 8;
@@ -444,31 +561,68 @@ impl AccountSyncModal {
 
                 for col in &self.discovered_collections {
                     if col.is_selected {
-                        if let Some(cached) = self.tracks_cache.get(&col.id) {
-                            let selected_tracks: Vec<DiscoveredTrackItem> = cached.iter().filter(|t| t.is_selected).cloned().collect();
-                            tracks_to_import.extend(selected_tracks);
+                        let col_tracks: Vec<DiscoveredTrackItem> = if let Some(cached) = self.tracks_cache.get(&col.id) {
+                            cached.iter().filter(|t| t.is_selected).cloned().collect()
                         } else {
                             // If collection was checked but never drilled down into, load its tracks
                             let items = LibrarySyncEngine::fetch_track_items_for_collection(col, &self.youtube_browser);
-                            let selected_tracks: Vec<DiscoveredTrackItem> = items.into_iter().filter(|t| t.is_selected).collect();
-                            tracks_to_import.extend(selected_tracks);
+                            items.into_iter().filter(|t| t.is_selected).collect()
+                        };
+                        let n = col_tracks.len();
+                        for (idx, mut t) in col_tracks.into_iter().enumerate() {
+                            t.library_name = col.title.clone();
+                            t.service = col.service;
+                            t.added_order = if n > 0 { ((idx as u64 + 1) * 1_000_000) / (n as u64) } else { 0 };
+                            tracks_to_import.push(t);
                         }
                     }
                 }
 
+                // Fallback: If no collection checkbox was ticked, but user is viewing tracks in the right pane
+                if tracks_to_import.is_empty() && !self.current_tracks.is_empty() {
+                    let col = self.discovered_collections.get(self.selected_collection_idx);
+                    let lib_title = col.map(|c| c.title.clone()).unwrap_or_else(|| "Imported Library".to_string());
+                    let lib_service = col.map(|c| c.service).unwrap_or(StreamingService::Unknown);
+
+                    let selected: Vec<DiscoveredTrackItem> = self.current_tracks.iter().filter(|t| t.is_selected).cloned().collect();
+                    let raw = if selected.is_empty() {
+                        self.current_tracks.clone()
+                    } else {
+                        selected
+                    };
+                    let n = raw.len();
+                    for (idx, mut t) in raw.into_iter().enumerate() {
+                        t.library_name = lib_title.clone();
+                        t.service = lib_service;
+                        t.added_order = if n > 0 { ((idx as u64 + 1) * 1_000_000) / (n as u64) } else { 0 };
+                        tracks_to_import.push(t);
+                    }
+                }
+
+                // Explicitly sort tracks_to_import using the chosen sort_mode
+                LibrarySyncEngine::sort_track_items(&mut tracks_to_import, self.sort_mode);
+
                 if !tracks_to_import.is_empty() {
                     self.is_open = false;
-                    return Some(AccountModalAction::ImportTracks(tracks_to_import, self.deduplicate, self.sort_by_artist));
+                    return Some(AccountModalAction::ImportTracks(tracks_to_import, self.deduplicate, self.sort_mode));
                 } else {
                     self.status_message = "No tracks selected! Check at least one song or collection.".to_string();
                 }
+            }
+            KeyCode::Char('o') | KeyCode::Char('O') if self.focused_field >= 3 => {
+                self.sort_mode = self.sort_mode.next();
+                LibrarySyncEngine::sort_track_items(&mut self.current_tracks, self.sort_mode);
+                self.status_message = format!("Track sort mode: {}", self.sort_mode.label());
+                self.save_config();
             }
             KeyCode::Char(' ') => {
                 if self.focused_field == 4 {
                     self.deduplicate = !self.deduplicate;
                     self.save_config();
                 } else if self.focused_field == 5 {
-                    self.sort_by_artist = !self.sort_by_artist;
+                    self.sort_mode = self.sort_mode.next();
+                    LibrarySyncEngine::sort_track_items(&mut self.current_tracks, self.sort_mode);
+                    self.status_message = format!("Track sort mode: {}", self.sort_mode.label());
                     self.save_config();
                 } else if self.focused_field == 6 && !self.discovered_collections.is_empty() {
                     if let Some(col) = self.discovered_collections.get_mut(self.selected_collection_idx) {
@@ -628,7 +782,7 @@ impl AccountSyncModal {
             Span::raw("  "),
             Span::styled(format!(" [{}] Deduplicate ", if self.deduplicate { "X" } else { " " }), dedup_style.add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(format!(" [{}] Organize A-Z ", if self.sort_by_artist { "X" } else { " " }), sort_style.add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" [Sort: {}] ", self.sort_mode.label()), sort_style.add_modifier(Modifier::BOLD)),
         ]);
         f.render_widget(Paragraph::new(settings_line), sections[1]);
 
@@ -707,7 +861,7 @@ impl AccountSyncModal {
                     .trim_start_matches("Spotify Collection: ")
                     .trim();
                 let max_name_len = (col_inner.width as usize).saturating_sub(18).max(6);
-                let display_title = truncate_str(clean_title, max_name_len);
+                let display_title = pad_display_str(clean_title, max_name_len);
                 let is_fetching = self.active_fetches.contains(&col.id);
                 let count_or_loading = if is_fetching {
                     Span::styled(" [Loading...]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
@@ -718,7 +872,8 @@ impl AccountSyncModal {
                     Span::styled(if is_sel { "> " } else { "  " }, Style::default().fg(theme.accent)),
                     Span::styled(format!("{} ", chk), Style::default().fg(if col.is_selected { theme.success } else { theme.text_dim })),
                     Span::styled(badge, Style::default().fg(badge_color).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{:<width$} ", display_title, width = max_name_len), if is_sel && is_left_focused { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
+                    Span::styled(display_title, if is_sel && is_left_focused { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
+                    Span::raw(" "),
                     count_or_loading,
                 ]);
                 ListItem::new(line)
@@ -753,9 +908,12 @@ impl AccountSyncModal {
             f.render_widget(Paragraph::new(loading_lines).style(Style::default().fg(theme.text_dim)).alignment(Alignment::Center), track_inner);
         } else if self.current_tracks.is_empty() {
             let selected_col = self.discovered_collections.get(self.selected_collection_idx);
-            let is_spotify = selected_col.map(|c| c.service == crate::harvest::StreamingService::Spotify || c.url.contains("spotify.com")).unwrap_or(false);
+            let is_private_spotify_profile = selected_col.map(|c| {
+                (c.service == crate::harvest::StreamingService::Spotify || c.url.contains("spotify.com"))
+                    && (c.url.contains("/user/") || c.url.contains("/collection/tracks"))
+            }).unwrap_or(false);
 
-            if is_spotify {
+            if is_private_spotify_profile {
                 let instructions = vec![
                     Line::from(vec![
                         Span::styled("[!] Spotify Private Collection / Profile Detected", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -797,23 +955,24 @@ impl AccountSyncModal {
             }
         } else {
             let total_w = track_inner.width as usize;
-            let rem_w = total_w.saturating_sub(18);
-            let title_w = (rem_w * 55 / 100).max(10);
-            let artist_w = rem_w.saturating_sub(title_w).max(8);
+            let fixed_w = 17; // pointer (2) + chk (4) + sep1 (3) + sep2 (3) + dur (5)
+            let rem_w = total_w.saturating_sub(fixed_w);
+            let title_w = if rem_w >= 16 { (rem_w * 55) / 100 } else { rem_w / 2 };
+            let artist_w = rem_w.saturating_sub(title_w);
 
             let track_items: Vec<ListItem> = self.current_tracks.iter().enumerate().map(|(idx, t)| {
                 let is_sel = idx == self.selected_track_idx;
                 let chk = if t.is_selected { "[X]" } else { "[ ]" };
                 let dur_str = t.duration_secs.map(|d| format!("{:02}:{:02}", d / 60, d % 60)).unwrap_or_else(|| "--:--".to_string());
-                let disp_title = truncate_str(&t.title, title_w);
-                let disp_artist = truncate_str(&t.artist, artist_w);
+                let disp_title = pad_display_str(&t.title, title_w);
+                let disp_artist = pad_display_str(&t.artist, artist_w);
 
                 let line = Line::from(vec![
                     Span::styled(if is_sel { "> " } else { "  " }, Style::default().fg(theme.accent)),
                     Span::styled(format!("{} ", chk), Style::default().fg(if t.is_selected { theme.success } else { theme.text_dim }).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{:<width$}", disp_title, width = title_w), if is_sel && is_right_focused { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
+                    Span::styled(disp_title, if is_sel && is_right_focused { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
                     Span::styled(" | ", Style::default().fg(theme.border)),
-                    Span::styled(format!("{:<width$}", disp_artist, width = artist_w), Style::default().fg(theme.text_dim)),
+                    Span::styled(disp_artist, Style::default().fg(theme.text_dim)),
                     Span::styled(" | ", Style::default().fg(theme.border)),
                     Span::styled(dur_str, Style::default().fg(theme.accent)),
                 ]);
@@ -847,18 +1006,39 @@ impl AccountSyncModal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::streaming_hub::unicode_display_width;
 
     #[test]
     fn test_account_sync_modal_initialization() {
-        let modal = AccountSyncModal::new();
+        let modal = AccountSyncModal::new_clean();
         assert!(!modal.is_open);
         assert!(modal.deduplicate);
-        assert!(modal.sort_by_artist);
+        assert_eq!(modal.sort_mode, TrackSortMode::ArtistAZ);
+    }
+
+    #[test]
+    fn test_account_sync_modal_sort_cycle_and_cjk_boundary_padding() {
+        let mut modal = AccountSyncModal::new_clean();
+        modal.focused_field = 5; // Sort field
+        assert_eq!(modal.sort_mode, TrackSortMode::ArtistAZ);
+
+        // Press Enter or Space to cycle sort mode (ArtistAZ -> ArtistZA)
+        modal.handle_key(KeyCode::Enter);
+        assert_eq!(modal.sort_mode, TrackSortMode::ArtistZA);
+
+        // Press 'o' hotkey to cycle again (ArtistZA -> DurationShortest)
+        modal.handle_key(KeyCode::Char('o'));
+        assert_eq!(modal.sort_mode, TrackSortMode::DurationShortest);
+
+        // Verify CJK string display width padding does not exceed allocated budget
+        let cjk_title = "堕堕異灰児 - 生きる";
+        let padded = pad_display_str(cjk_title, 20);
+        assert_eq!(unicode_display_width(&padded), 20);
     }
 
     #[test]
     fn test_account_sync_modal_toggle_and_paste() {
-        let mut modal = AccountSyncModal::new();
+        let mut modal = AccountSyncModal::new_clean();
         modal.toggle();
         assert!(modal.is_open);
 
@@ -904,6 +1084,9 @@ mod tests {
                 album: "Album".to_string(),
                 duration_secs: Some(200),
                 is_selected: true,
+                library_name: "my general taste".to_string(),
+                service: StreamingService::YouTubeMusic,
+                added_order: i as u64,
             });
         }
         if let Some(tx) = &modal.track_loader_tx {
@@ -940,6 +1123,9 @@ mod tests {
                 album: "Old Album".to_string(),
                 duration_secs: Some(180),
                 is_selected: true,
+                library_name: "Favorites".to_string(),
+                service: StreamingService::Spotify,
+                added_order: 1,
             }
         ]);
         assert!(modal.tracks_cache.contains_key("pl_favorites"));
@@ -968,5 +1154,81 @@ mod tests {
         let selected_col = modal.discovered_collections.get(modal.selected_collection_idx);
         let is_spotify = selected_col.map(|c| c.service == StreamingService::Spotify || c.url.contains("spotify.com")).unwrap_or(false);
         assert!(is_spotify);
+    }
+
+    #[test]
+    fn test_account_sync_modal_enter_key_and_paste_auto_scan() {
+        let mut modal = AccountSyncModal::new_clean();
+        modal.focused_field = 0;
+        let playlist_url = "https://open.spotify.com/playlist/3xxIH8OGgk1aBQgUmlJVqZ?si=7a4f531d8d1f4622";
+        modal.paste(playlist_url);
+
+        // Paste must set input and auto-trigger scan
+        assert_eq!(modal.spotify_input, playlist_url);
+        assert!(!modal.discovered_collections.is_empty());
+        assert_eq!(modal.discovered_collections[0].service, StreamingService::Spotify);
+
+        // Pressing Enter must also trigger scan_accounts
+        modal.discovered_collections.clear();
+        assert!(modal.discovered_collections.is_empty());
+        modal.handle_key(KeyCode::Enter);
+        assert!(!modal.discovered_collections.is_empty());
+    }
+
+    #[test]
+    fn test_account_sync_modal_import_key_sorts_and_falls_back_to_current_tracks() {
+        let mut modal = AccountSyncModal::new();
+        modal.focused_field = 7; // In right tracklist pane
+        modal.discovered_collections.push(DiscoveredCollection {
+            id: "col_1".to_string(),
+            title: "My Playlist".to_string(),
+            url: "https://music.youtube.com/playlist?list=PL1".to_string(),
+            service: StreamingService::YouTubeMusic,
+            track_count: 2,
+            is_selected: false, // User didn't check the collection checkbox on the left!
+        });
+        modal.selected_collection_idx = 0;
+
+        // Current tracks loaded in right pane
+        modal.current_tracks = vec![
+            DiscoveredTrackItem {
+                id: "track_z".to_string(),
+                title: "Zebra Song".to_string(),
+                artist: "Zebra".to_string(),
+                album: "Z Album".to_string(),
+                duration_secs: Some(300),
+                is_selected: true,
+                library_name: "My Playlist".to_string(),
+                service: StreamingService::YouTubeMusic,
+                added_order: 1,
+            },
+            DiscoveredTrackItem {
+                id: "track_a".to_string(),
+                title: "Alpha Song".to_string(),
+                artist: "Alpha".to_string(),
+                album: "A Album".to_string(),
+                duration_secs: Some(150),
+                is_selected: true,
+                library_name: "My Playlist".to_string(),
+                service: StreamingService::YouTubeMusic,
+                added_order: 2,
+            },
+        ];
+
+        modal.sort_mode = TrackSortMode::TitleAZ;
+
+        // Press 'i' to import
+        let action = modal.handle_key(KeyCode::Char('i'));
+        assert!(action.is_some());
+        if let Some(AccountModalAction::ImportTracks(imported, dedup, sort)) = action {
+            assert_eq!(imported.len(), 2);
+            assert!(dedup);
+            assert_eq!(sort, TrackSortMode::TitleAZ);
+            // Imported items MUST be sorted according to sort_mode: "Alpha Song" before "Zebra Song"
+            assert_eq!(imported[0].title, "Alpha Song");
+            assert_eq!(imported[1].title, "Zebra Song");
+        } else {
+            panic!("Expected ImportTracks action");
+        }
     }
 }

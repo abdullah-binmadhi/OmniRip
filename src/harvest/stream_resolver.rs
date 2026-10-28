@@ -158,11 +158,57 @@ pub fn normalize_query(query: &str) -> String {
 pub struct StreamResolver;
 
 impl StreamResolver {
+    /// Probes the local temporary cache to determine if audio for this track is already downloaded.
+    /// Returns immediately without blocking or network access.
+    pub fn find_cached_audio_file(query: &str, artist: &str, title: &str) -> Option<(PathBuf, AudioQualityTier, String)> {
+        let clean_artist = artist.trim();
+        let clean_title = title.trim();
+        let is_various = clean_artist.eq_ignore_ascii_case("various artists")
+            || clean_artist.eq_ignore_ascii_case("unknown artist")
+            || clean_artist.eq_ignore_ascii_case("unknown");
+
+        let query_key = if !clean_artist.is_empty() && !is_various && !clean_title.is_empty() {
+            format!("{} - {}", clean_artist, clean_title)
+        } else if !clean_title.is_empty() {
+            clean_title.to_string()
+        } else {
+            query.to_string()
+        };
+        let temp_dir = std::env::temp_dir();
+        let safe_name = crate::harvest::yt_dlp::sanitize_filename(&query_key);
+        for ext in &["flac", "opus", "webm", "m4a", "mp3"] {
+            let candidate = temp_dir.join(format!("omnirip_stream_{}.{}", safe_name, ext));
+            if candidate.exists() {
+                if let Ok(meta) = fs::metadata(&candidate) {
+                    if meta.len() > 50_000 {
+                        let tier = if *ext == "flac" {
+                            if meta.len() > 30_000_000 { AudioQualityTier::HiResFlac24 } else { AudioQualityTier::CdFlac16 }
+                        } else if meta.len() > 6_000_000 {
+                            AudioQualityTier::StudioLossy320
+                        } else {
+                            AudioQualityTier::CloudOpus160
+                        };
+                        return Some((candidate, tier, format!("{} (Instant Cache)", tier.label())));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Resolves and fetches an audio file for a track query or URL, returning local audio file path, quality tier, and label.
     pub fn resolve_and_fetch_audio(query: &str, artist: &str, title: &str) -> Result<(PathBuf, AudioQualityTier, String), String> {
         let mut cache = StreamCacheStore::load();
-        let query_key = if !artist.is_empty() && !title.is_empty() {
-            format!("{} - {}", artist, title)
+        let clean_artist = artist.trim();
+        let clean_title = title.trim();
+        let is_various = clean_artist.eq_ignore_ascii_case("various artists")
+            || clean_artist.eq_ignore_ascii_case("unknown artist")
+            || clean_artist.eq_ignore_ascii_case("unknown");
+
+        let query_key = if !clean_artist.is_empty() && !is_various && !clean_title.is_empty() {
+            format!("{} - {}", clean_artist, clean_title)
+        } else if !clean_title.is_empty() {
+            clean_title.to_string()
         } else {
             query.to_string()
         };
@@ -217,16 +263,27 @@ impl StreamResolver {
         }
 
         // Direct Cloud Ingestion via yt-dlp: Native Opus 256k / Highest Bitrate Audio
-        let is_direct_url = (query.starts_with("http://") || query.starts_with("https://"))
+        let is_direct_streamable_url = (query.starts_with("http://") || query.starts_with("https://"))
             && !query.contains("/playlist")
-            && !query.contains("list=");
+            && !query.contains("list=")
+            && !query.contains("spotify.com")
+            && !query.contains("apple.com")
+            && !query.contains("deezer.com")
+            && !query.contains("tidal.com");
 
-        let primary_query = if is_direct_url {
+        let clean_artist = artist.trim();
+        let clean_title = title.trim();
+
+        let primary_query = if is_direct_streamable_url {
             query.to_string()
-        } else if !artist.is_empty() && !title.is_empty() {
-            format!("ytsearch1:{} - {}", artist, title)
+        } else if !clean_artist.is_empty() && !is_various && !clean_title.is_empty() {
+            format!("ytsearch1:{} - {}", clean_artist, clean_title)
+        } else if !clean_title.is_empty() {
+            format!("ytsearch1:{}", clean_title)
+        } else if !clean_artist.is_empty() && !is_various {
+            format!("ytsearch1:{}", clean_artist)
         } else {
-            format!("ytsearch1:{}", query)
+            format!("ytsearch1:{}", query.trim())
         };
 
         let output_template = temp_dir.join(format!("omnirip_stream_{}.%(ext)s", safe_name));
@@ -235,9 +292,10 @@ impl StreamResolver {
             let mut cmd = Command::new("yt-dlp");
             cmd.args([
                 "-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
-                "--no-part",
                 "--no-playlist",
-                "--buffer-size", "16K",
+                "-N", "16",
+                "--concurrent-fragments", "16",
+                "--buffer-size", "64K",
                 "-o", output_template.to_str().unwrap_or("/tmp/omnirip_stream.%(ext)s"),
             ]);
             if let Some(zen_profile) = crate::harvest::library_sync::LibrarySyncEngine::detect_zen_browser_profiles() {
@@ -251,8 +309,11 @@ impl StreamResolver {
             Ok(out) if out.status.success() => out,
             Ok(failed_out) => {
                 // If primary query failed and was a direct URL or specific query, attempt clean fallback search
-                if is_direct_url && !artist.is_empty() && !title.is_empty() {
-                    let fallback_q = format!("ytsearch1:{} - {}", artist, title);
+                if is_direct_streamable_url && !clean_artist.is_empty() && !is_various && !clean_title.is_empty() {
+                    let fallback_q = format!("ytsearch1:{} - {}", clean_artist, clean_title);
+                    execute_ytdlp(&fallback_q).unwrap_or(failed_out)
+                } else if is_direct_streamable_url && !clean_title.is_empty() {
+                    let fallback_q = format!("ytsearch1:{}", clean_title);
                     execute_ytdlp(&fallback_q).unwrap_or(failed_out)
                 } else {
                     failed_out

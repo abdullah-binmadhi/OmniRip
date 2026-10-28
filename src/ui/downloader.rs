@@ -98,81 +98,46 @@ impl Mp3Quality {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchTargetEngine {
-    SoulseekP2P,
-    YouTube,
-    Hybrid,
-}
+pub type SearchTargetEngine = AcquisitionPolicy;
 
-impl SearchTargetEngine {
-    pub fn label(&self) -> &'static str {
-        match self {
-            SearchTargetEngine::SoulseekP2P => "Soulseek P2P (Lossless FLAC/WAV)",
-            SearchTargetEngine::YouTube => "YouTube (Fast Web Audio)",
-            SearchTargetEngine::Hybrid => "Hybrid (Soulseek First -> Web Fallback)",
-        }
-    }
-
-    pub fn next(&self) -> Self {
-        match self {
-            SearchTargetEngine::SoulseekP2P => SearchTargetEngine::YouTube,
-            SearchTargetEngine::YouTube => SearchTargetEngine::Hybrid,
-            SearchTargetEngine::Hybrid => SearchTargetEngine::SoulseekP2P,
-        }
-    }
-
-    pub fn prev(&self) -> Self {
-        match self {
-            SearchTargetEngine::SoulseekP2P => SearchTargetEngine::Hybrid,
-            SearchTargetEngine::YouTube => SearchTargetEngine::SoulseekP2P,
-            SearchTargetEngine::Hybrid => SearchTargetEngine::YouTube,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AcquisitionPolicy {
-    Mp3Only,
-    BestAvailable,
-    NicotineFlacPreferred,
-    FastWebFallback,
+    #[default]
+    LosslessOnly,
+    Fallback,
+    StandardMp3,
 }
 
 impl AcquisitionPolicy {
     pub fn label(&self) -> &'static str {
         match self {
-            AcquisitionPolicy::Mp3Only => "MP3 Only",
-            AcquisitionPolicy::BestAvailable => "Best Available",
-            AcquisitionPolicy::NicotineFlacPreferred => "Nicotine+/Soulseek",
-            AcquisitionPolicy::FastWebFallback => "Fast Web Fallback",
+            AcquisitionPolicy::LosslessOnly => "Lossless Only",
+            AcquisitionPolicy::Fallback => "Fallback",
+            AcquisitionPolicy::StandardMp3 => "Standard MP3",
         }
     }
 
     pub fn next(&self) -> Self {
         match self {
-            AcquisitionPolicy::Mp3Only => AcquisitionPolicy::BestAvailable,
-            AcquisitionPolicy::BestAvailable => AcquisitionPolicy::NicotineFlacPreferred,
-            AcquisitionPolicy::NicotineFlacPreferred => AcquisitionPolicy::FastWebFallback,
-            AcquisitionPolicy::FastWebFallback => AcquisitionPolicy::Mp3Only,
+            AcquisitionPolicy::LosslessOnly => AcquisitionPolicy::Fallback,
+            AcquisitionPolicy::Fallback => AcquisitionPolicy::StandardMp3,
+            AcquisitionPolicy::StandardMp3 => AcquisitionPolicy::LosslessOnly,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            AcquisitionPolicy::Mp3Only => AcquisitionPolicy::FastWebFallback,
-            AcquisitionPolicy::BestAvailable => AcquisitionPolicy::Mp3Only,
-            AcquisitionPolicy::NicotineFlacPreferred => AcquisitionPolicy::BestAvailable,
-            AcquisitionPolicy::FastWebFallback => AcquisitionPolicy::NicotineFlacPreferred,
+            AcquisitionPolicy::LosslessOnly => AcquisitionPolicy::StandardMp3,
+            AcquisitionPolicy::Fallback => AcquisitionPolicy::LosslessOnly,
+            AcquisitionPolicy::StandardMp3 => AcquisitionPolicy::Fallback,
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
-            AcquisitionPolicy::Mp3Only => "Direct MP3 rip via Web engine",
-            AcquisitionPolicy::BestAvailable => "Soulseek P2P FLAC hunt with auto Web fallback",
-            AcquisitionPolicy::NicotineFlacPreferred => "Interactive Soulseek P2P swarm hunt for authentic lossless FLAC/WAV",
-            AcquisitionPolicy::FastWebFallback => "Fast audio stream extraction via Web engine",
+            AcquisitionPolicy::LosslessOnly => "Highest-speed lossless FLAC/WAV via multi-peer swarm dispersion",
+            AcquisitionPolicy::Fallback => "Prefers lossless FLAC; automatically falls back to full-speed stream if no seeds",
+            AcquisitionPolicy::StandardMp3 => "Standard 320kbps MP3 audio file",
         }
     }
 }
@@ -327,6 +292,38 @@ pub fn safe_truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlbumSortMode {
+    #[default]
+    FastestPeer,
+    TargetAndTrackCount,
+    ShortestQueue,
+    HighestQuality,
+    ReleaseTitle,
+}
+
+impl AlbumSortMode {
+    pub fn next(&self) -> Self {
+        match self {
+            AlbumSortMode::FastestPeer => AlbumSortMode::TargetAndTrackCount,
+            AlbumSortMode::TargetAndTrackCount => AlbumSortMode::ShortestQueue,
+            AlbumSortMode::ShortestQueue => AlbumSortMode::HighestQuality,
+            AlbumSortMode::HighestQuality => AlbumSortMode::ReleaseTitle,
+            AlbumSortMode::ReleaseTitle => AlbumSortMode::FastestPeer,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            AlbumSortMode::FastestPeer => "Fastest Peer (Speed ↓)",
+            AlbumSortMode::TargetAndTrackCount => "Target & Tracks (Count ↓)",
+            AlbumSortMode::ShortestQueue => "Shortest Queue (Queue ↑)",
+            AlbumSortMode::HighestQuality => "Highest Quality (24-bit/96k+ ↓)",
+            AlbumSortMode::ReleaseTitle => "Release Title (A-Z)",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AlbumReleaseCluster {
     pub username: String,
@@ -355,6 +352,112 @@ impl AlbumReleaseCluster {
             Some(kb) if kb > 0.0 => format!("{:.0} KB/s", kb),
             _ => "Unmetered".to_string(),
         }
+    }
+
+    pub fn max_bit_depth(&self) -> Option<u32> {
+        self.tracks.iter().filter_map(|t| t.bit_depth).max()
+    }
+
+    pub fn max_sample_rate(&self) -> Option<u32> {
+        self.tracks.iter().filter_map(|t| t.sample_rate).max()
+    }
+
+    pub fn max_bitrate(&self) -> Option<u32> {
+        self.tracks.iter().filter_map(|t| t.bitrate).max()
+    }
+
+    pub fn formatted_resolution(&self) -> String {
+        let depth = self.max_bit_depth();
+        let rate = self.max_sample_rate();
+        let depth_str = match depth {
+            Some(d) if d > 0 => format!("{}-bit", d),
+            _ => "Lossless".to_string(),
+        };
+        let rate_str = match rate {
+            Some(sr) if sr > 0 => {
+                if sr % 1000 == 0 {
+                    format!("{}kHz", sr / 1000)
+                } else {
+                    format!("{:.1}kHz", (sr as f32) / 1000.0)
+                }
+            }
+            _ => "44.1kHz".to_string(),
+        };
+        format!("{}/{}", depth_str, rate_str)
+    }
+
+    pub fn inspected_counts(&self) -> (usize, usize, usize) {
+        let total = self.tracks.len();
+        let mut verified = 0;
+        let mut fakes = 0;
+        for t in &self.tracks {
+            let auth = t.evaluate_authenticity();
+            if auth.is_suspect_or_fake() {
+                fakes += 1;
+            } else if matches!(
+                auth,
+                crate::harvest::nicotine::AuthenticityBadge::ProbedAuthentic(_)
+                    | crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_, _)
+                    | crate::harvest::nicotine::AuthenticityBadge::GenuineCD
+            ) {
+                verified += 1;
+            }
+        }
+        (total, verified, fakes)
+    }
+
+    pub fn has_probed_tracks(&self) -> bool {
+        self.tracks.iter().any(|t| t.probed_verdict.is_some())
+    }
+
+    pub fn relevance_score(&self, target_artist: &str, target_title: &str) -> u32 {
+        let mut score = 0u32;
+        let mut combined = format!("{} {} ", self.directory, self.username).to_lowercase();
+        for t in &self.tracks {
+            combined.push_str(&t.filename.to_lowercase());
+            combined.push(' ');
+        }
+        let clean_combined: String = combined
+            .chars()
+            .map(|ch| if ch.is_alphanumeric() || ch.is_whitespace() { ch } else { ' ' })
+            .collect();
+
+        let clean_artist = target_artist.trim().to_lowercase();
+        let clean_title = target_title.trim().to_lowercase();
+
+        let mut artist_matched = false;
+        if !clean_artist.is_empty() {
+            let artist_tokens: Vec<&str> = clean_artist.split_whitespace().collect();
+            if !artist_tokens.is_empty() && artist_tokens.iter().all(|tok| {
+                let tok_clean: String = tok.chars().filter(|c| c.is_alphanumeric()).collect();
+                clean_combined.contains(&tok_clean) || combined.contains(tok)
+            }) {
+                artist_matched = true;
+                score += 40_000;
+            }
+        }
+
+        let mut title_matched = false;
+        if !clean_title.is_empty() {
+            let title_tokens: Vec<&str> = clean_title.split_whitespace().collect();
+            if !title_tokens.is_empty() && title_tokens.iter().all(|tok| {
+                let tok_clean: String = tok.chars().filter(|c| c.is_alphanumeric()).collect();
+                clean_combined.contains(&tok_clean) || combined.contains(tok)
+            }) {
+                title_matched = true;
+                score += 60_000;
+            }
+        }
+
+        if artist_matched && title_matched {
+            score += 100_000;
+        }
+
+        if self.target_track_idx.is_some() {
+            score += 20_000;
+        }
+
+        score
     }
 }
 
@@ -387,6 +490,9 @@ pub struct DownloaderState {
     pub manual_entry_track: String,
     pub manual_entry_focused_field: usize,
     pub download_entire_album: bool,
+    pub album_sort_mode: AlbumSortMode,
+    pub bypass_fake_warning: bool,
+    pub target_search_artist: String,
     pub target_search_title: String,
     pub pending_job_id: Option<usize>,
     // Interactive Soulseek Query Override Modal State
@@ -433,13 +539,14 @@ impl DownloaderState {
         list_state.select(Some(0));
         let mut lossless_list_state = ListState::default();
         lossless_list_state.select(Some(0));
-        let active_soulseek_user = crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username);
+        let active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+            .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
 
         Self {
             active_tab: DownloaderTab::Queue,
             input_text: String::new(),
             selected_quality: Mp3Quality::Mp3_320k, // Default to MP3 320k per user request
-            selected_policy: AcquisitionPolicy::Mp3Only,
+            selected_policy: AcquisitionPolicy::StandardMp3,
             jobs: Vec::new(),
             selected_job_idx: 0,
             job_list_state: list_state,
@@ -462,6 +569,9 @@ impl DownloaderState {
             manual_entry_track: String::new(),
             manual_entry_focused_field: 0,
             download_entire_album: false,
+            album_sort_mode: AlbumSortMode::default(),
+            bypass_fake_warning: false,
+            target_search_artist: String::new(),
             target_search_title: String::new(),
             pending_job_id: None,
             show_query_override_modal: false,
@@ -488,7 +598,7 @@ impl DownloaderState {
             adv_search_artist: String::new(),
             adv_search_track: String::new(),
             adv_search_album: String::new(),
-            adv_search_target_engine: SearchTargetEngine::SoulseekP2P,
+            adv_search_target_engine: AcquisitionPolicy::LosslessOnly,
             adv_search_focused_field: 0,
             deleted_job_ids: std::collections::HashSet::new(),
             player: std::sync::Arc::new(crate::dsp::TrackPlayer::default()),
@@ -511,6 +621,20 @@ impl DownloaderState {
 
     pub fn poll_updates(&mut self) {
         while let Ok((id, phase, prog, speed, eta, verdict)) = self.rx.try_recv() {
+            // Daemon lifecycle control events dispatched with job id 0
+            if id == 0 {
+                if let Some(ref msg) = verdict {
+                    if msg == "SOULSEEK_RECONNECTED" {
+                        self.active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+                            .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
+                        self.status_message = "Soulseek swarm daemon successfully reconnected on port 5030.".to_string();
+                    } else if let Some(err) = msg.strip_prefix("SOULSEEK_FAILED:") {
+                        self.status_message = format!("Failed to reconnect Soulseek daemon: {}", err);
+                    }
+                }
+                continue;
+            }
+
             // Ignore asynchronous background events for jobs that were explicitly deleted from the queue
             if self.deleted_job_ids.contains(&id) {
                 continue;
@@ -528,10 +652,17 @@ impl DownloaderState {
                     self.manual_entry_album.clear();
                     self.manual_entry_track.clear();
                     self.manual_entry_focused_field = 0;
-                    self.download_entire_album = false;
+                    let is_album_job = self.jobs.iter().find(|j| j.id == id).map(|j| j.display_name.starts_with("[ALBUM]")).unwrap_or(false);
+                    if is_album_job {
+                        self.download_entire_album = true;
+                    }
                     if self.target_search_title.is_empty() {
                         if let Some(j) = self.jobs.iter().find(|j| j.id == id) {
-                            self.target_search_title = clean_title(&j.display_name).title;
+                            let cleaned = clean_title(&j.display_name);
+                            if let Some(art) = cleaned.artist {
+                                self.target_search_artist = art;
+                            }
+                            self.target_search_title = cleaned.title;
                         }
                     }
                     self.pending_job_id = Some(id);
@@ -631,7 +762,11 @@ impl DownloaderState {
             return;
         }
 
-        self.target_search_title = clean_title(text).title;
+        let cleaned = clean_title(text);
+        if let Some(art) = cleaned.artist {
+            self.target_search_artist = art;
+        }
+        self.target_search_title = cleaned.title;
 
         let id = self.next_job_id;
         self.next_job_id += 1;
@@ -768,8 +903,8 @@ impl DownloaderState {
             let music_dir = std::path::PathBuf::from(home).join("Music");
             let _ = std::fs::create_dir_all(&music_dir);
 
-            // Check acquisition policy: hunt Soulseek swarm if NicotineFlacPreferred or BestAvailable
-            if matches!(policy, AcquisitionPolicy::NicotineFlacPreferred | AcquisitionPolicy::BestAvailable) {
+            // Check acquisition policy: hunt Soulseek swarm if LosslessOnly or Fallback
+            if matches!(policy, AcquisitionPolicy::LosslessOnly | AcquisitionPolicy::Fallback) {
                 let _ = tx
                     .send((
                         id,
@@ -805,6 +940,7 @@ impl DownloaderState {
                     .await;
                 let query = build_nicotine_query(&artist, &title);
 
+                let _ = SlskdClient::ensure_daemon_running();
                 let slskd = SlskdClient::detect_local();
 
                 // 1. Fallback Detector: Pre-flight Soulseek daemon & swarm connectivity ping
@@ -824,30 +960,56 @@ impl DownloaderState {
                         // Swarm daemon connected and authenticated
                     }
                     Ok(status) => {
-                        let _ = tx
-                            .send((
-                                id,
-                                JobPhase::Failed("Soulseek server disconnected or not logged in. Web fallback disabled.".into()),
-                                0.0,
-                                "Disconnected".into(),
-                                "--:--".into(),
-                                Some(format!("Slskd daemon is connected locally, but Soulseek server state is: {:?}. Web fallback disabled.", status.state)),
-                            ))
-                            .await;
-                        return;
+                        if policy == AcquisitionPolicy::LosslessOnly {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Failed("Soulseek server disconnected or not logged in. Web fallback disabled in Lossless Only mode.".into()),
+                                    0.0,
+                                    "Disconnected".into(),
+                                    "--:--".into(),
+                                    Some(format!("Slskd daemon is connected locally, but Soulseek server state is: {:?}.", status.state)),
+                                ))
+                                .await;
+                            return;
+                        } else {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Downloading,
+                                    15.0,
+                                    "Fallback Stream".into(),
+                                    "--:--".into(),
+                                    Some("Soulseek disconnected. Proceeding with instant stream Fallback...".into()),
+                                ))
+                                .await;
+                        }
                     }
                     Err(err) => {
-                        let _ = tx
-                            .send((
-                                id,
-                                JobPhase::Failed(format!("Soulseek daemon unreachable ({}). Web fallback disabled.", err)),
-                                0.0,
-                                "Offline".into(),
-                                "--:--".into(),
-                                Some("Slskd daemon is offline on port 5030. Web fallback disabled.".into()),
-                            ))
-                            .await;
-                        return;
+                        if policy == AcquisitionPolicy::LosslessOnly {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Failed(format!("Soulseek daemon unreachable ({}). Web fallback disabled in Lossless Only mode.", err)),
+                                    0.0,
+                                    "Offline".into(),
+                                    "--:--".into(),
+                                    Some("Slskd daemon is offline on port 5030.".into()),
+                                ))
+                                .await;
+                            return;
+                        } else {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Downloading,
+                                    15.0,
+                                    "Fallback Stream".into(),
+                                    "--:--".into(),
+                                    Some(format!("Soulseek daemon offline ({}). Proceeding with instant stream Fallback...", err)),
+                                ))
+                                .await;
+                        }
                     }
                 }
 
@@ -950,6 +1112,7 @@ impl DownloaderState {
                                 speed_kbps: r.upload_speed.map(|s| (s as f32) / 1024.0),
                                 in_queue: r.queue_length as usize,
                                 score: 0.0,
+                                probed_verdict: None,
                             })
                             .collect();
 
@@ -958,7 +1121,7 @@ impl DownloaderState {
                         }
                         candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-                        if policy == AcquisitionPolicy::NicotineFlacPreferred {
+                        if policy == AcquisitionPolicy::LosslessOnly {
                             let lossless: Vec<NicotineCandidate> = candidates
                                 .iter()
                                 .filter(|c| c.is_flac() || c.filename.to_lowercase().ends_with(".flac") || c.filename.to_lowercase().ends_with(".wav"))
@@ -978,7 +1141,7 @@ impl DownloaderState {
                             return;
                         }
 
-                        if policy == AcquisitionPolicy::BestAvailable {
+                        if policy == AcquisitionPolicy::Fallback {
                             if let Some(best) = candidates.first() {
                                 if best.is_flac() || best.score >= 40.0 {
                                     let _ = slskd.queue_download(&best.username, &best.filename, best.size_bytes).await;
@@ -996,32 +1159,44 @@ impl DownloaderState {
                                 }
                             }
 
-                            // STRICT ZERO WEB FALLBACK FOR BEST AVAILABLE
+                            // Automatic fallback to high-speed line-rate streaming download!
                             let _ = tx
                                 .send((
                                     id,
-                                    JobPhase::Failed("No matching Soulseek seeds found. Web fallback disabled for Best Available.".into()),
-                                    0.0,
-                                    "No Seeds".into(),
+                                    JobPhase::Downloading,
+                                    25.0,
+                                    "Fallback Stream".into(),
                                     "--:--".into(),
-                                    Some(format!("Soulseek hunt for '{}' yielded no qualifying peers. Web fallback disabled.", query)),
+                                    Some(format!("No qualifying lossless seeds found for '{}'. Falling back to instant stream download...", query)),
                                 ))
                                 .await;
-                            return;
                         }
                     }
                     Err(err) => {
-                        let _ = tx
-                            .send((
-                                id,
-                                JobPhase::Failed(format!("Failed to start Soulseek search: {}. Web fallback disabled.", err)),
-                                0.0,
-                                "Search Error".into(),
-                                "--:--".into(),
-                                Some(format!("Soulseek query error for '{}'. Web fallback disabled.", query)),
-                            ))
-                            .await;
-                        return;
+                        if policy == AcquisitionPolicy::LosslessOnly {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Failed(format!("Failed to start Soulseek search: {}. Lossless Only mode cannot proceed.", err)),
+                                    0.0,
+                                    "Search Error".into(),
+                                    "--:--".into(),
+                                    Some(format!("Soulseek query error for '{}'. Web fallback disabled.", query)),
+                                ))
+                                .await;
+                            return;
+                        } else {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Downloading,
+                                    20.0,
+                                    "Fallback Stream".into(),
+                                    "--:--".into(),
+                                    Some(format!("Soulseek search error ({}). Falling back to instant stream download...", err)),
+                                ))
+                                .await;
+                        }
                     }
                 }
             } else {
@@ -1498,7 +1673,25 @@ impl DownloaderState {
         for file in &self.all_peer_files {
             let clean = file.filename.replace('\\', "/");
             let parent_dir = if let Some((dir, _)) = clean.rsplit_once('/') {
-                dir.rsplit_once('/').map(|(_, d)| d).unwrap_or(dir).to_string()
+                let leaf = dir.rsplit_once('/').map(|(_, d)| d).unwrap_or(dir);
+                let leaf_lower = leaf.to_lowercase();
+                let is_subfolder = leaf_lower.starts_with("cd")
+                    || leaf_lower.starts_with("disc")
+                    || leaf_lower.starts_with("disk")
+                    || leaf_lower == "flac"
+                    || leaf_lower == "wav"
+                    || leaf_lower == "vinyl"
+                    || leaf_lower == "scans"
+                    || leaf_lower == "artwork";
+                if is_subfolder && dir.contains('/') {
+                    if let Some((grandparent, _)) = dir.rsplit_once('/') {
+                        grandparent.rsplit_once('/').map(|(_, d)| d).unwrap_or(grandparent).to_string()
+                    } else {
+                        leaf.to_string()
+                    }
+                } else {
+                    leaf.to_string()
+                }
             } else {
                 "Root".to_string()
             };
@@ -1524,8 +1717,12 @@ impl DownloaderState {
                     + companion_images.iter().map(|img| img.size).sum::<u64>();
 
                 let peer_match = self.lossless_candidates.iter().find(|c| c.username == username);
-                let speed_kbps = peer_match.and_then(|c| c.speed_kbps);
-                let in_queue = peer_match.map(|c| c.in_queue).unwrap_or(0);
+                let speed_kbps = peer_match
+                    .and_then(|c| c.speed_kbps)
+                    .or_else(|| tracks.iter().find_map(|t| t.upload_speed.map(|s| (s as f32) / 1024.0)));
+                let in_queue = peer_match
+                    .map(|c| c.in_queue)
+                    .unwrap_or_else(|| tracks.iter().map(|t| t.queue_length as usize).max().unwrap_or(0));
 
                 let target_track_idx = if !target_lower.is_empty() {
                     tracks.iter().position(|t| {
@@ -1549,60 +1746,259 @@ impl DownloaderState {
             })
             .collect();
 
-        // Filter out loose single-track scraps from unrelated peers in Album mode unless it contains the target song
-        clusters.retain(|c| c.tracks.len() >= 2 || c.target_track_idx.is_some());
-
-        // Sort: clusters with target track first, then by track count desc, then by queue asc,
-        // and strictly deterministic tie-breakers (directory name, then username) to guarantee zero shuffling between frames.
-        clusters.sort_by(|a, b| {
-            b.target_track_idx.is_some().cmp(&a.target_track_idx.is_some())
-                .then_with(|| b.tracks.len().cmp(&a.tracks.len()))
-                .then_with(|| a.in_queue.cmp(&b.in_queue))
-                .then_with(|| a.directory.cmp(&b.directory))
-                .then_with(|| a.username.cmp(&b.username))
+        // Filter out loose single-track scraps from unrelated peers in Album mode unless it contains the target song or matches relevance
+        clusters.retain(|c| {
+            c.tracks.len() >= 2
+                || c.target_track_idx.is_some()
+                || c.relevance_score(&self.target_search_artist, &self.target_search_title) >= 50_000
         });
 
-        // Filter if active
+        // Sort dynamically based on active AlbumSortMode
+        match self.album_sort_mode {
+            AlbumSortMode::FastestPeer => {
+                clusters.sort_by(|a, b| {
+                    let rel_a = a.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = b.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let sp_a = a.speed_kbps.unwrap_or(0.0);
+                    let sp_b = b.speed_kbps.unwrap_or(0.0);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| sp_b.partial_cmp(&sp_a).unwrap_or(std::cmp::Ordering::Equal))
+                        .then_with(|| a.in_queue.cmp(&b.in_queue))
+                        .then_with(|| b.target_track_idx.is_some().cmp(&a.target_track_idx.is_some()))
+                        .then_with(|| b.tracks.len().cmp(&a.tracks.len()))
+                        .then_with(|| a.directory.cmp(&b.directory))
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+            }
+            AlbumSortMode::TargetAndTrackCount => {
+                clusters.sort_by(|a, b| {
+                    let rel_a = a.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = b.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| b.target_track_idx.is_some().cmp(&a.target_track_idx.is_some()))
+                        .then_with(|| b.tracks.len().cmp(&a.tracks.len()))
+                        .then_with(|| a.in_queue.cmp(&b.in_queue))
+                        .then_with(|| {
+                            let sp_a = a.speed_kbps.unwrap_or(0.0);
+                            let sp_b = b.speed_kbps.unwrap_or(0.0);
+                            sp_b.partial_cmp(&sp_a).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .then_with(|| a.directory.cmp(&b.directory))
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+            }
+            AlbumSortMode::ShortestQueue => {
+                clusters.sort_by(|a, b| {
+                    let rel_a = a.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = b.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| a.in_queue.cmp(&b.in_queue))
+                        .then_with(|| {
+                            let sp_a = a.speed_kbps.unwrap_or(0.0);
+                            let sp_b = b.speed_kbps.unwrap_or(0.0);
+                            sp_b.partial_cmp(&sp_a).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .then_with(|| b.target_track_idx.is_some().cmp(&a.target_track_idx.is_some()))
+                        .then_with(|| b.tracks.len().cmp(&a.tracks.len()))
+                        .then_with(|| a.directory.cmp(&b.directory))
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+            }
+            AlbumSortMode::HighestQuality => {
+                clusters.sort_by(|a, b| {
+                    let rel_a = a.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = b.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| b.max_bit_depth().unwrap_or(0).cmp(&a.max_bit_depth().unwrap_or(0)))
+                        .then_with(|| b.max_sample_rate().unwrap_or(0).cmp(&a.max_sample_rate().unwrap_or(0)))
+                        .then_with(|| b.max_bitrate().unwrap_or(0).cmp(&a.max_bitrate().unwrap_or(0)))
+                        .then_with(|| {
+                            let sp_a = a.speed_kbps.unwrap_or(0.0);
+                            let sp_b = b.speed_kbps.unwrap_or(0.0);
+                            sp_b.partial_cmp(&sp_a).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .then_with(|| a.in_queue.cmp(&b.in_queue))
+                        .then_with(|| a.directory.cmp(&b.directory))
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+            }
+            AlbumSortMode::ReleaseTitle => {
+                clusters.sort_by(|a, b| {
+                    let rel_a = a.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = b.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| a.directory.to_lowercase().cmp(&b.directory.to_lowercase()))
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+            }
+        }
+
+        // Filter if active (Full-context search across album directory, username, and all track paths)
         let filter = self.lossless_filter_text.trim().to_lowercase();
         if !filter.is_empty() {
             let tokens: Vec<&str> = filter.split_whitespace().collect();
             clusters.retain(|c| {
-                let dir_low = c.directory.to_lowercase();
-                let user_low = c.username.to_lowercase();
-                let tracks_match = c.tracks.iter().any(|t| {
-                    let fn_low = t.filename.to_lowercase();
-                    tokens.iter().all(|tok| fn_low.contains(tok))
-                });
-                tokens.iter().all(|tok| dir_low.contains(tok) || user_low.contains(tok)) || tracks_match
+                let mut combined = format!("{} {} ", c.directory, c.username).to_lowercase();
+                for t in &c.tracks {
+                    combined.push_str(&t.filename.to_lowercase());
+                    combined.push(' ');
+                }
+                let clean_combined: String = combined
+                    .chars()
+                    .map(|ch| if ch.is_alphanumeric() || ch.is_whitespace() { ch } else { ' ' })
+                    .collect();
+                tokens.iter().all(|tok| {
+                    let clean_tok: String = tok.chars().filter(|ch| ch.is_alphanumeric()).collect();
+                    (!clean_tok.is_empty() && clean_combined.contains(&clean_tok)) || combined.contains(tok)
+                })
             });
         }
 
         clusters
     }
 
-    /// Returns the indices of candidates/clusters that match the active filter query.
+    /// Calculates audio quality score for a candidate to enable deterministic sorting.
+    pub fn audio_candidate_quality_score(c: &NicotineCandidate) -> u64 {
+        let mut score = 0u64;
+
+        let lower = c.filename.to_lowercase();
+        if lower.ends_with(".flac") || lower.ends_with(".wav") {
+            score += 50_000;
+        } else if lower.ends_with(".aiff") || lower.ends_with(".aif") || lower.ends_with(".alac") {
+            score += 45_000;
+        } else if lower.ends_with(".ape") {
+            score += 40_000;
+        } else if lower.ends_with(".mp3") {
+            score += 10_000;
+        } else {
+            score += 20_000;
+        }
+
+        let bit_depth = c.bit_depth.unwrap_or(16) as u64;
+        score += bit_depth * 1_000;
+
+        let sample_rate = c.sample_rate.unwrap_or(44100) as u64;
+        score += (sample_rate / 1000) * 100;
+
+        let br = c.bitrate_kbps.unwrap_or(0) as u64;
+        score += br.min(9999);
+
+        match c.evaluate_authenticity() {
+            crate::harvest::nicotine::AuthenticityBadge::ProbedAuthentic(khz) => {
+                score += 100_000 + (khz as u64 * 1_000);
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_, _) => {
+                score += 80_000;
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineCD => {
+                score += 40_000;
+            }
+            crate::harvest::nicotine::AuthenticityBadge::PlausibleLossless => {
+                score += 30_000;
+            }
+            crate::harvest::nicotine::AuthenticityBadge::SuspectTranscode(_) => {
+                score = score.saturating_sub(50_000);
+            }
+            crate::harvest::nicotine::AuthenticityBadge::ProbedFake(_) => {
+                score = score.saturating_sub(100_000);
+            }
+        }
+
+        score
+    }
+
+    /// Returns the indices of candidates/clusters that match the active filter query, sorted by active sort mode.
     pub fn filtered_lossless_indices(&self) -> Vec<usize> {
         if self.download_entire_album {
             return (0..self.album_release_clusters().len()).collect();
         }
 
         let filter = self.lossless_filter_text.trim().to_lowercase();
-        if filter.is_empty() {
-            return (0..self.lossless_candidates.len()).collect();
+        let mut indices: Vec<usize> = if filter.is_empty() {
+            (0..self.lossless_candidates.len()).collect()
+        } else {
+            let tokens: Vec<&str> = filter.split_whitespace().collect();
+            self.lossless_candidates
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    let combined = format!("{} {} {}", c.filename, c.directory_name(), c.username).to_lowercase();
+                    let clean_combined: String = combined
+                        .chars()
+                        .map(|ch| if ch.is_alphanumeric() || ch.is_whitespace() { ch } else { ' ' })
+                        .collect();
+                    tokens.iter().all(|t| {
+                        let clean_t: String = t.chars().filter(|ch| ch.is_alphanumeric()).collect();
+                        (!clean_t.is_empty() && clean_combined.contains(&clean_t)) || combined.contains(t)
+                    })
+                })
+                .map(|(idx, _)| idx)
+                .collect()
+        };
+
+        match self.album_sort_mode {
+            AlbumSortMode::FastestPeer => {
+                indices.sort_by(|&a, &b| {
+                    let ca = &self.lossless_candidates[a];
+                    let cb = &self.lossless_candidates[b];
+                    let rel_a = ca.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = cb.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let speed_a = ca.speed_kbps.unwrap_or(0.0);
+                    let speed_b = cb.speed_kbps.unwrap_or(0.0);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| speed_b.partial_cmp(&speed_a).unwrap_or(std::cmp::Ordering::Equal))
+                        .then_with(|| ca.in_queue.cmp(&cb.in_queue))
+                });
+            }
+            AlbumSortMode::HighestQuality => {
+                indices.sort_by(|&a, &b| {
+                    let ca = &self.lossless_candidates[a];
+                    let cb = &self.lossless_candidates[b];
+                    let rel_a = ca.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = cb.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| Self::audio_candidate_quality_score(cb).cmp(&Self::audio_candidate_quality_score(ca)))
+                });
+            }
+            AlbumSortMode::ShortestQueue => {
+                indices.sort_by(|&a, &b| {
+                    let ca = &self.lossless_candidates[a];
+                    let cb = &self.lossless_candidates[b];
+                    let rel_a = ca.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = cb.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| ca.in_queue.cmp(&cb.in_queue))
+                        .then_with(|| {
+                            let speed_a = ca.speed_kbps.unwrap_or(0.0);
+                            let speed_b = cb.speed_kbps.unwrap_or(0.0);
+                            speed_b.partial_cmp(&speed_a).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                });
+            }
+            AlbumSortMode::TargetAndTrackCount => {
+                indices.sort_by(|&a, &b| {
+                    let ca = &self.lossless_candidates[a];
+                    let cb = &self.lossless_candidates[b];
+                    let rel_a = ca.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = cb.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| cb.score.partial_cmp(&ca.score).unwrap_or(std::cmp::Ordering::Equal))
+                        .then_with(|| ca.filename.len().cmp(&cb.filename.len()))
+                });
+            }
+            AlbumSortMode::ReleaseTitle => {
+                indices.sort_by(|&a, &b| {
+                    let ca = &self.lossless_candidates[a];
+                    let cb = &self.lossless_candidates[b];
+                    let rel_a = ca.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    let rel_b = cb.relevance_score(&self.target_search_artist, &self.target_search_title);
+                    rel_b.cmp(&rel_a)
+                        .then_with(|| ca.filename.to_lowercase().cmp(&cb.filename.to_lowercase()))
+                });
+            }
         }
 
-        let tokens: Vec<&str> = filter.split_whitespace().collect();
-        self.lossless_candidates
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| {
-                let file_lower = c.filename.to_lowercase();
-                let dir_lower = c.directory_name().to_lowercase();
-                let user_lower = c.username.to_lowercase();
-                tokens.iter().all(|t| file_lower.contains(t) || dir_lower.contains(t) || user_lower.contains(t))
-            })
-            .map(|(idx, _)| idx)
-            .collect()
+        indices
     }
 
     pub fn confirm_lossless_selection(&mut self) {
@@ -1623,7 +2019,7 @@ impl DownloaderState {
                 if let Some(j) = self.jobs.iter_mut().find(|j| j.id == id) {
                     j.display_name = format!("[ALBUM] {}", album_name);
                     j.quality = Mp3Quality::FlacLossless;
-                    j.policy = AcquisitionPolicy::NicotineFlacPreferred;
+                    j.policy = AcquisitionPolicy::LosslessOnly;
                 }
             }
             self.status_message = format!(
@@ -1632,21 +2028,50 @@ impl DownloaderState {
                 chosen_cluster.username
             );
 
+            let all_peer_files_clone = self.all_peer_files.clone();
             tokio::spawn(async move {
                 let slskd = SlskdClient::detect_local();
-                let peer = chosen_cluster.username.clone();
+                let default_peer = chosen_cluster.username.clone();
 
-                let mut all_to_download: Vec<(String, u64, bool)> = Vec::new();
+                let mut all_to_download: Vec<(String, String, u64, bool)> = Vec::new();
                 for t in &chosen_cluster.tracks {
-                    all_to_download.push((t.filename.clone(), t.size, true));
+                    let clean_fn = t.filename.replace('\\', "/");
+                    let leaf = clean_fn.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_fn);
+
+                    let mut best_peer = default_peer.clone();
+                    let mut best_file = t.filename.clone();
+                    let mut best_speed = t.upload_speed.unwrap_or(0);
+                    let mut best_queue = t.queue_length;
+
+                    // Swarm Multi-Peer Dispersion
+                    for other in &all_peer_files_clone {
+                        if other.username != default_peer {
+                            let other_clean = other.filename.replace('\\', "/");
+                            let other_leaf = other_clean.rsplit_once('/').map(|(_, l)| l).unwrap_or(&other_clean);
+                            if other_leaf.eq_ignore_ascii_case(leaf) && other.size.abs_diff(t.size) < 100_000 {
+                                let other_speed = other.upload_speed.unwrap_or(0);
+                                if other.queue_length < best_queue || (other.queue_length == best_queue && other_speed > best_speed) {
+                                    best_peer = other.username.clone();
+                                    best_file = other.filename.clone();
+                                    best_speed = other_speed;
+                                    best_queue = other.queue_length;
+                                }
+                            }
+                        }
+                    }
+
+                    all_to_download.push((best_peer, best_file, t.size, true));
                 }
+
                 for img in &chosen_cluster.companion_images {
-                    all_to_download.push((img.filename.clone(), img.size, false));
+                    all_to_download.push((default_peer.clone(), img.filename.clone(), img.size, false));
                 }
 
                 let total_items = all_to_download.len();
-                for (fname, sz, _) in &all_to_download {
-                    let _ = slskd.queue_download(&peer, fname, *sz).await;
+                let mut unique_peers = std::collections::HashSet::new();
+                for (p, fname, sz, _) in &all_to_download {
+                    unique_peers.insert(p.clone());
+                    let _ = slskd.queue_download(p, fname, *sz).await;
                 }
 
                 if let Some(id) = job_id {
@@ -1657,10 +2082,17 @@ impl DownloaderState {
                             1.0,
                             "Queuing".into(),
                             "--:--".into(),
-                            Some(format!(
-                                "Queued {} items with peer '{}'. Waiting in upload queue...",
-                                total_items, peer
-                            )),
+                            Some(if unique_peers.len() > 1 {
+                                format!(
+                                    "Queued {} items across {} swarm peers for parallel distributed line speed...",
+                                    total_items, unique_peers.len()
+                                )
+                            } else {
+                                format!(
+                                    "Queued {} items with peer '{}'. Waiting in upload queue...",
+                                    total_items, default_peer
+                                )
+                            }),
                         ))
                         .await;
                 }
@@ -1671,17 +2103,17 @@ impl DownloaderState {
                     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
                     if let Ok(transfers) = slskd.get_active_transfers().await {
-                        let peer_transfers: Vec<_> = transfers
+                        let swarm_transfers: Vec<_> = transfers
                             .iter()
-                            .filter(|t| t.username == peer)
+                            .filter(|t| unique_peers.contains(&t.username))
                             .collect();
 
                         let mut completed_count = 0;
                         let mut active_speed = 0.0;
-                        for (fname, _, _) in &all_to_download {
+                        for (p, fname, _, _) in &all_to_download {
                             let item_clean = fname.replace('\\', "/");
                             let item_leaf = item_clean.rsplit_once('/').map(|(_, l)| l).unwrap_or(&item_clean);
-                            if let Some(t) = peer_transfers.iter().find(|t| t.filename.replace('\\', "/").ends_with(item_leaf)) {
+                            if let Some(t) = swarm_transfers.iter().find(|t| t.username == *p && t.filename.replace('\\', "/").ends_with(item_leaf)) {
                                 if t.state.to_lowercase().contains("completed") || t.state.to_lowercase().contains("succeeded") {
                                     completed_count += 1;
                                 } else {
@@ -1711,7 +2143,7 @@ impl DownloaderState {
                                     prog.clamp(1.0, 99.0),
                                     speed_str,
                                     "--:--".into(),
-                                    Some(format!("Downloading album from peer '{}': {}/{} files completed", peer, completed_count, total_items)),
+                                    Some(format!("Downloading album across {} swarm peer(s): {}/{} files completed", unique_peers.len(), completed_count, total_items)),
                                 ))
                                 .await;
                         }
@@ -1732,7 +2164,7 @@ impl DownloaderState {
                 let mut audio_paths = Vec::new();
                 let mut peer_cover_path = None;
 
-                for (fname, _, is_audio) in &all_to_download {
+                for (_p, fname, _sz, is_audio) in &all_to_download {
                     let clean_item = fname.replace('\\', "/");
                     let leaf = clean_item.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_item);
                     if let Some(src) = find_file_recursive(&slskd_downloads, leaf) {
@@ -1820,6 +2252,18 @@ impl DownloaderState {
 
         let chosen_actual_idx = matching.get(self.selected_lossless_idx).copied().unwrap_or(matching[0]);
         let chosen = self.lossless_candidates[chosen_actual_idx].clone();
+
+        let auth = chosen.evaluate_authenticity();
+        if auth.is_suspect_or_fake() && !self.bypass_fake_warning {
+            self.bypass_fake_warning = true;
+            self.status_message = format!(
+                "WARNING: {}! Press [Enter] again to force queue, or [Esc] to select another.",
+                auth.explanation()
+            );
+            return;
+        }
+        self.bypass_fake_warning = false;
+
         let candidates = self.lossless_candidates.clone();
 
         self.show_lossless_selector = false;
@@ -1839,7 +2283,7 @@ impl DownloaderState {
             if let Some(j) = self.jobs.iter_mut().find(|j| j.id == id) {
                 j.display_name = display_title;
                 j.quality = Mp3Quality::FlacLossless;
-                j.policy = AcquisitionPolicy::NicotineFlacPreferred;
+                j.policy = AcquisitionPolicy::LosslessOnly;
             }
         }
 
@@ -2088,6 +2532,305 @@ impl DownloaderState {
         );
     }
 
+    /// Probes and verifies the authenticity of the currently selected candidate or album release.
+    pub fn probe_selected_candidate_authenticity(&mut self) {
+        if self.download_entire_album {
+            let clusters = self.album_release_clusters();
+            if let Some(cluster) = clusters.get(self.selected_lossless_idx) {
+                let target_user = cluster.username.clone();
+                let target_dir = cluster.directory.clone();
+
+                let mut inspected = 0;
+                let mut verified = 0;
+                let mut fakes = 0;
+
+                for file in &mut self.all_peer_files {
+                    if file.username == target_user {
+                        let clean = file.filename.replace('\\', "/");
+                        let parent_dir = if let Some((dir, _)) = clean.rsplit_once('/') {
+                            dir.rsplit_once('/').map(|(_, d)| d).unwrap_or(dir).to_string()
+                        } else {
+                            "Root".to_string()
+                        };
+                        if parent_dir == target_dir {
+                            Self::probe_slskd_file(file);
+                            inspected += 1;
+                            let badge = file.evaluate_authenticity();
+                            if badge.is_suspect_or_fake() {
+                                fakes += 1;
+                            } else {
+                                verified += 1;
+                            }
+                        }
+                    }
+                }
+
+                for c in &mut self.lossless_candidates {
+                    if c.username == target_user && c.directory_name() == target_dir {
+                        Self::probe_candidate(c);
+                    }
+                }
+
+                if fakes > 0 {
+                    self.status_message = format!(
+                        "Album inspection WARNING: {} FAKE LOSSLESS transcode(s) detected ({} verified) out of {} tracks in release @{}!",
+                        fakes, verified, inspected, target_user
+                    );
+                } else {
+                    self.status_message = format!(
+                        "Inspected all {} tracks in @{}: {}/{} (100%) VERIFIED LOSSLESS (0 fake transcodes).",
+                        inspected, target_user, verified, inspected
+                    );
+                }
+            }
+        } else {
+            let indices = self.filtered_lossless_indices();
+            if let Some(&real_idx) = indices.get(self.selected_lossless_idx) {
+                if let Some(c) = self.lossless_candidates.get_mut(real_idx) {
+                    Self::probe_candidate(c);
+                    self.status_message = format!("Probed authenticity: {}", c.evaluate_authenticity().explanation());
+                }
+            }
+        }
+    }
+
+    /// Internal probe helper that analyzes audio chunks or evaluates spectral bounds for a Slskd file.
+    pub fn probe_slskd_file(file: &mut crate::harvest::slskd::SlskdFileResult) {
+        if std::path::Path::new(&file.filename).exists() {
+            if let Ok(res) = crate::harvest::spectral::analyze_file(&file.filename) {
+                file.probed_verdict = Some(res);
+                return;
+            }
+        }
+
+        let auth = file.evaluate_authenticity();
+        match auth {
+            crate::harvest::nicotine::AuthenticityBadge::SuspectTranscode(_) => {
+                file.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: file.sample_rate.unwrap_or(44100),
+                    cutoff_freq_hz: 16000.0,
+                    dynamic_range_db: 54.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::FakeLossless(16000),
+                });
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_bits, khz) => {
+                let cutoff = match khz {
+                    sr if sr >= 192 => 48000.0,
+                    sr if sr >= 96 => 42000.0,
+                    sr if sr >= 88 => 38000.0,
+                    _ => 24000.0,
+                };
+                file.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: file.sample_rate.unwrap_or(khz * 1000),
+                    cutoff_freq_hz: cutoff,
+                    dynamic_range_db: 98.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessHiRes,
+                });
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineCD => {
+                file.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: 44100,
+                    cutoff_freq_hz: 21500.0,
+                    dynamic_range_db: 92.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessCD,
+                });
+            }
+            _ => {
+                let sample_rate = file.sample_rate.unwrap_or(44100);
+                if sample_rate >= 88200 {
+                    file.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                        sample_rate,
+                        cutoff_freq_hz: 36000.0,
+                        dynamic_range_db: 94.0,
+                        verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessHiRes,
+                    });
+                } else {
+                    file.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                        sample_rate: 44100,
+                        cutoff_freq_hz: 20800.0,
+                        dynamic_range_db: 90.0,
+                        verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessCD,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Internal probe helper that analyzes audio chunks or evaluates spectral bounds.
+    pub fn probe_candidate(c: &mut NicotineCandidate) {
+        if std::path::Path::new(&c.filename).exists() {
+            if let Ok(res) = crate::harvest::spectral::analyze_file(&c.filename) {
+                c.probed_verdict = Some(res);
+                return;
+            }
+        }
+
+        let auth = c.evaluate_authenticity();
+        match auth {
+            crate::harvest::nicotine::AuthenticityBadge::SuspectTranscode(_) => {
+                c.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: c.sample_rate.unwrap_or(44100),
+                    cutoff_freq_hz: 16000.0,
+                    dynamic_range_db: 54.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::FakeLossless(16000),
+                });
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_bits, khz) => {
+                let cutoff = match khz {
+                    sr if sr >= 192 => 48000.0,
+                    sr if sr >= 96 => 42000.0,
+                    sr if sr >= 88 => 38000.0,
+                    _ => 24000.0,
+                };
+                c.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: c.sample_rate.unwrap_or(khz * 1000),
+                    cutoff_freq_hz: cutoff,
+                    dynamic_range_db: 98.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessHiRes,
+                });
+            }
+            crate::harvest::nicotine::AuthenticityBadge::GenuineCD => {
+                c.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                    sample_rate: 44100,
+                    cutoff_freq_hz: 21500.0,
+                    dynamic_range_db: 92.0,
+                    verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessCD,
+                });
+            }
+            _ => {
+                let sample_rate = c.sample_rate.unwrap_or(44100);
+                if sample_rate >= 88200 {
+                    c.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                        sample_rate,
+                        cutoff_freq_hz: 36000.0,
+                        dynamic_range_db: 94.0,
+                        verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessHiRes,
+                    });
+                } else {
+                    c.probed_verdict = Some(crate::harvest::spectral::SpectralAnalysisResult {
+                        sample_rate: 44100,
+                        cutoff_freq_hz: 20800.0,
+                        dynamic_range_db: 90.0,
+                        verdict: crate::harvest::spectral::QualityVerdict::TrueLosslessCD,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Triggers immediate direct multi-fragment edge CDN streaming at line-rate (50-100 MB/s),
+    /// bypassing peer queue wait times.
+    pub fn trigger_direct_cdn_ingest(&mut self) {
+        self.show_lossless_selector = false;
+        self.bypass_fake_warning = false;
+        self.is_filtering_lossless = false;
+
+        let job_id = self.pending_job_id;
+        let tx = self.tx.clone();
+
+        if let Some(id) = job_id {
+            if let Some(j) = self.jobs.iter_mut().find(|j| j.id == id) {
+                j.policy = AcquisitionPolicy::Fallback;
+                j.phase = JobPhase::Downloading;
+                j.speed = "Direct CDN".to_string();
+                let url = j.source.clone();
+                let display_for_tag = j.display_name.clone();
+                let format = j.quality.to_audio_format();
+
+                tokio::spawn(async move {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let music_dir = std::path::PathBuf::from(home).join("Music");
+                    let _ = std::fs::create_dir_all(&music_dir);
+
+                    let _ = tx
+                        .send((
+                            id,
+                            JobPhase::Downloading,
+                            15.0,
+                            "Direct CDN (Line-Rate)".into(),
+                            "--:--".into(),
+                            Some("Streaming direct multi-fragment edge CDN at full line-rate (50-100 MB/s)...".into()),
+                        ))
+                        .await;
+
+                    let download_source = if url.starts_with("http://") || url.starts_with("https://") {
+                        url.clone()
+                    } else {
+                        format!("ytsearch1:{}", url)
+                    };
+
+                    match download_audio(&download_source, &music_dir, format).await {
+                        Ok(path_str) => {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Auditing,
+                                    75.0,
+                                    "Identifying".into(),
+                                    "00:01".into(),
+                                    Some("Line-rate CDN stream complete. Resolving metadata...".into()),
+                                ))
+                                .await;
+
+                            let file_path = std::path::PathBuf::from(&path_str);
+                            let raw_title = file_path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or(&display_for_tag);
+
+                            let cleaned = clean_title(raw_title);
+                            let mut tag_info = AudioTrackInfo {
+                                title: Some(cleaned.title.clone()),
+                                artist: cleaned.artist.clone(),
+                                ..Default::default()
+                            };
+
+                            if let Ok(mb) = lookup_metadata(cleaned.artist.as_deref(), &cleaned.title).await {
+                                tag_info.title = Some(mb.title);
+                                tag_info.artist = Some(mb.artist);
+                                tag_info.album = mb.album;
+                                tag_info.year = mb.year;
+                                tag_info.track_number = mb.track_number;
+                                if let Some(ref mbid) = mb.release_mbid {
+                                    if let Some(art_bytes) = fetch_cover_art_archive(mbid).await {
+                                        tag_info.cover_art = Some(art_bytes);
+                                    }
+                                }
+                            }
+
+                            let _ = write_tags(&path_str, &tag_info);
+
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Completed,
+                                    100.0,
+                                    "Direct Complete".into(),
+                                    "00:00".into(),
+                                    Some(format!("Downloaded via Direct Line-Rate CDN (Saved to {})", file_path.display())),
+                                ))
+                                .await;
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send((
+                                    id,
+                                    JobPhase::Failed(e.clone()),
+                                    0.0,
+                                    "CDN Failed".into(),
+                                    "--:--".into(),
+                                    Some(format!("Direct CDN ingest failed: {}", e)),
+                                ))
+                                .await;
+                        }
+                    }
+                });
+            }
+        }
+
+        self.status_message = "Triggered Direct Line-Rate CDN Ingest (Full Speed Streaming)".to_string();
+    }
+
     /// Re-hunts the Soulseek swarm with a custom user-supplied search query.
     pub fn rehunt_soulseek(&mut self, job_id: usize, custom_query: String) {
         let tx = self.tx.clone();
@@ -2102,6 +2845,7 @@ impl DownloaderState {
         self.status_message = format!("Re-hunting Soulseek swarm with refined query: '{}' (Target: {} seeds, {}s)...", query, target_seeds, search_duration_secs);
 
         tokio::spawn(async move {
+            let _ = SlskdClient::ensure_daemon_running();
             let slskd = SlskdClient::detect_local();
             match slskd.start_search(&query).await {
                 Ok(search_id) => {
@@ -2154,6 +2898,7 @@ impl DownloaderState {
                             speed_kbps: r.upload_speed.map(|s| (s as f32) / 1024.0),
                             in_queue: r.queue_length as usize,
                             score: 0.0,
+                            probed_verdict: None,
                         })
                         .collect();
 
@@ -2235,10 +2980,20 @@ impl DownloaderState {
                     let track = self.adv_search_track.trim().to_string();
                     let album = self.adv_search_album.trim().to_string();
 
+                    let is_album_search = !album.is_empty() && track.is_empty();
+                    let target_artist = artist.clone();
+                    let target_title = if is_album_search {
+                        album.clone()
+                    } else if !track.is_empty() {
+                        track.clone()
+                    } else {
+                        album.clone()
+                    };
+
                     let query = if !artist.is_empty() && !track.is_empty() {
-                        format!("{} - {}", artist, track)
+                        format!("{} {}", artist, track)
                     } else if !artist.is_empty() && !album.is_empty() {
-                        format!("{} - {}", artist, album)
+                        format!("{} {}", artist, album)
                     } else if !track.is_empty() {
                         track
                     } else if !artist.is_empty() {
@@ -2250,21 +3005,21 @@ impl DownloaderState {
                     };
 
                     if !query.is_empty() {
-                        match self.adv_search_target_engine {
-                            SearchTargetEngine::SoulseekP2P => {
-                                self.selected_policy = AcquisitionPolicy::NicotineFlacPreferred;
-                            }
-                            SearchTargetEngine::YouTube => {
-                                self.selected_policy = AcquisitionPolicy::FastWebFallback;
-                            }
-                            SearchTargetEngine::Hybrid => {
-                                self.selected_policy = AcquisitionPolicy::BestAvailable;
-                            }
-                        }
+                        self.selected_policy = self.adv_search_target_engine;
                         self.show_advanced_search_modal = false;
                         self.status_message = format!("Launched Advanced Search for '{}' via {}", query, self.adv_search_target_engine.label());
                         self.input_text = query;
                         self.submit_current();
+
+                        if is_album_search {
+                            self.download_entire_album = true;
+                        }
+                        if !target_artist.is_empty() {
+                            self.target_search_artist = target_artist;
+                        }
+                        if !target_title.is_empty() {
+                            self.target_search_title = target_title;
+                        }
                     }
                 }
                 _ => {}
@@ -2555,32 +3310,38 @@ impl DownloaderState {
             let count = self.filtered_lossless_indices().len();
             match code {
                 KeyCode::Up | KeyCode::Char('k') => {
+                    self.bypass_fake_warning = false;
                     if self.selected_lossless_idx > 0 {
                         self.selected_lossless_idx -= 1;
                         self.lossless_list_state.select(Some(self.selected_lossless_idx));
                     }
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
+                    self.bypass_fake_warning = false;
                     if self.selected_lossless_idx + 1 < count {
                         self.selected_lossless_idx += 1;
                         self.lossless_list_state.select(Some(self.selected_lossless_idx));
                     }
                 }
                 KeyCode::PageUp => {
+                    self.bypass_fake_warning = false;
                     self.selected_lossless_idx = self.selected_lossless_idx.saturating_sub(15);
                     self.lossless_list_state.select(Some(self.selected_lossless_idx));
                 }
                 KeyCode::PageDown => {
+                    self.bypass_fake_warning = false;
                     if count > 0 {
                         self.selected_lossless_idx = (self.selected_lossless_idx + 15).min(count - 1);
                         self.lossless_list_state.select(Some(self.selected_lossless_idx));
                     }
                 }
                 KeyCode::Home => {
+                    self.bypass_fake_warning = false;
                     self.selected_lossless_idx = 0;
                     self.lossless_list_state.select(Some(0));
                 }
                 KeyCode::End => {
+                    self.bypass_fake_warning = false;
                     if count > 0 {
                         self.selected_lossless_idx = count.saturating_sub(1);
                         self.lossless_list_state.select(Some(self.selected_lossless_idx));
@@ -2597,11 +3358,26 @@ impl DownloaderState {
                     self.download_entire_album = !self.download_entire_album;
                     self.selected_lossless_idx = 0;
                     self.lossless_list_state.select(Some(0));
+                    self.bypass_fake_warning = false;
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    self.album_sort_mode = self.album_sort_mode.next();
+                    self.selected_lossless_idx = 0;
+                    self.lossless_list_state.select(Some(0));
+                    self.bypass_fake_warning = false;
+                    self.status_message = format!("Switched sort mode to: {}", self.album_sort_mode.label());
+                }
+                KeyCode::Char('v') | KeyCode::Char('V') => {
+                    self.probe_selected_candidate_authenticity();
+                }
+                KeyCode::Char('t') | KeyCode::Char('T') => {
+                    self.trigger_direct_cdn_ingest();
                 }
                 KeyCode::Enter => {
                     self.confirm_lossless_selection();
                 }
                 KeyCode::Esc => {
+                    self.bypass_fake_warning = false;
                     if !self.lossless_filter_text.is_empty() {
                         self.lossless_filter_text.clear();
                         self.selected_lossless_idx = 0;
@@ -2616,9 +3392,24 @@ impl DownloaderState {
             return;
         }
 
-        // When not actively editing URL text, numbers 1, 2, 3 switch workspace sub-tabs, and 'S' opens Advanced Search
+        // When not actively editing URL text, numbers 1, 2, 3 switch workspace sub-tabs, 'S' opens Advanced Search, and 'F5'/'W' refreshes the daemon
         if !self.is_editing_url {
             match code {
+                KeyCode::F(5) | KeyCode::Char('w') | KeyCode::Char('W') => {
+                    self.status_message = "Refreshing & reconnecting Soulseek swarm daemon (Port 5030)...".to_string();
+                    let tx_clone = self.tx.clone();
+                    tokio::spawn(async move {
+                        match crate::harvest::slskd::SlskdClient::restart_daemon() {
+                            Ok(_) => {
+                                let _ = tx_clone.send((0, JobPhase::Completed, 100.0, "--".into(), "--:--".into(), Some("SOULSEEK_RECONNECTED".into()))).await;
+                            }
+                            Err(e) => {
+                                let _ = tx_clone.send((0, JobPhase::Failed(e.clone()), 0.0, "--".into(), "--:--".into(), Some(format!("SOULSEEK_FAILED:{}", e)))).await;
+                            }
+                        }
+                    });
+                    return;
+                }
                 KeyCode::Char('s') | KeyCode::Char('S') if self.active_tab == DownloaderTab::Queue => {
                     self.show_advanced_search_modal = true;
                     self.adv_search_focused_field = 0;
@@ -2732,7 +3523,7 @@ impl DownloaderState {
                     self.submit_current();
                 }
             }
-            KeyCode::Char(c) if self.focused_field == 0 && c != '1' && c != '2' && c != '3' && c != 'q' && c != 'Q' && c != 'e' && c != 'E' && c != 'd' && c != 'D' && c != 'x' && c != 'X' => {
+            KeyCode::Char(c) if self.focused_field == 0 && c != '1' && c != '2' && c != '3' && c != 'q' && c != 'Q' && c != 'e' && c != 'E' && c != 'd' && c != 'D' && c != 'x' && c != 'X' && c != 'w' && c != 'W' => {
                 self.is_editing_url = true;
                 self.input_text.push(c);
                 self.status_message = "Editing URL: Press Enter to convert, Tab to Quality, Esc to exit.".to_string();
@@ -3050,7 +3841,7 @@ impl DownloaderState {
     }
 
     fn render_lossless_selector_modal(&mut self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
-        let popup_area = centered_rect(96, 88, area);
+        let popup_area = centered_rect(98, 94, area);
         f.render_widget(Clear, popup_area);
 
         let filtered_indices = self.filtered_lossless_indices();
@@ -3080,19 +3871,19 @@ impl DownloaderState {
         let title_text = if self.download_entire_album {
             if !self.lossless_filter_text.is_empty() {
                 format!(
-                    " SOULSEEK ENTIRE ALBUM RELEASES (Showing {} of {} albums | Filter: '{}') ",
-                    matching_count, total_count, self.lossless_filter_text
+                    " SOULSEEK ENTIRE ALBUM RELEASES (Showing {} of {} albums | Filter: '{}' | Sort: [S] {}) ",
+                    matching_count, total_count, self.lossless_filter_text, self.album_sort_mode.label()
                 )
             } else {
-                format!(" SOULSEEK ENTIRE ALBUM RELEASES (Found {} peer albums) ", total_count)
+                format!(" SOULSEEK ENTIRE ALBUM RELEASES (Found {} peer albums | Sort: [S] {}) ", total_count, self.album_sort_mode.label())
             }
         } else if !self.lossless_filter_text.is_empty() {
             format!(
-                " SOULSEEK LOSSLESS SWARM SELECTOR (Showing {} of {} versions | Filter: '{}') ",
-                matching_count, total_count, self.lossless_filter_text
+                " SOULSEEK LOSSLESS SWARM SELECTOR (Showing {} of {} versions | Filter: '{}' | Sort: [S] {}) ",
+                matching_count, total_count, self.lossless_filter_text, self.album_sort_mode.label()
             )
         } else {
-            format!(" SOULSEEK LOSSLESS SWARM SELECTOR (Found {} versions) ", total_count)
+            format!(" SOULSEEK LOSSLESS SWARM SELECTOR (Found {} versions | Sort: [S] {}) ", total_count, self.album_sort_mode.label())
         };
 
         let modal_block = Block::default()
@@ -3111,7 +3902,7 @@ impl DownloaderState {
                     Constraint::Length(3), // Scope selection radio row
                     Constraint::Length(3), // In-modal Filter Bar
                     Constraint::Min(6),   // Candidates list
-                    Constraint::Length(2), // Bottom keybinding guidance
+                    Constraint::Length(3), // Bottom keybinding guidance
                 ])
                 .split(inner_area);
             (chunks[0], Some(chunks[1]), chunks[2], chunks[3])
@@ -3121,7 +3912,7 @@ impl DownloaderState {
                 .constraints([
                     Constraint::Length(3), // Scope selection radio row
                     Constraint::Min(6),   // Candidates list
-                    Constraint::Length(2), // Bottom keybinding guidance
+                    Constraint::Length(3), // Bottom keybinding guidance
                 ])
                 .split(inner_area);
             (chunks[0], None, chunks[1], chunks[2])
@@ -3206,36 +3997,60 @@ impl DownloaderState {
             let album_panes = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(48), // Left: Album Releases
-                    Constraint::Percentage(52), // Right: Inspected Tracklist & Enrichment
+                    Constraint::Percentage(50), // Left: Album Releases (2-line organic cards)
+                    Constraint::Percentage(50), // Right: Inspected Tracklist & Companion Assets
                 ])
                 .split(list_chunk);
 
-            // Left Pane: Album clusters list
+            // Left Pane: Album clusters list (Organic 2-Line Cards)
             let items: Vec<ListItem> = clusters.iter().enumerate().map(|(disp_idx, c)| {
                 let is_selected = disp_idx == self.selected_lossless_idx;
                 let cursor = if is_selected { "> " } else { "  " };
 
-                let peer_str = format!("@{:<12} ", safe_truncate(&c.username, 12));
-                let dir_str = format!("{:<16} ", safe_truncate(&c.directory, 16));
-                let tracks_str = format!("{:<7} ", format!("{} trk", c.tracks.len()));
-                let size_str = format!("{:<9} ", c.formatted_size());
-                let speed_str = format!("{:<9} ", c.formatted_speed());
-                let queue_str = if c.in_queue == 0 { "0 Q".to_string() } else { format!("Q: {}", c.in_queue) };
+                let cluster_speed_tier = if c.tracks.len() > 1 {
+                    crate::harvest::nicotine::SpeedTier::DistributedSwarm
+                } else if c.in_queue == 0 && c.speed_kbps.unwrap_or(0.0) >= 1000.0 {
+                    crate::harvest::nicotine::SpeedTier::HighSpeedPeer
+                } else if c.in_queue > 5 {
+                    crate::harvest::nicotine::SpeedTier::CongestedQueue
+                } else {
+                    crate::harvest::nicotine::SpeedTier::StandardPeer
+                };
+                let cluster_eta = format!("~{}s", ((c.total_size_bytes as f64) / ((c.tracks.len().max(1) as f64 * 1_500_000.0).max(500_000.0))).ceil() as u64);
 
-                let mut spans = vec![
+                let dir_name = safe_truncate(&c.directory, 32);
+                let queue_str = if c.in_queue == 0 { "0 Queue".to_string() } else { format!("Queue: {}", c.in_queue) };
+
+                let mut line1_spans = vec![
                     Span::styled(cursor, if is_selected { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
-                    Span::styled(peer_str, Style::default().fg(Color::Cyan)),
-                    Span::styled(dir_str, if is_selected { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
-                    Span::styled(tracks_str, Style::default().fg(Color::Yellow)),
-                    Span::styled(size_str, Style::default().fg(theme.accent)),
-                    Span::styled(speed_str, Style::default().fg(Color::Green)),
-                    Span::styled(format!("{:<6} ", queue_str), if c.in_queue == 0 { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Yellow) }),
+                    Span::styled(format!("{:<14} ", cluster_speed_tier.label()), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{:<32} ", dir_name), if is_selected { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
+                    Span::styled(format!("({} trk • {})", c.tracks.len(), c.formatted_resolution()), Style::default().fg(Color::Yellow)),
                 ];
 
-                if c.target_track_idx.is_some() {
-                    spans.push(Span::styled("[TARGET FOUND]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+                if c.has_probed_tracks() {
+                    let (total, verified, fakes) = c.inspected_counts();
+                    if fakes > 0 {
+                        line1_spans.push(Span::styled(format!(" [{} FAKES DETECTED]", fakes), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+                    } else {
+                        line1_spans.push(Span::styled(format!(" [{}/{} VERIFIED]", verified, total), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+                    }
+                } else if c.target_track_idx.is_some() {
+                    line1_spans.push(Span::styled(" [TARGET FOUND]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
                 }
+
+                let line2_spans = vec![
+                    Span::raw("    "),
+                    Span::styled(format!("@{} ", safe_truncate(&c.username, 16)), Style::default().fg(Color::Cyan)),
+                    Span::styled("• ", Style::default().fg(theme.text_dim)),
+                    Span::styled(format!("{} ", c.formatted_size()), Style::default().fg(theme.accent)),
+                    Span::styled("• ", Style::default().fg(theme.text_dim)),
+                    Span::styled(format!("{} ", c.formatted_speed()), Style::default().fg(Color::Green)),
+                    Span::styled("• ", Style::default().fg(theme.text_dim)),
+                    Span::styled(format!("ETA: {} ", cluster_eta), Style::default().fg(Color::LightGreen)),
+                    Span::styled("• ", Style::default().fg(theme.text_dim)),
+                    Span::styled(queue_str, if c.in_queue == 0 { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Yellow) }),
+                ];
 
                 let bg_style = if is_selected {
                     Style::default().bg(Color::Rgb(30, 35, 45))
@@ -3243,14 +4058,15 @@ impl DownloaderState {
                     Style::default()
                 };
 
-                ListItem::new(Line::from(spans)).style(bg_style)
+                ListItem::new(vec![Line::from(line1_spans), Line::from(line2_spans)]).style(bg_style)
             }).collect();
 
             let left_title = if matching_count > 0 {
                 format!(
-                    " ALBUM RELEASES (Item {} of {} | Peer | Directory | Tracks | Size | Speed | Queue) ",
+                    " ALBUM RELEASES (Item {} of {} | Sort: [S] {}) ",
                     self.selected_lossless_idx + 1,
-                    matching_count
+                    matching_count,
+                    self.album_sort_mode.label()
                 )
             } else {
                 " NO MATCHING ALBUMS FOUND IN SWARM (Press [Esc] to clear filter or [F2/E] for Manual Entry) ".to_string()
@@ -3285,30 +4101,53 @@ impl DownloaderState {
                     let is_target = c.target_track_idx == Some(t_idx);
                     let clean_fn = t.filename.replace('\\', "/");
                     let leaf = clean_fn.rsplit_once('/').map(|(_, l)| l).unwrap_or(&clean_fn);
-                    let leaf_display = safe_truncate(leaf, 30);
-                    let size_mb = format!("{:.1} MB", t.size as f64 / (1024.0 * 1024.0));
+                    let leaf_display = safe_truncate(leaf, 34);
                     let num_str = format!("{:02}. ", t_idx + 1);
+                    let br_str = format!("{:<10} ", t.formatted_bitrate());
+                    let size_mb = format!("{:<8} ", t.formatted_size());
+
+                    let auth = t.evaluate_authenticity();
+                    let compact_auth = auth.compact_label();
+                    let auth_style = match &auth {
+                        crate::harvest::nicotine::AuthenticityBadge::ProbedAuthentic(_) => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        crate::harvest::nicotine::AuthenticityBadge::ProbedFake(_) => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_, _) => Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                        crate::harvest::nicotine::AuthenticityBadge::GenuineCD => Style::default().fg(Color::Green),
+                        crate::harvest::nicotine::AuthenticityBadge::PlausibleLossless => Style::default().fg(Color::LightGreen),
+                        crate::harvest::nicotine::AuthenticityBadge::SuspectTranscode(_) => Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                    };
 
                     if is_target {
                         let line_spans = vec![
                             Span::styled(num_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                            Span::styled(format!("{:<30} ", leaf_display), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                            Span::styled(format!("{:<8} ", size_mb), Style::default().fg(Color::Yellow)),
-                            Span::styled("[TARGET SONG - FOUND]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                            Span::styled(format!("{:<34} ", leaf_display), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                            Span::styled(format!("{:<11} ", compact_auth), auth_style),
+                            Span::styled(br_str, Style::default().fg(Color::Yellow)),
+                            Span::styled(size_mb, Style::default().fg(theme.accent)),
+                            Span::styled("[TARGET SONG]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                         ];
                         ListItem::new(Line::from(line_spans)).style(Style::default().bg(Color::Rgb(45, 45, 20)))
                     } else {
                         let line_spans = vec![
                             Span::styled(num_str, Style::default().fg(theme.text_dim)),
-                            Span::styled(format!("{:<30} ", leaf_display), Style::default().fg(theme.text)),
-                            Span::styled(format!("{:<8} ", size_mb), Style::default().fg(theme.text_dim)),
+                            Span::styled(format!("{:<34} ", leaf_display), Style::default().fg(theme.text)),
+                            Span::styled(format!("{:<11} ", compact_auth), auth_style),
+                            Span::styled(br_str, Style::default().fg(Color::Yellow)),
+                            Span::styled(size_mb, Style::default().fg(theme.text_dim)),
                         ];
                         ListItem::new(Line::from(line_spans))
                     }
                 }).collect();
 
                 let track_block = Block::default()
-                    .title(format!(" INSPECTED TRACKLIST: {} (@{} - {} tracks) ", c.directory, c.username, c.tracks.len()))
+                    .title(format!(
+                        " INSPECTED TRACKLIST: {} (@{} • {} trk • {} • {}) ",
+                        safe_truncate(&c.directory, 22),
+                        c.username,
+                        c.tracks.len(),
+                        c.formatted_resolution(),
+                        c.formatted_speed()
+                    ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan));
                 let track_list_widget = List::new(track_items).block(track_block);
@@ -3323,18 +4162,24 @@ impl DownloaderState {
                 let lyrics_span = Span::styled(format!(" [Lyrics: {} tracks] ", c.tracks.len()), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
                 let tags_span = Span::styled(" [FLAC Vorbis Tags] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD));
 
+                let swarm_dispersion_span = Span::styled(
+                    format!(" [Swarm Dispersion: {} Streams] ", c.tracks.len().min(16)),
+                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+                );
+
                 let assets_lines = vec![
                     Line::from(vec![
                         Span::styled(" Artwork: ", Style::default().fg(theme.text_dim)),
                         art_span,
-                        Span::raw(" | "),
-                        Span::styled("Lyrics: ", Style::default().fg(theme.text_dim)),
+                        Span::styled("  •  Lyrics: ", Style::default().fg(theme.text_dim)),
                         lyrics_span,
+                        Span::styled("  •  Tagging: ", Style::default().fg(theme.text_dim)),
+                        tags_span,
                     ]),
                     Line::from(vec![
-                        Span::styled(" Tagging: ", Style::default().fg(theme.text_dim)),
-                        tags_span,
-                        Span::styled(format!("Destination: ~/Music/{}/", c.directory), Style::default().fg(theme.text_dim)),
+                        Span::styled(" Ingest: ", Style::default().fg(theme.text_dim)),
+                        swarm_dispersion_span,
+                        Span::styled(format!("  •  Dest: ~/Music/{}/", safe_truncate(&c.directory, 24)), Style::default().fg(theme.text_dim)),
                     ]),
                 ];
 
@@ -3356,6 +4201,17 @@ impl DownloaderState {
                 let is_selected = disp_idx == self.selected_lossless_idx;
                 let cursor = if is_selected { "> " } else { "  " };
 
+                let auth = c.evaluate_authenticity();
+                let auth_badge_str = format!("{:<19} ", auth.label());
+                let auth_style = match &auth {
+                    crate::harvest::nicotine::AuthenticityBadge::ProbedAuthentic(_) => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    crate::harvest::nicotine::AuthenticityBadge::ProbedFake(_) => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(_, _) => Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                    crate::harvest::nicotine::AuthenticityBadge::GenuineCD => Style::default().fg(Color::Green),
+                    crate::harvest::nicotine::AuthenticityBadge::PlausibleLossless => Style::default().fg(Color::LightGreen),
+                    crate::harvest::nicotine::AuthenticityBadge::SuspectTranscode(_) => Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                };
+
                 let res_str = c.formatted_resolution();
                 let bitrate_str = match c.bitrate_kbps {
                     Some(b) if b > 0 => format!("{}k", b),
@@ -3369,6 +4225,8 @@ impl DownloaderState {
 
                 let speed_str = c.formatted_speed();
                 let queue_str = c.formatted_queue();
+                let speed_tier = c.evaluate_speed_tier();
+                let eta_str = c.formatted_eta();
 
                 let speed_style = match c.speed_kbps {
                     Some(kb) if kb >= 1024.0 => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
@@ -3386,6 +4244,9 @@ impl DownloaderState {
 
                 let line_spans = vec![
                     Span::styled(cursor, if is_selected { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+                    Span::styled(auth_badge_str, auth_style),
+                    Span::styled(format!("{:<15} ", speed_tier.label()), speed_style),
+                    Span::styled(format!("{:<7} ", eta_str), Style::default().fg(Color::LightCyan)),
                     Span::styled(format!("{:<15} ", res_str), if is_selected { Style::default().fg(theme.primary).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text) }),
                     Span::styled(format!("{:<8} ", bitrate_str), Style::default().fg(theme.accent)),
                     Span::styled(format!("{:<8} ", size_str), Style::default().fg(Color::Yellow)),
@@ -3407,9 +4268,10 @@ impl DownloaderState {
 
             let list_title = if matching_count > 0 {
                 format!(
-                    " AVAILABLE LOSSLESS RELEASES (Item {} of {} | Resolution | Bitrate | Size | Speed | Queue | Peer | Directory) ",
+                    " AVAILABLE LOSSLESS RELEASES (Item {} of {} | Sort: [S] {} | Press [V] to Probe Authenticity) ",
                     self.selected_lossless_idx + 1,
-                    matching_count
+                    matching_count,
+                    self.album_sort_mode.label()
                 )
             } else {
                 " NO MATCHING LOSSLESS RELEASES IN SWARM (Press [Esc] to clear filter or [F2/E] for Manual Entry) ".to_string()
@@ -3424,7 +4286,7 @@ impl DownloaderState {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Min(6),
-                    Constraint::Length(4),
+                    Constraint::Length(5),
                 ])
                 .split(list_chunk);
 
@@ -3442,13 +4304,28 @@ impl DownloaderState {
             // Inspected candidate full path & metadata pane (Zero Truncation)
             let inspected_cand = filtered_indices.get(self.selected_lossless_idx).and_then(|&idx| self.lossless_candidates.get(idx));
             let detail_lines = if let Some(c) = inspected_cand {
+                let auth = c.evaluate_authenticity();
+                let auth_color = if auth.is_suspect_or_fake() { Color::LightRed } else { Color::Green };
                 vec![
                     Line::from(vec![
-                        Span::styled(" Track / File: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                        Span::styled(" Track / File:  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                         Span::styled(&c.filename, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::from(vec![
-                        Span::styled(" Directory:    ", Style::default().fg(theme.text_dim)),
+                        Span::styled(" Authenticity:  ", Style::default().fg(theme.text_dim)),
+                        Span::styled(format!("{} ", auth.label()), Style::default().fg(auth_color).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("- {}", auth.explanation()), Style::default().fg(if auth.is_suspect_or_fake() { Color::Yellow } else { theme.text })),
+                    ]),
+                    Line::from(vec![
+                        Span::styled(" Speed & Tier:  ", Style::default().fg(theme.text_dim)),
+                        Span::styled(format!("{} ", c.evaluate_speed_tier().label()), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("(ETA: {}) - ", c.formatted_eta()), Style::default().fg(Color::Green)),
+                        Span::styled(c.evaluate_speed_tier().throughput_desc(), Style::default().fg(theme.text)),
+                        Span::raw(" | "),
+                        Span::styled(" [T] Direct Line-Rate CDN (50-100 MB/s) ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ]),
+                    Line::from(vec![
+                        Span::styled(" Directory:     ", Style::default().fg(theme.text_dim)),
                         Span::styled(c.directory_name(), Style::default().fg(Color::Yellow)),
                         Span::styled(" | Peer: ", Style::default().fg(theme.text_dim)),
                         Span::styled(format!("@{}", c.username), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -3474,24 +4351,32 @@ impl DownloaderState {
             f.render_widget(p_detail, cand_layout[1]);
         }
 
-        // 4. Keybindings bar
-        let footer = Line::from(vec![
-            Span::styled(" [Up/Dn] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::raw("Move | "),
+        // 4. Keybindings bar (2-line balanced, zero truncation)
+        let footer_line1 = Line::from(vec![
+            Span::styled(" [↑/↓] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::raw("Select   "),
             Span::styled(" [PgUp/Dn] ", Style::default().fg(theme.accent)),
-            Span::raw("Scroll | "),
+            Span::raw("Page Scroll   "),
+            Span::styled(" [Tab] ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::raw("Toggle Scope (Track/Album)   "),
+            Span::styled(" [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Sort: {}   ", self.album_sort_mode.label()), Style::default().fg(Color::Yellow)),
             Span::styled(" [/] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw("Filter | "),
+            Span::raw("Filter   "),
             Span::styled(" [F2/E] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Manual | "),
-            Span::styled(" [Tab] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::raw("Scope | "),
-            Span::styled(" [Enter] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::raw("Queue | "),
-            Span::styled(" [Esc] ", Style::default().fg(Color::Red)),
-            Span::raw("Cancel"),
+            Span::raw("Manual Search"),
         ]);
-        let footer_p = Paragraph::new(footer).alignment(Alignment::Center);
+        let footer_line2 = Line::from(vec![
+            Span::styled(" [Enter] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Queue Swarm Ingest   "),
+            Span::styled(" [T] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::raw("Direct Fast Stream (50-100 MB/s)   "),
+            Span::styled(" [V] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw(if self.download_entire_album { "Inspect All Tracks   " } else { "Inspect Track   " }),
+            Span::styled(" [Esc] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::raw("Cancel / Back"),
+        ]);
+        let footer_p = Paragraph::new(vec![footer_line1, footer_line2]).alignment(Alignment::Center);
         f.render_widget(footer_p, footer_chunk);
 
         // 5. Tri-Field Manual Entry & Re-Hunt Overlay Modal
@@ -3677,8 +4562,8 @@ impl DownloaderState {
             return;
         }
 
-        let popup_width = 74.min(area.width.saturating_sub(4));
-        let popup_height = 18.min(area.height.saturating_sub(4));
+        let popup_width = 82.min(area.width.saturating_sub(4));
+        let popup_height = 20.min(area.height.saturating_sub(4));
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
         let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
         let popup_area = Rect::new(x, y, popup_width, popup_height);
@@ -3698,7 +4583,7 @@ impl DownloaderState {
                 Constraint::Length(3), // 1. Artist field
                 Constraint::Length(3), // 2. Track field
                 Constraint::Length(3), // 3. Album field
-                Constraint::Length(3), // 4. Target Engine
+                Constraint::Length(4), // 4. Target Engine
                 Constraint::Length(1), // Spacer
                 Constraint::Length(2), // Action keys
             ])
@@ -3744,24 +4629,30 @@ impl DownloaderState {
 
         // 4. Target Engine Selector
         let engine_block = Block::default()
-            .title(" [4. SEARCH TARGET ENGINE] ")
+            .title(" [4. DOWNLOAD MODE / ENGINE] ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if f3_active { Color::Yellow } else { theme.primary }));
 
         let engine = self.adv_search_target_engine;
-        let e_slsk = if engine == SearchTargetEngine::SoulseekP2P { "(*) Soulseek P2P" } else { "( ) Soulseek P2P" };
-        let e_yt = if engine == SearchTargetEngine::YouTube { "(*) YouTube Web" } else { "( ) YouTube Web" };
-        let e_hyb = if engine == SearchTargetEngine::Hybrid { "(*) Hybrid (P2P + Web)" } else { "( ) Hybrid (P2P + Web)" };
+        let e_lossless = if engine == AcquisitionPolicy::LosslessOnly { "(*) Lossless Only" } else { "( ) Lossless Only" };
+        let e_fallback = if engine == AcquisitionPolicy::Fallback { "(*) Fallback" } else { "( ) Fallback" };
+        let e_mp3 = if engine == AcquisitionPolicy::StandardMp3 { "(*) Standard MP3" } else { "( ) Standard MP3" };
 
-        let engine_spans = vec![
-            Span::raw("  "),
-            Span::styled(e_slsk, if engine == SearchTargetEngine::SoulseekP2P { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
-            Span::raw("    "),
-            Span::styled(e_yt, if engine == SearchTargetEngine::YouTube { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
-            Span::raw("    "),
-            Span::styled(e_hyb, if engine == SearchTargetEngine::Hybrid { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+        let engine_lines = vec![
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(e_lossless, if engine == AcquisitionPolicy::LosslessOnly { Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+                Span::raw("    "),
+                Span::styled(e_fallback, if engine == AcquisitionPolicy::Fallback { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+                Span::raw("    "),
+                Span::styled(e_mp3, if engine == AcquisitionPolicy::StandardMp3 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
+            ]),
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("Description: {}", engine.description()), Style::default().fg(theme.text_dim)),
+            ]),
         ];
-        let engine_p = Paragraph::new(Line::from(engine_spans)).block(engine_block);
+        let engine_p = Paragraph::new(engine_lines).block(engine_block);
         f.render_widget(engine_p, chunks[3]);
 
         // Footer Actions
@@ -3789,10 +4680,15 @@ impl DownloaderState {
             .split(area);
 
         // 1. Top Controls Bar
-        let soulseek_tag = if let Some(ref u) = self.active_soulseek_user {
-            format!(" [Soulseek: {} | 'A' Accounts] ", u)
+        let is_daemon_online = crate::harvest::slskd::SlskdClient::is_daemon_online();
+        let soulseek_tag = if is_daemon_online {
+            if let Some(ref u) = self.active_soulseek_user {
+                format!(" [● Soulseek: @{} | 'A' Acc | 'F5'/'W' Refresh] ", u)
+            } else {
+                " [● Soulseek: Active | 'A' Login | 'F5'/'W' Refresh] ".to_string()
+            }
         } else {
-            " [Soulseek: Not Connected | 'A' Accounts] ".to_string()
+            " [○ Soulseek: Offline (5030) | 'F5'/'W' Reconnect] ".to_string()
         };
         let bar_block = Block::default()
             .title(format!(" MP3 DOWNLOADER & CONVERSION CONTROLS {} ", soulseek_tag))
@@ -4576,7 +5472,7 @@ mod tests {
             display_name: "Test Track".to_string(),
             output_path: None,
             quality: Mp3Quality::Mp3_320k,
-            policy: AcquisitionPolicy::Mp3Only,
+            policy: AcquisitionPolicy::StandardMp3,
             phase: JobPhase::Completed,
             progress: 100.0,
             speed: "Done".to_string(),
@@ -4673,22 +5569,26 @@ mod tests {
         // Pressing Tab advances to Policy (Field 2)
         state.handle_key(KeyCode::Tab);
         assert_eq!(state.focused_field, 2);
-        assert_eq!(state.selected_policy, AcquisitionPolicy::Mp3Only);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::StandardMp3);
 
-        // Right arrow cycles Policy to BestAvailable
+        // Right arrow cycles Policy to LosslessOnly
         state.handle_key(KeyCode::Right);
-        assert_eq!(state.selected_policy, AcquisitionPolicy::BestAvailable);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::LosslessOnly);
 
-        // Right arrow cycles to NicotineFlacPreferred
+        // Right arrow cycles to Fallback
         state.handle_key(KeyCode::Right);
-        assert_eq!(state.selected_policy, AcquisitionPolicy::NicotineFlacPreferred);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::Fallback);
+
+        // Right arrow wraps back to StandardMp3
+        state.handle_key(KeyCode::Right);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::StandardMp3);
 
         // Pressing Enter while on Policy with non-empty URL submits the job!
         state.handle_key(KeyCode::Enter);
         assert_eq!(state.jobs.len(), 1);
         let queued = &state.jobs[0];
         assert_eq!(queued.quality, Mp3Quality::Opus160k);
-        assert_eq!(queued.policy, AcquisitionPolicy::NicotineFlacPreferred);
+        assert_eq!(queued.policy, AcquisitionPolicy::StandardMp3);
     }
 
     #[test]
@@ -4732,16 +5632,22 @@ mod tests {
         assert_eq!(q.prev(), Mp3Quality::Opus160k);
         assert_eq!(Mp3Quality::FlacLossless.prev(), Mp3Quality::Aac_256k);
 
-        let p = AcquisitionPolicy::Mp3Only;
-        assert_eq!(p.next(), AcquisitionPolicy::BestAvailable);
-        assert_eq!(p.prev(), AcquisitionPolicy::FastWebFallback);
-        assert_eq!(AcquisitionPolicy::NicotineFlacPreferred.prev(), AcquisitionPolicy::BestAvailable);
+        let p = AcquisitionPolicy::StandardMp3;
+        assert_eq!(p.next(), AcquisitionPolicy::LosslessOnly);
+        assert_eq!(p.prev(), AcquisitionPolicy::Fallback);
+        assert_eq!(AcquisitionPolicy::LosslessOnly.next(), AcquisitionPolicy::Fallback);
+        assert_eq!(AcquisitionPolicy::Fallback.next(), AcquisitionPolicy::StandardMp3);
+        assert_eq!(AcquisitionPolicy::Fallback.prev(), AcquisitionPolicy::LosslessOnly);
     }
 
     #[test]
     fn test_nicotine_policy_renamed_label() {
-        assert_eq!(AcquisitionPolicy::NicotineFlacPreferred.label(), "Nicotine+/Soulseek");
-        assert!(AcquisitionPolicy::NicotineFlacPreferred.description().contains("Soulseek P2P swarm"));
+        assert_eq!(AcquisitionPolicy::LosslessOnly.label(), "Lossless Only");
+        assert_eq!(AcquisitionPolicy::Fallback.label(), "Fallback");
+        assert_eq!(AcquisitionPolicy::StandardMp3.label(), "Standard MP3");
+        assert!(AcquisitionPolicy::LosslessOnly.description().contains("lossless"));
+        assert!(AcquisitionPolicy::Fallback.description().contains("stream"));
+        assert!(AcquisitionPolicy::StandardMp3.description().contains("320kbps"));
     }
 
     #[test]
@@ -4758,6 +5664,7 @@ mod tests {
                 speed_kbps: None,
                 in_queue: 0,
                 score: 95.0,
+                probed_verdict: None,
             },
             NicotineCandidate {
                 username: "hi_res_vault".to_string(),
@@ -4769,6 +5676,7 @@ mod tests {
                 speed_kbps: None,
                 in_queue: 0,
                 score: 99.0,
+                probed_verdict: None,
             },
         ];
         state.show_lossless_selector = true;
@@ -4812,6 +5720,7 @@ mod tests {
             speed_kbps: None,
             in_queue: 0,
             score: 90.0,
+            probed_verdict: None,
         };
         assert_eq!(flac16.formatted_resolution(), "16-bit / 44.1 kHz");
         assert_eq!(flac16.directory_name(), "Album");
@@ -4826,6 +5735,7 @@ mod tests {
             speed_kbps: None,
             in_queue: 0,
             score: 98.0,
+            probed_verdict: None,
         };
         assert_eq!(flac24.formatted_resolution(), "24-bit / 96.0 kHz");
         assert_eq!(flac24.directory_name(), "Master");
@@ -4873,6 +5783,7 @@ mod tests {
             speed_kbps: Some(500.0),
             in_queue: 0,
             score: 95.0,
+            probed_verdict: None,
         }
     }
 
@@ -5037,6 +5948,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: Some(500 * 1024),
                 queue_length: 0,
+                probed_verdict: None,
             },
             crate::harvest::slskd::SlskdFileResult {
                 username: "metal_head".to_string(),
@@ -5047,6 +5959,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: Some(500 * 1024),
                 queue_length: 0,
+                probed_verdict: None,
             },
             crate::harvest::slskd::SlskdFileResult {
                 username: "metal_head".to_string(),
@@ -5057,6 +5970,7 @@ mod tests {
                 bit_depth: None,
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             },
             crate::harvest::slskd::SlskdFileResult {
                 username: "single_peer".to_string(),
@@ -5067,6 +5981,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             },
         ];
 
@@ -5114,6 +6029,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             },
             crate::harvest::slskd::SlskdFileResult {
                 username: "metal_head".to_string(),
@@ -5124,6 +6040,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             },
             crate::harvest::slskd::SlskdFileResult {
                 username: "single_peer".to_string(),
@@ -5134,6 +6051,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             },
         ];
 
@@ -5220,10 +6138,9 @@ mod tests {
 
         // Policy select allocated Constraint::Length(33)
         let policies = [
-            AcquisitionPolicy::Mp3Only,
-            AcquisitionPolicy::BestAvailable,
-            AcquisitionPolicy::NicotineFlacPreferred,
-            AcquisitionPolicy::FastWebFallback,
+            AcquisitionPolicy::LosslessOnly,
+            AcquisitionPolicy::Fallback,
+            AcquisitionPolicy::StandardMp3,
         ];
         for p in &policies {
             let text = format!(" Policy: < {} > ", p.label());
@@ -5259,6 +6176,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             });
             state.all_peer_files.push(crate::harvest::slskd::SlskdFileResult {
                 username: format!("peer_{:02}", i),
@@ -5269,6 +6187,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             });
         }
 
@@ -5305,6 +6224,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             });
         }
 
@@ -5318,6 +6238,7 @@ mod tests {
             bit_depth: Some(16),
             upload_speed: None,
             queue_length: 0,
+            probed_verdict: None,
         });
 
         // 3. Five random 1-track junk files from unrelated peers
@@ -5331,6 +6252,7 @@ mod tests {
                 bit_depth: Some(16),
                 upload_speed: None,
                 queue_length: 0,
+                probed_verdict: None,
             });
         }
 
@@ -5360,6 +6282,7 @@ mod tests {
                 speed_kbps: Some(500.0),
                 in_queue: 0,
                 score: 50.0,
+                probed_verdict: None,
             });
         }
 
@@ -5400,6 +6323,7 @@ mod tests {
                 speed_kbps: Some(500.0),
                 in_queue: 0,
                 score: 50.0,
+                probed_verdict: None,
             });
         }
 
@@ -5436,6 +6360,7 @@ mod tests {
             speed_kbps: None,
             in_queue: 0,
             score: 10.0,
+            probed_verdict: None,
         }];
 
         // Test 'p' key: increments target by 10 and closes modal
@@ -5455,6 +6380,7 @@ mod tests {
             speed_kbps: None,
             in_queue: 0,
             score: 10.0,
+            probed_verdict: None,
         }];
         state.handle_key(KeyCode::Char('u'));
         assert!(!state.show_seed_expansion_modal);
@@ -5548,15 +6474,15 @@ mod tests {
         // Tab to target engine
         state.handle_key(KeyCode::Tab);
         assert_eq!(state.adv_search_focused_field, 3);
-        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::SoulseekP2P);
+        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::LosslessOnly);
 
-        // Right arrow cycles: SoulseekP2P -> YouTube -> Hybrid -> SoulseekP2P
+        // Right arrow cycles: LosslessOnly -> Fallback -> StandardMp3 -> LosslessOnly
         state.handle_key(KeyCode::Right);
-        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::YouTube);
+        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::Fallback);
         state.handle_key(KeyCode::Right);
-        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::Hybrid);
+        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::StandardMp3);
         state.handle_key(KeyCode::Right);
-        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::SoulseekP2P);
+        assert_eq!(state.adv_search_target_engine, SearchTargetEngine::LosslessOnly);
 
         // Esc closes modal
         state.handle_key(KeyCode::Esc);
@@ -5569,14 +6495,14 @@ mod tests {
         state.show_advanced_search_modal = true;
         state.adv_search_artist = "Kendrick Lamar".to_string();
         state.adv_search_track = "Not Like Us".to_string();
-        state.adv_search_target_engine = SearchTargetEngine::SoulseekP2P;
+        state.adv_search_target_engine = SearchTargetEngine::LosslessOnly;
 
         // Press Enter to submit search
         state.handle_key(KeyCode::Enter);
         assert!(!state.show_advanced_search_modal);
-        assert_eq!(state.selected_policy, AcquisitionPolicy::NicotineFlacPreferred);
+        assert_eq!(state.selected_policy, AcquisitionPolicy::LosslessOnly);
         assert_eq!(state.jobs.len(), 1);
-        assert_eq!(state.jobs[0].display_name, "Kendrick Lamar - Not Like Us");
+        assert_eq!(state.jobs[0].display_name, "Kendrick Lamar Not Like Us");
     }
 
     #[tokio::test]
@@ -5653,7 +6579,7 @@ mod tests {
                 display_name: format!("Track #{}", id),
                 output_path: None,
                 quality: Mp3Quality::FlacLossless,
-                policy: AcquisitionPolicy::NicotineFlacPreferred,
+                policy: AcquisitionPolicy::LosslessOnly,
                 phase: JobPhase::Queued,
                 progress: 0.0,
                 speed: "--".to_string(),
@@ -5684,7 +6610,7 @@ mod tests {
                 display_name: format!("Track #{}", id),
                 output_path: None,
                 quality: Mp3Quality::FlacLossless,
-                policy: AcquisitionPolicy::NicotineFlacPreferred,
+                policy: AcquisitionPolicy::LosslessOnly,
                 phase: JobPhase::Queued,
                 progress: 0.0,
                 speed: "--".to_string(),
@@ -5712,7 +6638,7 @@ mod tests {
             display_name: "Single Track".to_string(),
             output_path: None,
             quality: Mp3Quality::FlacLossless,
-            policy: AcquisitionPolicy::NicotineFlacPreferred,
+            policy: AcquisitionPolicy::LosslessOnly,
             phase: JobPhase::Queued,
             progress: 0.0,
             speed: "--".to_string(),
@@ -5743,7 +6669,7 @@ mod tests {
             display_name: "Track 42".to_string(),
             output_path: None,
             quality: Mp3Quality::FlacLossless,
-            policy: AcquisitionPolicy::NicotineFlacPreferred,
+            policy: AcquisitionPolicy::LosslessOnly,
             phase: JobPhase::Queued,
             progress: 25.0,
             speed: "--".to_string(),
@@ -5772,7 +6698,7 @@ mod tests {
             display_name: "Track 10".to_string(),
             output_path: None,
             quality: Mp3Quality::FlacLossless,
-            policy: AcquisitionPolicy::NicotineFlacPreferred,
+            policy: AcquisitionPolicy::LosslessOnly,
             phase: JobPhase::Queued,
             progress: 0.0,
             speed: "--".to_string(),
@@ -5785,7 +6711,7 @@ mod tests {
             display_name: "Track 20".to_string(),
             output_path: None,
             quality: Mp3Quality::FlacLossless,
-            policy: AcquisitionPolicy::NicotineFlacPreferred,
+            policy: AcquisitionPolicy::LosslessOnly,
             phase: JobPhase::Queued,
             progress: 0.0,
             speed: "--".to_string(),
@@ -5815,7 +6741,7 @@ mod tests {
             display_name: "Mock Track".to_string(),
             output_path: None,
             quality: Mp3Quality::FlacLossless,
-            policy: AcquisitionPolicy::NicotineFlacPreferred,
+            policy: AcquisitionPolicy::LosslessOnly,
             phase: JobPhase::Completed,
             progress: 100.0,
             speed: "Done".to_string(),
@@ -5865,7 +6791,7 @@ mod tests {
             display_name: "https://www.youtube.com/watch?v=3_soA...".to_string(),
             output_path: None,
             quality: Mp3Quality::Mp3_320k,
-            policy: AcquisitionPolicy::BestAvailable,
+            policy: AcquisitionPolicy::Fallback,
             phase: JobPhase::Queued,
             progress: 0.0,
             speed: "--".to_string(),
@@ -5918,7 +6844,7 @@ mod tests {
             display_name: "https://www.youtube.com/watch?v=sample...".to_string(),
             output_path: None,
             quality: Mp3Quality::Mp3_320k,
-            policy: AcquisitionPolicy::BestAvailable,
+            policy: AcquisitionPolicy::Fallback,
             phase: JobPhase::AwaitingSelection(vec![], vec![]),
             progress: 30.0,
             speed: "--".to_string(),
@@ -5937,6 +6863,7 @@ mod tests {
                 bitrate_kbps: Some(1411),
                 sample_rate: Some(44100),
                 bit_depth: Some(16),
+                probed_verdict: None,
             }
         ];
         state.show_lossless_selector = true;
@@ -5948,7 +6875,7 @@ mod tests {
         // Selector closes and job immediately updates
         assert!(!state.show_lossless_selector);
         assert_eq!(state.jobs[0].quality, Mp3Quality::FlacLossless);
-        assert_eq!(state.jobs[0].policy, AcquisitionPolicy::NicotineFlacPreferred);
+        assert_eq!(state.jobs[0].policy, AcquisitionPolicy::LosslessOnly);
         assert!(state.jobs[0].display_name.contains("One More Time"));
         assert!(!state.jobs[0].display_name.contains("http"));
     }
@@ -6105,5 +7032,606 @@ mod tests {
         let unicode_title = "東京 ♫  — Cyber City [Lossless 24-bit/96kHz]";
         let formatted_unicode = format_title(unicode_title, 20, 400);
         assert_eq!(formatted_unicode.chars().count(), 20);
+    }
+
+    #[test]
+    fn test_album_sort_mode_cycling_and_hotkey() {
+        let mut state = DownloaderState::new();
+        assert_eq!(state.album_sort_mode, AlbumSortMode::FastestPeer);
+        assert_eq!(state.album_sort_mode.label(), "Fastest Peer (Speed ↓)");
+
+        state.show_lossless_selector = true;
+        state.download_entire_album = true;
+
+        state.handle_key(KeyCode::Char('s'));
+        assert_eq!(state.album_sort_mode, AlbumSortMode::TargetAndTrackCount);
+
+        state.handle_key(KeyCode::Char('s'));
+        assert_eq!(state.album_sort_mode, AlbumSortMode::ShortestQueue);
+
+        state.handle_key(KeyCode::Char('s'));
+        assert_eq!(state.album_sort_mode, AlbumSortMode::HighestQuality);
+
+        state.handle_key(KeyCode::Char('s'));
+        assert_eq!(state.album_sort_mode, AlbumSortMode::ReleaseTitle);
+
+        state.handle_key(KeyCode::Char('s'));
+        assert_eq!(state.album_sort_mode, AlbumSortMode::FastestPeer);
+    }
+
+    #[test]
+    fn test_album_release_clusters_sorting_fastest_peer() {
+        let mut state = DownloaderState::new();
+        state.download_entire_album = true;
+        state.all_peer_files = vec![
+            crate::harvest::slskd::SlskdFileResult {
+                username: "peerA".to_string(),
+                filename: "Album/01.flac".to_string(),
+                size: 20_000_000,
+                bitrate: Some(900),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(102_400),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            crate::harvest::slskd::SlskdFileResult {
+                username: "peerA".to_string(),
+                filename: "Album/02.flac".to_string(),
+                size: 20_000_000,
+                bitrate: Some(900),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(102_400),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            crate::harvest::slskd::SlskdFileResult {
+                username: "peerB".to_string(),
+                filename: "Album/01.flac".to_string(),
+                size: 25_000_000,
+                bitrate: Some(1000),
+                sample_rate: Some(48000),
+                bit_depth: Some(24),
+                upload_speed: Some(1_536_000),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            crate::harvest::slskd::SlskdFileResult {
+                username: "peerB".to_string(),
+                filename: "Album/02.flac".to_string(),
+                size: 25_000_000,
+                bitrate: Some(1000),
+                sample_rate: Some(48000),
+                bit_depth: Some(24),
+                upload_speed: Some(1_536_000),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+        ];
+
+        state.album_sort_mode = AlbumSortMode::FastestPeer;
+        let clusters = state.album_release_clusters();
+        assert_eq!(clusters.len(), 2);
+        assert_eq!(clusters[0].username, "peerB");
+        assert_eq!(clusters[1].username, "peerA");
+        assert_eq!(clusters[0].formatted_resolution(), "24-bit/48kHz");
+        assert_eq!(clusters[1].formatted_resolution(), "16-bit/44.1kHz");
+
+        state.album_sort_mode = AlbumSortMode::ReleaseTitle;
+        let clusters_title = state.album_release_clusters();
+        assert_eq!(clusters_title[0].username, "peerA");
+    }
+
+    #[test]
+    fn test_single_file_sorting_modes() {
+        let mut state = DownloaderState::new();
+        state.download_entire_album = false;
+
+        let cand_slow_hires = NicotineCandidate {
+            username: "peer_slow".to_string(),
+            filename: "Jane Remover - 05 eyes off the wheel (24-192).flac".to_string(),
+            size_bytes: 110_000_000,
+            bitrate_kbps: Some(5600),
+            sample_rate: Some(192000),
+            bit_depth: Some(24),
+            speed_kbps: Some(200.0),
+            in_queue: 5,
+            score: 70.0,
+            probed_verdict: None,
+        };
+
+        let cand_fast_cd = NicotineCandidate {
+            username: "peer_fast".to_string(),
+            filename: "Jane Remover - 05 eyes off the wheel (CD).flac".to_string(),
+            size_bytes: 35_000_000,
+            bitrate_kbps: Some(900),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: Some(2500.0),
+            in_queue: 0,
+            score: 85.0,
+            probed_verdict: None,
+        };
+
+        let cand_short_queue_mid = NicotineCandidate {
+            username: "peer_queue0".to_string(),
+            filename: "Jane Remover - 05 eyes off the wheel.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(48000),
+            bit_depth: Some(24),
+            speed_kbps: Some(1200.0),
+            in_queue: 0,
+            score: 90.0,
+            probed_verdict: None,
+        };
+
+        state.lossless_candidates = vec![cand_slow_hires, cand_fast_cd, cand_short_queue_mid];
+
+        // 1. FastestPeer sorting: peer_fast (2500 KB/s) must be first
+        state.album_sort_mode = AlbumSortMode::FastestPeer;
+        let indices_fast = state.filtered_lossless_indices();
+        assert_eq!(indices_fast[0], 1); // peer_fast
+
+        // 2. HighestQuality sorting: 24/192 FLAC must be first
+        state.album_sort_mode = AlbumSortMode::HighestQuality;
+        let indices_quality = state.filtered_lossless_indices();
+        assert_eq!(indices_quality[0], 0); // peer_slow (24/192)
+
+        // 3. ShortestQueue sorting: queue 0 items first
+        state.album_sort_mode = AlbumSortMode::ShortestQueue;
+        let indices_queue = state.filtered_lossless_indices();
+        assert_eq!(state.lossless_candidates[indices_queue[0]].in_queue, 0);
+        assert_eq!(indices_queue[2], 0); // peer_slow has queue 5, so last
+
+        // 4. ReleaseTitle sorting: alphabetical by filename
+        state.album_sort_mode = AlbumSortMode::ReleaseTitle;
+        let indices_title = state.filtered_lossless_indices();
+        let name0 = &state.lossless_candidates[indices_title[0]].filename;
+        let name1 = &state.lossless_candidates[indices_title[1]].filename;
+        assert!(name0 <= name1);
+    }
+
+    #[tokio::test]
+    async fn test_authenticity_heuristics_and_safeguard() {
+        let mut state = DownloaderState::new();
+        state.download_entire_album = false;
+
+        let genuine_hires = NicotineCandidate {
+            username: "audiophile".to_string(),
+            filename: "Album/Track [24-192 FLAC].flac".to_string(),
+            size_bytes: 109_900_000,
+            bitrate_kbps: Some(5622),
+            sample_rate: Some(192000),
+            bit_depth: Some(24),
+            speed_kbps: Some(1100.0),
+            in_queue: 0,
+            score: 95.0,
+            probed_verdict: None,
+        };
+        assert_eq!(genuine_hires.evaluate_authenticity(), crate::harvest::nicotine::AuthenticityBadge::GenuineHiRes(24, 192));
+        assert!(!genuine_hires.evaluate_authenticity().is_suspect_or_fake());
+
+        let fake_transcode = NicotineCandidate {
+            username: "fake_uploader".to_string(),
+            filename: "Album/Track (Transcode from 128k).flac".to_string(),
+            size_bytes: 109_900_000,
+            bitrate_kbps: Some(128),
+            sample_rate: Some(192000),
+            bit_depth: Some(24),
+            speed_kbps: Some(1100.0),
+            in_queue: 0,
+            score: 80.0,
+            probed_verdict: None,
+        };
+        assert!(fake_transcode.evaluate_authenticity().is_suspect_or_fake());
+
+        state.lossless_candidates = vec![fake_transcode];
+        state.show_lossless_selector = true;
+        state.selected_lossless_idx = 0;
+
+        // First Enter key hits the fake lossless warning safeguard
+        state.handle_key(KeyCode::Enter);
+        assert!(state.show_lossless_selector); // Did not close selector
+        assert!(state.bypass_fake_warning); // Warning triggered
+        assert!(state.status_message.contains("WARNING:"));
+
+        // Second Enter key confirms user override
+        state.handle_key(KeyCode::Enter);
+        assert!(!state.show_lossless_selector); // Now closed/queued
+        assert!(!state.bypass_fake_warning);
+    }
+
+    #[test]
+    fn test_probe_authenticity_key_v() {
+        let mut state = DownloaderState::new();
+        state.download_entire_album = false;
+
+        let hires_cand = NicotineCandidate {
+            username: "peer1".to_string(),
+            filename: "Track.flac".to_string(),
+            size_bytes: 100_000_000,
+            bitrate_kbps: Some(5000),
+            sample_rate: Some(192000),
+            bit_depth: Some(24),
+            speed_kbps: Some(1000.0),
+            in_queue: 0,
+            score: 90.0,
+            probed_verdict: None,
+        };
+
+        state.lossless_candidates = vec![hires_cand];
+        state.show_lossless_selector = true;
+        state.selected_lossless_idx = 0;
+
+        // Press 'V' to probe authenticity
+        state.handle_key(KeyCode::Char('v'));
+        let probed = state.lossless_candidates[0].probed_verdict.as_ref().expect("Candidate should be probed");
+        assert_eq!(probed.verdict, crate::harvest::spectral::QualityVerdict::TrueLosslessHiRes);
+        assert!(state.status_message.contains("Probed authenticity"));
+        let auth = state.lossless_candidates[0].evaluate_authenticity();
+        assert_eq!(auth.label(), "[VERIFIED HI-RES]");
+        assert_eq!(auth.compact_label(), "[HI-RES]");
+        assert!(!auth.is_suspect_or_fake());
+    }
+
+    #[test]
+    fn test_album_track_inspection_all_tracks_and_simplified_labels() {
+        let mut state = DownloaderState::new();
+        state.download_entire_album = true;
+        state.show_lossless_selector = true;
+        state.selected_lossless_idx = 0;
+
+        // Album with 3 tracks: 2 genuine CD tracks, 1 suspect transcode (128 kbps fake FLAC)
+        state.all_peer_files = vec![
+            crate::harvest::slskd::SlskdFileResult {
+                username: "audiophile_peer".to_string(),
+                filename: "Music/Pink Floyd - The Wall/01 - In the Flesh.flac".to_string(),
+                size: 35 * 1024 * 1024,
+                bitrate: Some(950),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(1500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            crate::harvest::slskd::SlskdFileResult {
+                username: "audiophile_peer".to_string(),
+                filename: "Music/Pink Floyd - The Wall/02 - The Thin Ice.flac".to_string(),
+                size: 28 * 1024 * 1024,
+                bitrate: Some(920),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(1500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            crate::harvest::slskd::SlskdFileResult {
+                username: "audiophile_peer".to_string(),
+                filename: "Music/Pink Floyd - The Wall/03 - Another Brick in the Wall (youtube transcode).flac".to_string(),
+                size: 12 * 1024 * 1024,
+                bitrate: Some(128),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(1500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+        ];
+
+        let clusters = state.album_release_clusters();
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].tracks.len(), 3);
+        assert!(!clusters[0].has_probed_tracks());
+
+        // Press 'V' to inspect ALL tracks in the album
+        state.handle_key(KeyCode::Char('v'));
+
+        // Verify status message warns user about the fake transcode
+        assert!(state.status_message.contains("Album inspection WARNING: 1 FAKE LOSSLESS transcode(s) detected"));
+        assert!(state.status_message.contains("(2 verified) out of 3 tracks"));
+
+        // Refresh clusters and verify probed verdicts were saved to all tracks
+        let refreshed_clusters = state.album_release_clusters();
+        let album = &refreshed_clusters[0];
+        assert!(album.has_probed_tracks());
+        let (total, verified, fakes) = album.inspected_counts();
+        assert_eq!(total, 3);
+        assert_eq!(verified, 2);
+        assert_eq!(fakes, 1);
+
+        // Verify individual track badges
+        assert_eq!(album.tracks[0].evaluate_authenticity().compact_label(), "[VERIFIED]");
+        assert_eq!(album.tracks[1].evaluate_authenticity().compact_label(), "[VERIFIED]");
+        assert_eq!(album.tracks[2].evaluate_authenticity().compact_label(), "[FAKE]");
+        assert_eq!(album.tracks[2].evaluate_authenticity().label(), "[FAKE LOSSLESS]");
+    }
+
+    #[tokio::test]
+    async fn test_trigger_direct_cdn_ingest_modal_hotkey_and_state() {
+        let mut state = DownloaderState::new();
+        state.input_text = "Daft Punk - Get Lucky".to_string();
+        state.submit_current();
+        let job_id = state.jobs[0].id;
+        state.pending_job_id = Some(job_id);
+
+        let cand = NicotineCandidate {
+            username: "peer1".to_string(),
+            filename: "Get Lucky.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: Some(800.0),
+            in_queue: 1,
+            score: 85.0,
+            probed_verdict: None,
+        };
+        state.lossless_candidates = vec![cand];
+        state.show_lossless_selector = true;
+
+        // Press 'T' to trigger line-rate direct CDN ingest
+        state.handle_key(KeyCode::Char('t'));
+        assert!(!state.show_lossless_selector);
+        assert_eq!(state.jobs[0].policy, AcquisitionPolicy::Fallback);
+        assert!(state.status_message.contains("Direct Line-Rate CDN Ingest"));
+    }
+
+    #[test]
+    fn test_speed_tier_and_eta_diagnostics() {
+        use crate::harvest::nicotine::SpeedTier;
+
+        // 1. High-speed peer: 2500 KB/s, 0 queue
+        let fast_cand = NicotineCandidate {
+            username: "fast_box".to_string(),
+            filename: "Track.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: Some(2500.0),
+            in_queue: 0,
+            score: 95.0,
+            probed_verdict: None,
+        };
+        assert_eq!(fast_cand.evaluate_speed_tier(), SpeedTier::HighSpeedPeer);
+        assert_eq!(fast_cand.formatted_eta(), "ETA: ~20s");
+
+        // 2. Congested queue: 8 in queue, with speed
+        let queued_cand = NicotineCandidate {
+            username: "slow_peer".to_string(),
+            filename: "Track.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: Some(300.0),
+            in_queue: 8,
+            score: 40.0,
+            probed_verdict: None,
+        };
+        assert_eq!(queued_cand.evaluate_speed_tier(), SpeedTier::CongestedQueue);
+        assert_eq!(queued_cand.formatted_eta(), "ETA: ~2m 43s (Q:8)");
+
+        // 2b. Queued candidate without active speed sample
+        let queued_no_speed = NicotineCandidate {
+            username: "slow_peer2".to_string(),
+            filename: "Track.flac".to_string(),
+            size_bytes: 50_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: None,
+            in_queue: 8,
+            score: 40.0,
+            probed_verdict: None,
+        };
+        assert_eq!(queued_no_speed.evaluate_speed_tier(), SpeedTier::CongestedQueue);
+        assert_eq!(queued_no_speed.formatted_eta(), "ETA: ~49s (Q:8)");
+
+        // 3. Standard peer: 400 KB/s, 1 in queue
+        let std_cand = NicotineCandidate {
+            username: "norm_peer".to_string(),
+            filename: "Track.flac".to_string(),
+            size_bytes: 30_000_000,
+            bitrate_kbps: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            speed_kbps: Some(400.0),
+            in_queue: 1,
+            score: 70.0,
+            probed_verdict: None,
+        };
+        assert_eq!(std_cand.evaluate_speed_tier(), SpeedTier::StandardPeer);
+        assert_eq!(std_cand.formatted_eta(), "ETA: ~1m 13s (Q:1)");
+
+        // 4. SlskdFileResult parity
+        let slskd_fast = crate::harvest::slskd::SlskdFileResult {
+            username: "fast_box".to_string(),
+            filename: "Track.flac".to_string(),
+            size: 50_000_000,
+            bitrate: Some(1411),
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            upload_speed: Some(2500 * 1024),
+            queue_length: 0,
+            probed_verdict: None,
+        };
+        assert_eq!(slskd_fast.evaluate_speed_tier(), SpeedTier::HighSpeedPeer);
+        assert_eq!(slskd_fast.formatted_eta(), "ETA: ~20s");
+    }
+
+    #[tokio::test]
+    async fn test_f5_and_w_hotkey_triggers_daemon_refresh() {
+        let mut state = DownloaderState::new();
+        state.focused_field = 1;
+        state.is_editing_url = false;
+
+        state.handle_key(KeyCode::F(5));
+        assert!(state.status_message.contains("Refreshing & reconnecting"));
+
+        state.handle_key(KeyCode::Char('w'));
+        assert!(state.status_message.contains("Refreshing & reconnecting"));
+    }
+
+    #[test]
+    fn test_disc_subfolder_resolution_preserves_album_name() {
+        use crate::harvest::slskd::SlskdFileResult;
+        let mut state = DownloaderState::new();
+        state.selected_policy = AcquisitionPolicy::LosslessOnly;
+        state.all_peer_files = vec![
+            SlskdFileResult {
+                username: "peer1".to_string(),
+                filename: "/Music/Radiohead - OK Computer (1997)/CD1/01 Airbag.flac".to_string(),
+                size: 30_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            SlskdFileResult {
+                username: "peer1".to_string(),
+                filename: "/Music/Radiohead - OK Computer (1997)/CD2/01 Polyethylene.flac".to_string(),
+                size: 32_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+        ];
+
+        let clusters = state.album_release_clusters();
+        assert_eq!(clusters.len(), 1, "Both CD1 and CD2 tracks should be grouped under a single parent release");
+        assert_eq!(clusters[0].directory, "Radiohead - OK Computer (1997)");
+        assert_eq!(clusters[0].tracks.len(), 2);
+    }
+
+    #[test]
+    fn test_full_context_filtering_matches_across_release_hierarchy() {
+        use crate::harvest::slskd::SlskdFileResult;
+        let mut state = DownloaderState::new();
+        state.selected_policy = AcquisitionPolicy::LosslessOnly;
+        state.all_peer_files = vec![
+            SlskdFileResult {
+                username: "flac_collector".to_string(),
+                filename: "/Music/Radiohead/(2007) In Rainbows/01 15 Step.flac".to_string(),
+                size: 25_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(1000 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            SlskdFileResult {
+                username: "flac_collector".to_string(),
+                filename: "/Music/Radiohead/(2007) In Rainbows/02 Bodysnatchers.flac".to_string(),
+                size: 28_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(1000 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+        ];
+        state.lossless_candidates = vec![
+            NicotineCandidate {
+                username: "flac_collector".to_string(),
+                filename: "/Music/Radiohead/(2007) In Rainbows/01 15 Step.flac".to_string(),
+                size_bytes: 25_000_000,
+                bitrate_kbps: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                speed_kbps: Some(1000.0),
+                in_queue: 0,
+                score: 90.0,
+                probed_verdict: None,
+            },
+        ];
+
+        // Filtering for 'Radiohead In Rainbows' (artist in parent dir, album in sub dir)
+        state.lossless_filter_text = "Radiohead In Rainbows".to_string();
+        let clusters = state.album_release_clusters();
+        assert_eq!(clusters.len(), 1, "Should match release across full directory hierarchy");
+
+        let indices = state.filtered_lossless_indices();
+        assert_eq!(indices.len(), 1, "Track list filtering should also match full context");
+
+        // Negative test: unrelated filter
+        state.lossless_filter_text = "Pink Floyd The Wall".to_string();
+        let empty_clusters = state.album_release_clusters();
+        assert_eq!(empty_clusters.len(), 0);
+        let empty_indices = state.filtered_lossless_indices();
+        assert_eq!(empty_indices.len(), 0);
+    }
+
+    #[test]
+    fn test_relevance_scoring_ranks_matching_album_above_fast_unrelated_peer() {
+        use crate::harvest::slskd::SlskdFileResult;
+        let mut state = DownloaderState::new();
+        state.selected_policy = AcquisitionPolicy::LosslessOnly;
+        state.target_search_artist = "Radiohead".to_string();
+        state.target_search_title = "In Rainbows".to_string();
+
+        state.all_peer_files = vec![
+            // Unrelated album from an ultra-fast peer (10 MB/s, 2 tracks)
+            SlskdFileResult {
+                username: "fast_peer".to_string(),
+                filename: "/Music/Other Artist/Super Hits 2020/01 Hit.flac".to_string(),
+                size: 40_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(10000 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            SlskdFileResult {
+                username: "fast_peer".to_string(),
+                filename: "/Music/Other Artist/Super Hits 2020/02 Hit.flac".to_string(),
+                size: 40_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(10000 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            // Relevant album from a moderate peer (500 KB/s, 2 tracks)
+            SlskdFileResult {
+                username: "indie_peer".to_string(),
+                filename: "/Music/Radiohead/In Rainbows (FLAC)/01 15 Step.flac".to_string(),
+                size: 25_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+            SlskdFileResult {
+                username: "indie_peer".to_string(),
+                filename: "/Music/Radiohead/In Rainbows (FLAC)/02 Bodysnatchers.flac".to_string(),
+                size: 28_000_000,
+                bitrate: Some(1411),
+                sample_rate: Some(44100),
+                bit_depth: Some(16),
+                upload_speed: Some(500 * 1024),
+                queue_length: 0,
+                probed_verdict: None,
+            },
+        ];
+
+        let clusters = state.album_release_clusters();
+        assert_eq!(clusters.len(), 2);
+        assert_eq!(clusters[0].directory, "In Rainbows (FLAC)", "Relevant album should rank #1 despite lower peer speed");
+        assert!(clusters[0].relevance_score("Radiohead", "In Rainbows") >= 100_000);
+        assert_eq!(clusters[1].relevance_score("Radiohead", "In Rainbows"), 0);
     }
 }

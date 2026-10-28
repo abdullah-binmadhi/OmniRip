@@ -3,7 +3,10 @@
 //! Multi-Palette Theme Engine (7 themes), and Real-Time Visual Graph Dashboard.
 
 use crate::autoeq::{get_bundled_profiles, parse_parametric_eq, ParametricProfile};
-use crate::autoeq::storage::{download_raw_preset, load_all_user_presets, save_preset_to_disk, OmniRipPreset};
+use crate::autoeq::storage::{
+    download_raw_preset, load_all_user_mastering_presets, load_all_user_presets,
+    save_mastering_preset_to_disk, save_preset_to_disk, OmniRipPreset,
+};
 use crate::dsp::biquad::{BiquadFilter, BiquadFilterType};
 use crate::dsp::enhancer::{AcousticGearProfile, CrossfeedMode, MasteringPreset};
 use crate::dsp::streamer::{AudioStreamer, SyncMode};
@@ -123,6 +126,7 @@ pub struct App {
     pub archiver: ArchiverState,
     pub streaming_hub: crate::ui::StreamingHubState,
     pub mastering_presets: Vec<MasteringPreset>,
+    pub mastering_preset_list_state: ListState,
     pub active_mastering_preset_idx: usize,
     pub selected_mastering_preset_idx: usize,
     pub gear_modal: GearWizardModal,
@@ -202,7 +206,22 @@ impl App {
             active_mode: WorkstationMode::Downloader,
             archiver,
             streaming_hub,
-            mastering_presets: MasteringPreset::all(),
+            mastering_presets: {
+                let mut presets = MasteringPreset::all();
+                for up in load_all_user_mastering_presets() {
+                    if let Some(pos) = presets.iter().position(|p| p.name == up.name) {
+                        presets[pos] = up;
+                    } else {
+                        presets.push(up);
+                    }
+                }
+                presets
+            },
+            mastering_preset_list_state: {
+                let mut ls = ListState::default();
+                ls.select(Some(0));
+                ls
+            },
             active_mastering_preset_idx: 0,
             selected_mastering_preset_idx: 0,
             gear_modal: GearWizardModal::new(),
@@ -272,6 +291,11 @@ impl App {
             archiver,
             streaming_hub,
             mastering_presets: MasteringPreset::all(),
+            mastering_preset_list_state: {
+                let mut ls = ListState::default();
+                ls.select(Some(0));
+                ls
+            },
             active_mastering_preset_idx: 0,
             selected_mastering_preset_idx: 0,
             gear_modal: GearWizardModal::new(),
@@ -440,7 +464,14 @@ impl App {
                 std::process::exit(0);
             }
             "help" => {
-                self.set_status("Commands: :gear [speaker|headphone|bookshelf|sync]  :dac [oem|ifi|ibasso|chord|schiit|cycle]  :chip [status|rescan]  :mic [on|off|toggle]  :bypass  :resync  :q");
+                self.set_status("Commands: :save <name>  :gear [speaker|headphone|bookshelf|sync]  :dac [oem|ifi|ibasso|chord|schiit|cycle]  :chip [status|rescan]  :mic [on|off|toggle]  :bypass  :resync  :q");
+            }
+            "save" => {
+                if let Some(name) = parts.get(1) {
+                    self.save_active_settings_as_preset(name);
+                } else {
+                    self.set_status("Usage: :save <preset_name>");
+                }
             }
             "bypass" => {
                 let new_st = if let Ok(mut pipe) = self.streamer.pipeline.lock() {
@@ -522,16 +553,23 @@ impl App {
             ("Flat Studio Reference".to_string(), "Harman Target Curve".to_string(), 0, 0.0)
         };
 
-        let (warmth, width, ceiling) = if let Ok(pipe) = self.streamer.pipeline.lock() {
-            (pipe.enhancer.tube_warmth, pipe.enhancer.spatial_width, 20.0 * pipe.limiter.threshold.log10())
+        let (warmth, width, ceiling, pipe_preamp) = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            (
+                pipe.enhancer.tube_warmth,
+                pipe.enhancer.spatial_width,
+                20.0 * pipe.limiter.threshold.log10(),
+                pipe.preamp_db,
+            )
         } else {
-            (0.0, 1.0, -0.2)
+            (0.0, 1.0, -0.2, 0.0)
         };
+
+        let effective_preamp = if preamp_db.abs() > 0.01 { preamp_db } else { pipe_preamp };
 
         self.streaming_hub.dsp_telemetry = crate::ui::streaming_hub::DspTelemetryInfo {
             active_preset_name,
             target_curve,
-            preamp_db,
+            preamp_db: effective_preamp,
             tube_warmth: warmth,
             spatial_width: width,
             limiter_ceiling_db: ceiling,
@@ -604,6 +642,14 @@ impl App {
 
         if let Ok(mut pipe) = self.streamer.pipeline.lock() {
             pipe.crossfader.update_filters(&filters, sr);
+            if !self.downloader.eq_bypass {
+                let max_boost = self.downloader.band_gains.iter().copied().fold(0.0f32, f32::max);
+                let air_boost = if self.downloader.air_boost { 3.0 } else { 0.0 };
+                let total_boost = max_boost.max(air_boost);
+                if total_boost > 0.1 {
+                    pipe.preamp_db = -total_boost;
+                }
+            }
         }
     }
 
@@ -678,13 +724,84 @@ impl App {
             pipe.crossfader.update_filters(&profile.filters, sr);
         }
 
-        match save_preset_to_disk(&preset) {
-            Ok(path) => {
-                let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or("saved.json");
-                self.set_status(&format!("Saved preset '{}' to ~/.config/omnirip/presets/{}", name, fname));
+        // Construct and persist full MasteringPreset into PRESET LIBRARY
+        let new_mastering = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            let enh = &pipe.enhancer;
+            let ceil_db = 20.0 * pipe.limiter.threshold.log10();
+            MasteringPreset {
+                name: Box::leak(name.to_string().into_boxed_str()),
+                description: Box::leak(format!("User custom preset: {}", name).into_boxed_str()),
+                target: Box::leak("User Customized".to_string().into_boxed_str()),
+                spatial_width: enh.spatial_width,
+                tube_warmth: enh.tube_warmth,
+                air_clarity_db: enh.air_clarity_db,
+                bass_punch_db: enh.bass_punch_db,
+                mono_bass: enh.mono_bass,
+                mono_bass_freq: enh.mono_bass_freq,
+                loudness_contour: enh.loudness_contour,
+                crossfeed: enh.crossfeed,
+                subsonic_filter: enh.subsonic_filter,
+                ultrasonic_filter: enh.ultrasonic_filter,
+                deesser_enabled: enh.deesser_enabled,
+                deesser_amount: enh.deesser_amount,
+                deesser_freq: enh.deesser_freq,
+                tape_emulation: enh.tape_emulation,
+                tape_drive: enh.tape_drive,
+                transient_shaper: enh.transient_shaper,
+                transient_attack_db: enh.transient_attack_db,
+                transient_sustain_db: enh.transient_sustain_db,
+                ms_matrix_enabled: enh.ms_matrix_enabled,
+                mid_gain_db: enh.mid_gain_db,
+                side_gain_db: enh.side_gain_db,
+                side_air_db: enh.side_air_db,
+                deharsh_enabled: enh.deharsh_enabled,
+                deharsh_amount: enh.deharsh_amount,
+                deharsh_freq: enh.deharsh_freq,
+                comp_enabled: enh.comp_enabled,
+                comp_opto_drive: enh.comp_opto_drive,
+                comp_vca_drive: enh.comp_vca_drive,
+                pultec_enabled: enh.pultec_enabled,
+                pultec_low_boost: enh.pultec_low_boost,
+                pultec_air_boost: enh.pultec_air_boost,
+                pultec_air_freq: enh.pultec_air_freq,
+                limiter_ceiling_dbfs: ceil_db,
+                eq_10_band: self.band_gains,
+                game_mode: enh.game_mode,
+                radar_eq: enh.radar_eq,
+                spike_shield: enh.spike_shield,
             }
-            Err(e) => {
-                self.set_status(&format!("Saved preset '{}' in session (Disk note: {})", name, e));
+        } else {
+            let mut p = MasteringPreset::all()[0].clone();
+            p.name = Box::leak(name.to_string().into_boxed_str());
+            p.description = Box::leak(format!("User custom preset: {}", name).into_boxed_str());
+            p.target = Box::leak("User Customized".to_string().into_boxed_str());
+            p.eq_10_band = self.band_gains;
+            p
+        };
+
+        let res_mastering = save_mastering_preset_to_disk(&new_mastering);
+        let res_preset = save_preset_to_disk(&preset);
+
+        if let Some(pos) = self.mastering_presets.iter().position(|p| p.name == new_mastering.name) {
+            self.mastering_presets[pos] = new_mastering;
+            self.selected_mastering_preset_idx = pos;
+            self.active_mastering_preset_idx = pos;
+        } else {
+            self.mastering_presets.push(new_mastering);
+            self.selected_mastering_preset_idx = self.mastering_presets.len() - 1;
+            self.active_mastering_preset_idx = self.mastering_presets.len() - 1;
+        }
+        self.sync_dsp_telemetry();
+
+        match (res_mastering, res_preset) {
+            (Ok(_), Ok(_)) => {
+                self.set_status(&format!("Saved preset '{}' into PRESET LIBRARY ({} total presets)", name, self.mastering_presets.len()));
+            }
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
+                self.set_status(&format!("Saved preset '{}' into PRESET LIBRARY ({}) (Disk note: {})", name, self.mastering_presets.len(), e));
+            }
+            (Err(e1), Err(e2)) => {
+                self.set_status(&format!("Saved preset '{}' in session only (Disk errors: {}, {})", name, e1, e2));
             }
         }
     }
@@ -720,6 +837,18 @@ impl App {
         );
 
         let _ = save_preset_to_disk(&preset);
+        let new_mastering = preset.to_mastering_preset();
+        let _ = save_mastering_preset_to_disk(&new_mastering);
+        if let Some(pos) = self.mastering_presets.iter().position(|p| p.name == new_mastering.name) {
+            self.mastering_presets[pos] = new_mastering;
+            self.selected_mastering_preset_idx = pos;
+            self.active_mastering_preset_idx = pos;
+        } else {
+            self.mastering_presets.push(new_mastering);
+            self.selected_mastering_preset_idx = self.mastering_presets.len() - 1;
+            self.active_mastering_preset_idx = self.mastering_presets.len() - 1;
+        }
+        self.sync_dsp_telemetry();
 
         self.profiles.push(profile.clone());
         self.selected_profile_idx = self.profiles.len() - 1;
@@ -877,6 +1006,7 @@ impl App {
 
         let tick_rate = Duration::from_millis(33); // 30 FPS
         let mut last_tick = Instant::now();
+        let mut last_daemon_watchdog = Instant::now();
 
         loop {
             // 1. Detect OS kernel sleep/wake time jump (e.g. laptop lid closed and reopened)
@@ -891,6 +1021,17 @@ impl App {
             // 2. Poll CoreAudio stream health & liveness watchdog
             if self.streamer.poll_health() {
                 self.set_status("CoreAudio stream auto-healed after device reset.");
+            }
+
+            // 3. Poll Soulseek swarm daemon health & auto-heal watchdog every 15s
+            if last_daemon_watchdog.elapsed() >= Duration::from_secs(15) {
+                last_daemon_watchdog = Instant::now();
+                if self.downloader.active_soulseek_user.is_some() && !crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                    let _ = crate::harvest::slskd::SlskdClient::ensure_daemon_running();
+                    if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                        self.set_status("Soulseek swarm daemon auto-healed and reconnected on port 5030.");
+                    }
+                }
             }
 
             // Poll any background downloader worker updates
@@ -1034,6 +1175,18 @@ impl App {
                                         self.downloader.active_soulseek_user = Some(acc.username.clone());
                                         self.set_status(&format!("Activated Soulseek account: {} ({})", acc.username, acc.source));
                                     }
+                                    NicotineModalAction::RestartDaemon => {
+                                        self.set_status("Restarting Soulseek swarm daemon on port 5030 (bounded memory)...");
+                                        let _ = crate::harvest::slskd::SlskdClient::restart_daemon();
+                                        if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                                            self.set_status("Soulseek swarm daemon active and connected on port 5030.");
+                                            self.downloader.active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+                                                .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
+                                        } else {
+                                            self.set_status("Failed to start Soulseek daemon. Check tools/slskd/slskd binary.");
+                                        }
+                                        self.nicotine_modal.rescan();
+                                    }
                                 }
                             }
                             continue;
@@ -1166,9 +1319,21 @@ impl App {
                                 self.set_status("Toggled Nicotine+ Lossless Candidate Browser.");
                                 continue;
                             }
+                            KeyCode::F(5) if !self.is_capturing_text_input() => {
+                                self.set_status("Refreshing & reconnecting Soulseek swarm daemon on port 5030...");
+                                let _ = crate::harvest::slskd::SlskdClient::restart_daemon();
+                                if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                                    self.set_status("Soulseek swarm daemon active and connected on port 5030.");
+                                    self.downloader.active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+                                        .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
+                                } else {
+                                    self.set_status("Failed to reconnect Soulseek daemon on port 5030.");
+                                }
+                                continue;
+                            }
                             KeyCode::Char('n') | KeyCode::Char('N')
                                 if self.active_mode == WorkstationMode::SystemEq
-                                    || (!self.downloader.is_capturing_input() && self.downloader.focused_field != 0) =>
+                                    || (self.active_mode == WorkstationMode::Downloader && !self.downloader.is_capturing_input() && self.downloader.focused_field != 0) =>
                             {
                                 self.nicotine_modal.is_open = true;
                                 self.set_status("Opened Nicotine+ Lossless Candidate Browser.");
@@ -1176,7 +1341,7 @@ impl App {
                             }
                             KeyCode::Char('a') | KeyCode::Char('A')
                                 if self.active_mode == WorkstationMode::SystemEq
-                                    || !self.downloader.is_capturing_input() =>
+                                    || (self.active_mode == WorkstationMode::Downloader && !self.downloader.is_capturing_input()) =>
                             {
                                 self.nicotine_modal.open_accounts();
                                 self.set_status("Opened Soulseek Account Discovery & Manager.");
@@ -1192,7 +1357,7 @@ impl App {
                                 self.set_status(&format!("Visual Graph: {}", self.visuals.mode.label()));
                                 continue;
                             }
-                            KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && self.active_tab != 3 && !key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 let next_mode = match self.streamer.sync_mode {
                                     SyncMode::Extreme => SyncMode::Ultra,
                                     SyncMode::Ultra => SyncMode::Balanced,
@@ -3426,7 +3591,7 @@ impl App {
 
     fn render_autoeq_presets_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {
         let block = Block::default()
-            .title(" AUDIOPHILE MOOD & MASTERING PRESETS (20) [Tab: Headphone DB | G: Acoustic Gear Wizard] ")
+            .title(format!(" AUDIOPHILE MOOD & MASTERING PRESETS ({}) [Tab: Headphone DB | G: Acoustic Gear Wizard] ", self.mastering_presets.len()))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
@@ -3478,9 +3643,8 @@ impl App {
             .highlight_style(Style::default().bg(self.theme.surface).add_modifier(Modifier::BOLD))
             .highlight_symbol("");
 
-        let mut list_state = ratatui::widgets::ListState::default();
-        list_state.select(Some(self.selected_mastering_preset_idx));
-        f.render_stateful_widget(list, list_inner, &mut list_state);
+        self.mastering_preset_list_state.select(Some(self.selected_mastering_preset_idx));
+        f.render_stateful_widget(list, list_inner, &mut self.mastering_preset_list_state);
 
         // RIGHT COLUMN: Traditional Frequency Response Plot (Top) and DSP Rack + Gear Profiling (Bottom)
         let right_chunks = Layout::default()
@@ -3867,18 +4031,29 @@ mod tests {
     fn test_save_and_import_preset() {
         let mut app = App::new_test();
         let initial_count = app.profiles.len();
+        let initial_mastering_count = app.mastering_presets.len();
 
         // 1. Save active custom settings as preset
         app.band_gains[0] = 4.0;
         app.band_gains[5] = -2.0;
         app.save_active_settings_as_preset("Test Studio Custom");
 
+        // Verify AutoEQ profiles
         assert_eq!(app.profiles.len(), initial_count + 1);
         assert_eq!(app.selected_profile_idx, app.profiles.len() - 1);
         let saved_prof = &app.profiles[app.selected_profile_idx];
         assert_eq!(saved_prof.name, "Test Studio Custom");
         assert_eq!(saved_prof.filters.len(), 10);
         assert_eq!(saved_prof.filters[0].gain_db, 4.0);
+
+        // Verify PRESET LIBRARY (mastering presets)
+        assert_eq!(app.mastering_presets.len(), initial_mastering_count + 1);
+        assert_eq!(app.selected_mastering_preset_idx, app.mastering_presets.len() - 1);
+        assert_eq!(app.active_mastering_preset_idx, app.mastering_presets.len() - 1);
+        let saved_mastering = &app.mastering_presets[app.selected_mastering_preset_idx];
+        assert_eq!(saved_mastering.name, "Test Studio Custom");
+        assert_eq!(saved_mastering.eq_10_band[0], 4.0);
+        assert_eq!(saved_mastering.eq_10_band[5], -2.0);
 
         // 2. Import raw Squiglink text
         let squig_text = "Preamp: -5.0 dB\nFilter 1: ON PK Fc 64 Hz Gain 3.5 dB Q 1.41\nFilter 2: ON HSC Fc 8000 Hz Gain -2.0 dB Q 0.71";
@@ -3890,6 +4065,16 @@ mod tests {
         assert_eq!(squig_prof.name, "Test Squiglink IEM");
         assert_eq!(squig_prof.preamp_db, -5.0);
         assert_eq!(squig_prof.filters.len(), 2);
+
+        // Verify that load_all_user_mastering_presets loads the saved preset from disk
+        let reloaded = crate::autoeq::storage::load_all_user_mastering_presets();
+        assert!(reloaded.iter().any(|p| p.name == "Test Studio Custom"));
+
+        // Clean up disk files created during test
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_mastering_presets_dir().join("Test_Studio_Custom.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_presets_dir().join("Test_Studio_Custom.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_mastering_presets_dir().join("Test_Squiglink_IEM.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_presets_dir().join("Test_Squiglink_IEM.json"));
     }
 
     #[test]
@@ -4113,7 +4298,7 @@ mod tests {
     #[test]
     fn test_mastering_suite_presets_and_module_controls() {
         let mut app = App::new_test();
-        assert_eq!(app.mastering_presets.len(), 21);
+        assert_eq!(app.mastering_presets.len(), 35);
         assert_eq!(app.active_mastering_preset_idx, 0);
 
         // Advance to Preset 2: HD600/650
@@ -4128,8 +4313,30 @@ mod tests {
             assert!(pipe.enhancer.mono_bass);
         }
 
+        // Apply Genre Preset 22: Hip-Hop & Trap (Sub-Bass Precision)
+        app.apply_mastering_preset_index(21);
+        assert_eq!(app.active_mastering_preset_idx, 21);
+        assert!(app.status_message.contains("Hip-Hop"));
+        {
+            let pipe = app.streamer.pipeline.lock().unwrap();
+            assert_eq!(pipe.enhancer.spatial_width, 1.05);
+            assert_eq!(pipe.enhancer.bass_punch_db, 2.5);
+            assert!(pipe.enhancer.mono_bass);
+        }
+
+        // Apply Genre Preset 25: Electronic & Club (Subterranean & 3D M/S)
+        app.apply_mastering_preset_index(24);
+        assert_eq!(app.active_mastering_preset_idx, 24);
+        assert!(app.status_message.contains("Electronic"));
+        {
+            let pipe = app.streamer.pipeline.lock().unwrap();
+            assert_eq!(pipe.enhancer.spatial_width, 1.25);
+            assert_eq!(pipe.enhancer.bass_punch_db, 2.8);
+            assert!(pipe.enhancer.ms_matrix_enabled);
+        }
+
         // Cycle backward to Preset 1: Reference Direct
-        app.cycle_mastering_preset(false);
+        app.apply_mastering_preset_index(0);
         assert_eq!(app.active_mastering_preset_idx, 0);
 
         // Adjust module 0 (Soundstage Width)
@@ -4284,6 +4491,8 @@ mod tests {
             source_query: "Test Track 1".to_string(),
             status: crate::ui::streaming_hub::StreamItemStatus::Queued,
             audio_file_path: None,
+            library_name: "Test Library".to_string(),
+            added_order: 1,
         });
         assert_eq!(app.streaming_hub.queue.len(), 1);
 
@@ -4591,12 +4800,12 @@ mod tests {
         // 1. Switch to laptop speakers via command
         app.execute_command(":gear speaker");
         assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers);
-        assert!(app.status_message.contains("Built-in Speakers"));
+        assert!(app.status_message.contains(&app.gear_profile.name));
 
         // 2. Switch to desktop bookshelf monitors via command
         app.execute_command(":gear bookshelf");
         assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
-        assert!(app.status_message.contains("Bookshelf"));
+        assert!(app.status_message.contains(&app.gear_profile.name));
 
         // 3. Switch back to headphones / IEMs
         app.execute_command(":gear headphone");

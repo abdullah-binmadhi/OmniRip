@@ -3,7 +3,9 @@
 
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
@@ -13,7 +15,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum QualityVerdict {
     TrueLosslessHiRes,
     TrueLosslessCD,
@@ -44,7 +46,7 @@ impl QualityVerdict {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpectralAnalysisResult {
     pub sample_rate: u32,
     pub cutoff_freq_hz: f32,
@@ -158,24 +160,10 @@ pub fn analyze_samples(samples: &[f32], sample_rate: u32, is_lossless_container:
     }
 }
 
-/// Decodes audio file at `path` and performs spectral analysis.
-pub fn analyze_file<P: AsRef<Path>>(path: P) -> Result<SpectralAnalysisResult, String> {
-    let path_ref = path.as_ref();
-    let file = File::open(path_ref).map_err(|e| format!("Cannot open file: {}", e))?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(ext) = path_ref.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    let is_lossless = match path_ref.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
-        Some(ref ext) if ext == "flac" || ext == "wav" || ext == "aiff" || ext == "alac" => true,
-        _ => false,
-    };
-
+/// Analyzes an audio stream provided via MediaSourceStream.
+pub fn analyze_media_source(mss: MediaSourceStream, hint: &Hint, is_lossless: bool) -> Result<SpectralAnalysisResult, String> {
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(hint, mss, &FormatOptions::default(), &MetadataOptions::default())
         .map_err(|e| format!("Unsupported container format: {}", e))?;
 
     let mut format = probed.format;
@@ -192,7 +180,7 @@ pub fn analyze_file<P: AsRef<Path>>(path: P) -> Result<SpectralAnalysisResult, S
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| format!("Unsupported codec: {}", e))?;
 
-    let mut samples: Vec<f32> = Vec::with_capacity( sample_rate as usize * 15 ); // Max 15 seconds analysis
+    let mut samples: Vec<f32> = Vec::with_capacity(sample_rate as usize * 15); // Max 15 seconds analysis
     let max_samples = sample_rate as usize * 15;
 
     while samples.len() < max_samples {
@@ -229,6 +217,41 @@ pub fn analyze_file<P: AsRef<Path>>(path: P) -> Result<SpectralAnalysisResult, S
     }
 
     Ok(analyze_samples(&samples, sample_rate, is_lossless))
+}
+
+/// Decodes audio file at `path` and performs spectral analysis.
+pub fn analyze_file<P: AsRef<Path>>(path: P) -> Result<SpectralAnalysisResult, String> {
+    let path_ref = path.as_ref();
+    let file = File::open(path_ref).map_err(|e| format!("Cannot open file: {}", e))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path_ref.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let is_lossless = match path_ref.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+        Some(ref ext) if ext == "flac" || ext == "wav" || ext == "aiff" || ext == "alac" => true,
+        _ => false,
+    };
+
+    analyze_media_source(mss, &hint, is_lossless)
+}
+
+/// Decodes an in-memory chunk of audio bytes (e.g. from pre-flight probe) and performs spectral analysis.
+pub fn analyze_bytes(bytes: &[u8], extension: &str) -> Result<SpectralAnalysisResult, String> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    let mut hint = Hint::new();
+    hint.with_extension(extension);
+
+    let is_lossless = matches!(
+        extension.to_lowercase().as_str(),
+        "flac" | "wav" | "aiff" | "aif" | "alac"
+    );
+
+    analyze_media_source(mss, &hint, is_lossless)
 }
 
 #[cfg(test)]

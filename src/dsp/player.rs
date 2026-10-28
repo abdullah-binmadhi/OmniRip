@@ -3,7 +3,9 @@
 //! Provides gapless, zero-latency playback of downloaded audio files (FLAC, MP3, M4A, WAV, Opus)
 //! routed directly through OmniRip's mastering DSP pipeline, 10-Band EQ, and live telemetry engine.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use symphonia::core::audio::SampleBuffer;
@@ -55,12 +57,8 @@ impl TrackPlayer {
         }
     }
 
-    /// Loads and decodes an audio file into in-memory stereo 32-bit floating point frames.
-    pub fn load_file(&self, path: &Path) -> Result<TrackInfo, String> {
-        if !path.exists() {
-            return Err(format!("File does not exist: {:?}", path));
-        }
-
+    /// Decodes an audio file using Symphonia (native pure-Rust for MP3, FLAC, WAV, OGG).
+    pub fn decode_with_symphonia(&self, path: &Path) -> Result<(Vec<[f32; 2]>, u32), String> {
         let file = std::fs::File::open(path)
             .map_err(|e| format!("Failed to open file: {}", e))?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -131,6 +129,66 @@ impl TrackPlayer {
         if decoded_stereo.is_empty() {
             return Err("Decoded zero audio samples from track".to_string());
         }
+
+        Ok((decoded_stereo, original_rate))
+    }
+
+    /// Decodes an audio file using ffmpeg fallback (seamlessly decodes WebM, Opus, AAC, M4A, ALAC, etc.).
+    pub fn decode_with_ffmpeg(&self, path: &Path) -> Result<(Vec<[f32; 2]>, u32), String> {
+        let sr_str = format!("{}", self.target_sample_rate as u32);
+        let mut decode_proc = Command::new("ffmpeg")
+            .args([
+                "-v", "error",
+                "-i", path.to_str().ok_or("Invalid path")?,
+                "-f", "f32le",
+                "-acodec", "pcm_f32le",
+                "-ar", &sr_str,
+                "-ac", "2",
+                "pipe:1",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn ffmpeg decoder: {}", e))?;
+
+        let mut raw_bytes = Vec::new();
+        if let Some(mut stdout) = decode_proc.stdout.take() {
+            let _ = stdout.read_to_end(&mut raw_bytes);
+        }
+
+        let status = decode_proc
+            .wait()
+            .map_err(|e| format!("ffmpeg decoder failed to exit: {}", e))?;
+        if !status.success() || raw_bytes.len() < 8 {
+            return Err("ffmpeg decoding returned empty or error exit status".to_string());
+        }
+
+        let total_frames = (raw_bytes.len() / 4) / 2;
+        let mut buffer: Vec<[f32; 2]> = Vec::with_capacity(total_frames);
+        for chunk in raw_bytes.chunks_exact(8) {
+            let left = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            let right = f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+            buffer.push([left, right]);
+        }
+
+        Ok((buffer, self.target_sample_rate as u32))
+    }
+
+    /// Loads and decodes an audio file into in-memory stereo 32-bit floating point frames.
+    pub fn load_file(&self, path: &Path) -> Result<TrackInfo, String> {
+        if !path.exists() {
+            return Err(format!("File does not exist: {:?}", path));
+        }
+
+        // Try native Symphonia decoding first, seamlessly fall back to ffmpeg for Opus/WebM/AAC
+        let (decoded_stereo, original_rate) = match self.decode_with_symphonia(path) {
+            Ok(res) => res,
+            Err(sym_err) => {
+                self.decode_with_ffmpeg(path).map_err(|ff_err| {
+                    format!("Decoder error: Symphonia: {} | ffmpeg: {}", sym_err, ff_err)
+                })?
+            }
+        };
 
         // Resample to target DAC rate if necessary (e.g. 44.1kHz -> 48kHz)
         let final_samples = if (original_rate as f32 - self.target_sample_rate).abs() > 1.0 {
@@ -504,5 +562,18 @@ mod tests {
         // Stopping resets finished flag
         player.stop();
         assert!(!player.is_finished());
+    }
+
+    #[test]
+    fn test_probe_real_files() {
+        let player = TrackPlayer::new(48000.0);
+        let webm_path = std::env::temp_dir().join("omnirip_stream_BriCie - 【BriCie】 White Silence (English Cover).webm");
+        if webm_path.exists() {
+            let res_webm = player.load_file(&webm_path);
+            assert!(res_webm.is_ok(), "BriCie webm should decode successfully via ffmpeg fallback");
+            let info = res_webm.unwrap();
+            assert!(info.duration_secs > 400.0);
+            assert_eq!(info.channels, 2);
+        }
     }
 }

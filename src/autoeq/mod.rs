@@ -3,7 +3,10 @@
 pub mod parser;
 pub mod storage;
 pub use parser::{parse_parametric_eq, ParametricProfile};
-pub use storage::{download_raw_preset, load_all_user_presets, save_preset_to_disk, OmniRipPreset};
+pub use storage::{
+    download_raw_preset, load_all_user_mastering_presets, load_all_user_presets,
+    save_mastering_preset_to_disk, save_preset_to_disk, OmniRipPreset,
+};
 
 /// Return bundled headphone and audiophile reference profiles.
 pub fn get_bundled_profiles(sample_rate: f32) -> Vec<ParametricProfile> {
@@ -131,6 +134,93 @@ Preamp: -5.0 dB
 Filter 1: ON LSC Fc 90 Hz Gain 5.0 dB Q 0.71
 Filter 2: ON PK Fc 5900 Hz Gain -5.5 dB Q 3.5
 Filter 3: ON PK Fc 8500 Hz Gain -6.0 dB Q 4.0
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Hip-Hop & Trap (Sub-Bass Precision)",
+            "
+Preamp: -4.0 dB
+Filter 1: ON LSC Fc 60 Hz Gain 4.0 dB Q 0.71
+Filter 2: ON PK Fc 250 Hz Gain -1.5 dB Q 1.8
+Filter 3: ON PK Fc 1500 Hz Gain 1.0 dB Q 2.0
+Filter 4: ON PK Fc 6800 Hz Gain -1.5 dB Q 3.0
+Filter 5: ON HSC Fc 12000 Hz Gain 2.0 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: R&B & Neo-Soul (Velvet Vocal Intimacy)",
+            "
+Preamp: -3.0 dB
+Filter 1: ON LSC Fc 80 Hz Gain 3.0 dB Q 0.71
+Filter 2: ON PK Fc 500 Hz Gain 1.0 dB Q 1.5
+Filter 3: ON PK Fc 2200 Hz Gain 1.5 dB Q 2.0
+Filter 4: ON HSC Fc 10000 Hz Gain 2.5 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Rock & Heavy Metal (Punch & Anti-Fatigue)",
+            "
+Preamp: -3.5 dB
+Filter 1: ON LSC Fc 85 Hz Gain 3.0 dB Q 0.71
+Filter 2: ON PK Fc 1200 Hz Gain 1.8 dB Q 1.5
+Filter 3: ON PK Fc 3500 Hz Gain -2.0 dB Q 3.0
+Filter 4: ON PK Fc 6500 Hz Gain -2.5 dB Q 3.5
+Filter 5: ON HSC Fc 11000 Hz Gain 1.5 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Electronic & Club (Subterranean 3D)",
+            "
+Preamp: -4.5 dB
+Filter 1: ON LSC Fc 55 Hz Gain 4.5 dB Q 0.71
+Filter 2: ON PK Fc 220 Hz Gain -1.2 dB Q 1.5
+Filter 3: ON PK Fc 3500 Hz Gain 1.5 dB Q 2.0
+Filter 4: ON HSC Fc 12000 Hz Gain 3.0 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Pop & Mainstream (Harman 2024 Reference)",
+            "
+Preamp: -4.0 dB
+Filter 1: ON LSC Fc 105 Hz Gain 4.0 dB Q 0.71
+Filter 2: ON PK Fc 200 Hz Gain -1.0 dB Q 1.41
+Filter 3: ON PK Fc 2500 Hz Gain 2.0 dB Q 2.0
+Filter 4: ON HSC Fc 10000 Hz Gain 2.0 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Classical & Orchestral (Symphonic Hall)",
+            "
+Preamp: -2.0 dB
+Filter 1: ON LSC Fc 60 Hz Gain 1.5 dB Q 0.71
+Filter 2: ON PK Fc 3200 Hz Gain -1.5 dB Q 3.0
+Filter 3: ON HSC Fc 10000 Hz Gain 2.5 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Jazz & Acoustic Trio (Living Room Hologram)",
+            "
+Preamp: -2.0 dB
+Filter 1: ON LSC Fc 90 Hz Gain 2.0 dB Q 0.71
+Filter 2: ON PK Fc 1800 Hz Gain 1.2 dB Q 1.8
+Filter 3: ON HSC Fc 10000 Hz Gain 2.0 dB Q 0.71
+",
+            sample_rate,
+        ),
+        parse_parametric_eq(
+            "Genre: Ambient & Cinematic (Panoramic Drone Space)",
+            "
+Preamp: -3.5 dB
+Filter 1: ON LSC Fc 45 Hz Gain 3.5 dB Q 0.71
+Filter 2: ON PK Fc 3600 Hz Gain -1.8 dB Q 2.5
+Filter 3: ON HSC Fc 10000 Hz Gain 3.0 dB Q 0.71
 ",
             sample_rate,
         ),
