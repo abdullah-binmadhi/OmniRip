@@ -18,7 +18,7 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -1263,8 +1263,8 @@ impl StreamingHubState {
         let mid_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(64), // Queue list (expanded for song titles and artists)
-                Constraint::Percentage(36), // Now Playing card & live telemetry
+                Constraint::Percentage(62), // Queue list (expanded for song titles and artists)
+                Constraint::Percentage(38), // Now Playing card & live telemetry (expanded)
             ])
             .split(v_chunks[1]);
 
@@ -1628,31 +1628,52 @@ impl StreamingHubState {
         lines.push(Line::from(""));
 
         // 3. System DSP & Acoustic Calibration (Workstation 2)
+        let preset_raw = if self.dsp_telemetry.active_preset_name.is_empty() {
+            "Flat Studio Reference"
+        } else {
+            &self.dsp_telemetry.active_preset_name
+        };
+        let preset_clean = preset_raw.replace(" (Pure Direct)", "");
+        let max_p_len = (inner.width as usize).saturating_sub(24).max(12);
+        let preset_disp = truncate_display_str(&preset_clean, max_p_len);
+
+        let target_raw = if self.dsp_telemetry.target_curve.is_empty() {
+            "Harman Target Curve"
+        } else {
+            &self.dsp_telemetry.target_curve
+        };
+        let max_t_len = (inner.width as usize).saturating_sub(15).max(12);
+        let target_disp = truncate_display_str(target_raw, max_t_len);
+
+        let gear_raw = if self.dsp_telemetry.active_gear_model.is_empty() {
+            "Auto-Calibrated Output"
+        } else {
+            &self.dsp_telemetry.active_gear_model
+        };
+        let max_g_len = (inner.width as usize).saturating_sub(15).max(12);
+        let gear_disp = truncate_display_str(gear_raw, max_g_len);
+
         lines.push(Line::from(vec![
             Span::styled("─── SYSTEM DSP & ACOUSTIC RECIPE ───", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(vec![
             Span::styled(" Preset:     ", Style::default().fg(theme.text_dim)),
-            Span::styled(if self.dsp_telemetry.active_preset_name.is_empty() { "Flat Studio Reference" } else { &self.dsp_telemetry.active_preset_name }, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" ({} PEQ Filters)", self.dsp_telemetry.filter_count), Style::default().fg(theme.accent)),
+            Span::styled(preset_disp, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" ({} PEQ)", self.dsp_telemetry.filter_count), Style::default().fg(theme.accent)),
         ]));
         lines.push(Line::from(vec![
             Span::styled(" Target:     ", Style::default().fg(theme.text_dim)),
-            Span::styled(if self.dsp_telemetry.target_curve.is_empty() { "Harman Target Curve" } else { &self.dsp_telemetry.target_curve }, Style::default().fg(Color::Cyan)),
+            Span::styled(target_disp, Style::default().fg(Color::Cyan)),
         ]));
         lines.push(Line::from(vec![
             Span::styled(" Transducer: ", Style::default().fg(theme.text_dim)),
-            Span::styled(if self.dsp_telemetry.active_gear_model.is_empty() { "Auto-Calibrated Output" } else { &self.dsp_telemetry.active_gear_model }, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(gear_disp, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(vec![
             Span::styled(" DSP Nodes:  ", Style::default().fg(theme.text_dim)),
-            Span::styled(format!("Preamp {:+.1}dB  •  Warmth {:.0}%",
+            Span::styled(format!("{:+.1}dB  •  W:{:.0}%  •  Sp:{:.0}%  •  {:+.1}dB",
                 self.dsp_telemetry.preamp_db,
-                self.dsp_telemetry.tube_warmth * 100.0), Style::default().fg(theme.secondary)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("             ", Style::default().fg(theme.text_dim)),
-            Span::styled(format!("Width {:.0}%  •  Ceiling {:+.1}dB",
+                self.dsp_telemetry.tube_warmth * 100.0,
                 self.dsp_telemetry.spatial_width * 100.0,
                 self.dsp_telemetry.limiter_ceiling_db), Style::default().fg(theme.secondary)),
         ]));
@@ -1665,14 +1686,14 @@ impl StreamingHubState {
         ]));
         lines.push(Line::from(vec![
             Span::styled(" Signal:     ", Style::default().fg(theme.text_dim)),
-            Span::styled("Lossless PCM -> System DSP Rack -> Rust Audio", Style::default().fg(theme.success)),
+            Span::styled("Lossless PCM -> System DSP Rack -> Audio Core", Style::default().fg(theme.success)),
         ]));
         lines.push(Line::from(vec![
             Span::styled(" Audio Core: ", Style::default().fg(theme.text_dim)),
-            Span::styled("48 kHz / 32-bit Float | Bit-Perfect | Low Jitter", Style::default().fg(theme.text_dim)),
+            Span::styled("48 kHz / 32-bit Float | Bit-Perfect", Style::default().fg(theme.text_dim)),
         ]));
 
-        let p = Paragraph::new(lines).wrap(Wrap { trim: true });
+        let p = Paragraph::new(lines);
         f.render_widget(p, inner);
     }
 

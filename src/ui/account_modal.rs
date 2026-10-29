@@ -788,7 +788,7 @@ impl AccountSyncModal {
             return;
         }
 
-        let popup_width = 110.min(area.width.saturating_sub(4));
+        let popup_width = 120.min(area.width.saturating_sub(4));
         let popup_height = 32.min(area.height.saturating_sub(2));
 
         let v_chunks = Layout::default()
@@ -824,7 +824,7 @@ impl AccountSyncModal {
             .constraints([
                 Constraint::Length(3), // Settings bar & Auto-Detect trigger + [B] LINK BANK
                 Constraint::Length(3), // Real-time Service Status & Progress Strip
-                Constraint::Min(14),   // 2-Pane Split: Left Playlists (40%), Right Tracklist (60%)
+                Constraint::Min(14),   // 2-Pane Split: Left Playlists (45%), Right Tracklist (55%)
                 Constraint::Length(3), // Footer buttons & Status
             ])
             .split(inner);
@@ -838,20 +838,21 @@ impl AccountSyncModal {
 
         let bank_total = self.link_bank_modal.store.entries.len();
         let bank_active = self.link_bank_modal.store.active_entries().len();
+        let sort_label = self.sort_mode.short_label();
 
         let settings_line = Line::from(vec![
-            Span::styled(" [A] AUTO-DETECT ALL ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(" [A] AUTO-DETECT ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("  "),
             Span::styled(
-                format!(" [B] LINK BANK ({}/{} Active) ", bank_active, bank_total),
+                format!(" [B] LINK BANK ({}/{}) ", bank_active, bank_total),
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled(format!(" [Browser: {}] ", self.youtube_browser.to_uppercase()), browser_style.add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(format!(" [{}] Deduplicate ", if self.deduplicate { "X" } else { " " }), dedup_style.add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" [{}] Dedup ", if self.deduplicate { "X" } else { " " }), dedup_style.add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(format!(" [Sort: {}] ", self.sort_mode.label()), sort_style.add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" [Sort: {}] ", sort_label), sort_style.add_modifier(Modifier::BOLD)),
         ]);
         f.render_widget(Paragraph::new(settings_line), sections[0]);
 
@@ -893,12 +894,12 @@ impl AccountSyncModal {
         f.render_widget(status_block, sections[1]);
         f.render_widget(Paragraph::new(vec![service_status_line, progress_line]), status_inner);
 
-        // 3. Middle 2-Pane Layout (Left Playlists 40%, Right Tracks 60%)
+        // 3. Middle 2-Pane Layout (Left Playlists 45%, Right Tracks 55%)
         let middle_split = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(40),
-                Constraint::Percentage(60),
+                Constraint::Percentage(45),
+                Constraint::Percentage(55),
             ])
             .split(sections[2]);
 
@@ -924,11 +925,15 @@ impl AccountSyncModal {
                     crate::harvest::StreamingService::Spotify => ("[SP] ", Color::Green),
                     _ => ("[--] ", theme.text_dim),
                 };
-                let clean_title = col.title
-                    .trim_start_matches("YT Music: ")
-                    .trim_start_matches("Music.app: ")
-                    .trim_start_matches("Spotify Collection: ")
-                    .trim();
+                let raw_title = col.title
+                    .replace("Spotify Target Playlist", "Playlist")
+                    .replace("Spotify Target Album", "Album")
+                    .replace("Spotify Collection: ", "")
+                    .replace("YouTube Custom Playlist", "Playlist")
+                    .replace("Apple Music Shared Collection", "Shared Library")
+                    .replace("YT Music: ", "")
+                    .replace("Music.app: ", "");
+                let clean_title = raw_title.trim();
                 let max_name_len = (col_inner.width as usize).saturating_sub(18).max(6);
                 let display_title = pad_display_str(clean_title, max_name_len);
                 let is_fetching = self.active_fetches.contains(&col.id);
@@ -1055,12 +1060,12 @@ impl AccountSyncModal {
         let status_disp = truncate_str(&self.status_message, max_status_len);
         let footer_lines = vec![
             Line::from(vec![
-                Span::styled(" [A] Auto-Detect  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(" [B] Link Bank  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(" [1/2] Panes  ", Style::default().fg(theme.accent)),
-                Span::styled(" [Space] Check  ", Style::default().fg(theme.success)),
-                Span::styled(" [R] Reload  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(" [I] Import Selected  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(" [A] Auto-Detect ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" [B] Link Bank ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" [1/2] Panes ", Style::default().fg(theme.accent)),
+                Span::styled(" [Space] Check ", Style::default().fg(theme.success)),
+                Span::styled(" [R] Reload ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" [I] Import ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::styled(" [Esc] Close", Style::default().fg(theme.text_dim)),
             ]),
             Line::from(vec![

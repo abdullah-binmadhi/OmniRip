@@ -139,6 +139,20 @@ impl TrackSortMode {
         }
     }
 
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            TrackSortMode::LatestAdded => "Latest Added",
+            TrackSortMode::OldestAdded => "Oldest Added",
+            TrackSortMode::TitleAZ => "Title A-Z",
+            TrackSortMode::TitleZA => "Title Z-A",
+            TrackSortMode::ArtistAZ => "Artist A-Z",
+            TrackSortMode::ArtistZA => "Artist Z-A",
+            TrackSortMode::DurationShortest => "Shortest",
+            TrackSortMode::DurationLongest => "Longest",
+            TrackSortMode::PlatformDividers => "Dividers",
+        }
+    }
+
     pub fn next(&self) -> Self {
         match self {
             TrackSortMode::LatestAdded => TrackSortMode::OldestAdded,
