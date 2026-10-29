@@ -2900,22 +2900,50 @@ pub struct DacMimickerEngine {
     crossfade_pos: usize,
     crossfade_len: usize,
 
-    // Filter coefficients
-    ifi_shelf_c: super::biquad::BiquadCoefficients,
-    ibasso_shelf_c: super::biquad::BiquadCoefficients,
-    schiit_low_c: super::biquad::BiquadCoefficients,
-    schiit_high_c: super::biquad::BiquadCoefficients,
-    chord_lpf_c: super::biquad::BiquadCoefficients,
+    // iFi Zen DAC V2 (Burr-Brown True Native) filters: TrueBass + Analog Mid Body + Silky Highs
+    ifi_bass_c: super::biquad::BiquadCoefficients,
+    ifi_mid_c: super::biquad::BiquadCoefficients,
+    ifi_high_c: super::biquad::BiquadCoefficients,
+    ifi_bass_l: BiquadState,
+    ifi_bass_r: BiquadState,
+    ifi_mid_l: BiquadState,
+    ifi_mid_r: BiquadState,
+    ifi_high_l: BiquadState,
+    ifi_high_r: BiquadState,
 
-    // Filter states
-    ifi_state_l: BiquadState,
-    ifi_state_r: BiquadState,
-    ibasso_state_l: BiquadState,
-    ibasso_state_r: BiquadState,
-    schiit_low_l: BiquadState,
-    schiit_low_r: BiquadState,
-    schiit_high_l: BiquadState,
-    schiit_high_r: BiquadState,
+    // iBasso DC03 Pro (Dual Cirrus CS43131) filters: Air/Sparkle + Crisp Vocal Presence + Snappy Bass
+    ibasso_treble_c: super::biquad::BiquadCoefficients,
+    ibasso_mid_c: super::biquad::BiquadCoefficients,
+    ibasso_bass_c: super::biquad::BiquadCoefficients,
+    ibasso_treble_l: BiquadState,
+    ibasso_treble_r: BiquadState,
+    ibasso_mid_l: BiquadState,
+    ibasso_mid_r: BiquadState,
+    ibasso_bass_l: BiquadState,
+    ibasso_bass_r: BiquadState,
+
+    // Schiit Multibit (True Multibit R2R Ladder) filters: Schiit Slam + Organic R2R Mids + De-Glare Rolloff
+    schiit_slam_c: super::biquad::BiquadCoefficients,
+    schiit_mid_c: super::biquad::BiquadCoefficients,
+    schiit_roll_c: super::biquad::BiquadCoefficients,
+    schiit_slam_l: BiquadState,
+    schiit_slam_r: BiquadState,
+    schiit_mid_l: BiquadState,
+    schiit_mid_r: BiquadState,
+    schiit_roll_l: BiquadState,
+    schiit_roll_r: BiquadState,
+
+    // Chord Mojo 2 (FPGA Pulse Array) filters: Subterranean Sub + WTA Transient Snap + Micro-Detail Air + LPF Crossfeed
+    chord_sub_c: super::biquad::BiquadCoefficients,
+    chord_pres_c: super::biquad::BiquadCoefficients,
+    chord_air_c: super::biquad::BiquadCoefficients,
+    chord_lpf_c: super::biquad::BiquadCoefficients,
+    chord_sub_l: BiquadState,
+    chord_sub_r: BiquadState,
+    chord_pres_l: BiquadState,
+    chord_pres_r: BiquadState,
+    chord_air_l: BiquadState,
+    chord_air_r: BiquadState,
     chord_lpf_l: BiquadState,
     chord_lpf_r: BiquadState,
 
@@ -2935,20 +2963,46 @@ impl DacMimickerEngine {
             crossfade_pos: 0,
             crossfade_len: (sample_rate * 0.015).round().max(64.0) as usize,
 
-            ifi_shelf_c: super::biquad::BiquadCoefficients::default(),
-            ibasso_shelf_c: super::biquad::BiquadCoefficients::default(),
-            schiit_low_c: super::biquad::BiquadCoefficients::default(),
-            schiit_high_c: super::biquad::BiquadCoefficients::default(),
-            chord_lpf_c: super::biquad::BiquadCoefficients::default(),
+            ifi_bass_c: super::biquad::BiquadCoefficients::default(),
+            ifi_mid_c: super::biquad::BiquadCoefficients::default(),
+            ifi_high_c: super::biquad::BiquadCoefficients::default(),
+            ifi_bass_l: BiquadState::default(),
+            ifi_bass_r: BiquadState::default(),
+            ifi_mid_l: BiquadState::default(),
+            ifi_mid_r: BiquadState::default(),
+            ifi_high_l: BiquadState::default(),
+            ifi_high_r: BiquadState::default(),
 
-            ifi_state_l: BiquadState::default(),
-            ifi_state_r: BiquadState::default(),
-            ibasso_state_l: BiquadState::default(),
-            ibasso_state_r: BiquadState::default(),
-            schiit_low_l: BiquadState::default(),
-            schiit_low_r: BiquadState::default(),
-            schiit_high_l: BiquadState::default(),
-            schiit_high_r: BiquadState::default(),
+            ibasso_treble_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_mid_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_bass_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_treble_l: BiquadState::default(),
+            ibasso_treble_r: BiquadState::default(),
+            ibasso_mid_l: BiquadState::default(),
+            ibasso_mid_r: BiquadState::default(),
+            ibasso_bass_l: BiquadState::default(),
+            ibasso_bass_r: BiquadState::default(),
+
+            schiit_slam_c: super::biquad::BiquadCoefficients::default(),
+            schiit_mid_c: super::biquad::BiquadCoefficients::default(),
+            schiit_roll_c: super::biquad::BiquadCoefficients::default(),
+            schiit_slam_l: BiquadState::default(),
+            schiit_slam_r: BiquadState::default(),
+            schiit_mid_l: BiquadState::default(),
+            schiit_mid_r: BiquadState::default(),
+            schiit_roll_l: BiquadState::default(),
+            schiit_roll_r: BiquadState::default(),
+
+            chord_sub_c: super::biquad::BiquadCoefficients::default(),
+            chord_pres_c: super::biquad::BiquadCoefficients::default(),
+            chord_air_c: super::biquad::BiquadCoefficients::default(),
+            chord_lpf_c: super::biquad::BiquadCoefficients::default(),
+            chord_sub_l: BiquadState::default(),
+            chord_sub_r: BiquadState::default(),
+            chord_pres_l: BiquadState::default(),
+            chord_pres_r: BiquadState::default(),
+            chord_air_l: BiquadState::default(),
+            chord_air_r: BiquadState::default(),
             chord_lpf_l: BiquadState::default(),
             chord_lpf_r: BiquadState::default(),
 
@@ -2991,23 +3045,39 @@ impl DacMimickerEngine {
     fn recompute_filters(&mut self) {
         let sr = self.sample_rate;
 
-        // iFi TrueBass: 65 Hz analog low shelf, +2.2 dB, Q = 0.707
-        let ifi_biquad = BiquadFilter::new(BiquadFilterType::LowShelf, 65.0, 2.2, 0.707, sr);
-        self.ifi_shelf_c = ifi_biquad.compute_coefficients();
+        // 1. iFi Zen DAC V2 (Burr-Brown True Native)
+        // - TrueBass: 75 Hz analog low shelf, +4.2 dB, Q = 0.8
+        self.ifi_bass_c = BiquadFilter::new(BiquadFilterType::LowShelf, 75.0, 4.2, 0.8, sr).compute_coefficients();
+        // - Analog Mid Body: 500 Hz peaking, +2.0 dB, Q = 0.6
+        self.ifi_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 500.0, 2.0, 0.6, sr).compute_coefficients();
+        // - Silky High-End Smoothing: 13.0 kHz high shelf, -1.8 dB, Q = 0.707
+        self.ifi_high_c = BiquadFilter::new(BiquadFilterType::HighShelf, 13000.0, -1.8, 0.707, sr).compute_coefficients();
 
-        // iBasso DC03 Pro: 12.5 kHz air shelf, +0.8 dB, Q = 0.707
-        let ibasso_biquad = BiquadFilter::new(BiquadFilterType::HighShelf, 12500.0, 0.8, 0.707, sr);
-        self.ibasso_shelf_c = ibasso_biquad.compute_coefficients();
+        // 2. iBasso DC03 Pro (Dual Cirrus CS43131)
+        // - Treble Air & Sparkle: 8.5 kHz high shelf, +3.0 dB, Q = 0.75
+        self.ibasso_treble_c = BiquadFilter::new(BiquadFilterType::HighShelf, 8500.0, 3.0, 0.75, sr).compute_coefficients();
+        // - Forward Vocal & Snare Articulation: 2.8 kHz peaking, +1.6 dB, Q = 1.1
+        self.ibasso_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 2800.0, 1.6, 1.1, sr).compute_coefficients();
+        // - Fast Snappy Bass: 90 Hz peaking, +1.8 dB, Q = 1.2
+        self.ibasso_bass_c = BiquadFilter::new(BiquadFilterType::Peaking, 90.0, 1.8, 1.2, sr).compute_coefficients();
 
-        // Schiit Multibit: 45 Hz low punch (+1.5 dB, Q=0.8), 18.5 kHz gentle roll-off (-0.6 dB, Q=0.707)
-        let schiit_low = BiquadFilter::new(BiquadFilterType::LowShelf, 45.0, 1.5, 0.8, sr);
-        self.schiit_low_c = schiit_low.compute_coefficients();
-        let schiit_high = BiquadFilter::new(BiquadFilterType::HighShelf, 18500.0, -0.6, 0.707, sr);
-        self.schiit_high_c = schiit_high.compute_coefficients();
+        // 3. Schiit Multibit (True Multibit R2R Ladder)
+        // - "Schiit Slam": 80 Hz low shelf, +3.6 dB, Q = 0.75
+        self.schiit_slam_c = BiquadFilter::new(BiquadFilterType::LowShelf, 80.0, 3.6, 0.75, sr).compute_coefficients();
+        // - Organic R2R Vocal Midrange: 1.4 kHz peaking, +1.8 dB, Q = 0.85
+        self.schiit_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 1400.0, 1.8, 0.85, sr).compute_coefficients();
+        // - Supercomb De-Glare Rolloff: 12.5 kHz high shelf, -2.5 dB, Q = 0.707
+        self.schiit_roll_c = BiquadFilter::new(BiquadFilterType::HighShelf, 12500.0, -2.5, 0.707, sr).compute_coefficients();
 
-        // Chord Mojo 2: 700 Hz low-pass for crossfeed channel
-        let chord_lpf = BiquadFilter::new(BiquadFilterType::LowPass, 700.0, 0.0, 0.6, sr);
-        self.chord_lpf_c = chord_lpf.compute_coefficients();
+        // 4. Chord Mojo 2 (FPGA Pulse Array & WTA Timing)
+        // - Deep Subterranean Sub-Bass: 32 Hz peaking, +2.8 dB, Q = 1.0
+        self.chord_sub_c = BiquadFilter::new(BiquadFilterType::Peaking, 32.0, 2.8, 1.0, sr).compute_coefficients();
+        // - WTA Transient Pluck & Edge: 5.5 kHz peaking, +2.5 dB, Q = 1.2
+        self.chord_pres_c = BiquadFilter::new(BiquadFilterType::Peaking, 5500.0, 2.5, 1.2, sr).compute_coefficients();
+        // - Micro-Detail Air: 14.0 kHz high shelf, +2.0 dB, Q = 0.707
+        self.chord_air_c = BiquadFilter::new(BiquadFilterType::HighShelf, 14000.0, 2.0, 0.707, sr).compute_coefficients();
+        // - Crossfeed LPF: 650 Hz low-pass for acoustic ear-to-ear delay blending
+        self.chord_lpf_c = BiquadFilter::new(BiquadFilterType::LowPass, 650.0, 0.0, 0.65, sr).compute_coefficients();
 
         // 0.35ms delay line length (at 48 kHz = ~17 samples; clamped to ring buffer size)
         self.crossfeed_delay_samples = ((sr * 0.00035).round() as usize).clamp(1, 120);
@@ -3017,28 +3087,51 @@ impl DacMimickerEngine {
     fn process_single_flavor(&mut self, flavor: DacHardwareFlavor, frame: [f32; 2]) -> [f32; 2] {
         match flavor {
             DacHardwareFlavor::StockOemPlus => {
-                // Bit-perfect Apple Silicon CS42L84 calibrated reference with peak limiter protection
+                // 100% Bit-perfect Apple Silicon CS42L84 calibrated reference (untouched stock sound)
                 [frame[0].clamp(-1.0, 1.0), frame[1].clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::IfiZenDac => {
-                // Burr-Brown DSD1793 minimum phase + TrueBass 65Hz shelf + warm discrete 2nd harmonic
-                let l_eq = self.ifi_state_l.process(frame[0], &self.ifi_shelf_c);
-                let r_eq = self.ifi_state_r.process(frame[1], &self.ifi_shelf_c);
-                let l_warm = l_eq + 0.022 * l_eq * l_eq.abs();
-                let r_warm = r_eq + 0.022 * r_eq * r_eq.abs();
+                // Burr-Brown TrueBass low shelf + warm velvety mids + silky highs + rich 2nd harmonic
+                let l_b = self.ifi_bass_l.process(frame[0], &self.ifi_bass_c);
+                let r_b = self.ifi_bass_r.process(frame[1], &self.ifi_bass_c);
+                let l_m = self.ifi_mid_l.process(l_b, &self.ifi_mid_c);
+                let r_m = self.ifi_mid_r.process(r_b, &self.ifi_mid_c);
+                let l_h = self.ifi_high_l.process(l_m, &self.ifi_high_c);
+                let r_h = self.ifi_high_r.process(r_m, &self.ifi_high_c);
+
+                // Rich discrete 2nd-harmonic tube warmth
+                let l_warm = (l_h + 0.085 * l_h * l_h.abs()) * 0.90;
+                let r_warm = (r_h + 0.085 * r_h * r_h.abs()) * 0.90;
                 [l_warm.clamp(-1.0, 1.0), r_warm.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::IbassoDcPro => {
-                // Dual Cirrus CS43131 flagship linear phase + 12.5kHz air presence shelf + ultra-low THD
-                let l_air = self.ibasso_state_l.process(frame[0], &self.ibasso_shelf_c);
-                let r_air = self.ibasso_state_r.process(frame[1], &self.ibasso_shelf_c);
-                [l_air.clamp(-1.0, 1.0), r_air.clamp(-1.0, 1.0)]
+                // Dual Cirrus CS43131: sparkling treble air + articulate vocal presence + snappy bass + MS stereo expansion
+                let l_t = self.ibasso_treble_l.process(frame[0], &self.ibasso_treble_c);
+                let r_t = self.ibasso_treble_r.process(frame[1], &self.ibasso_treble_c);
+                let l_m = self.ibasso_mid_l.process(l_t, &self.ibasso_mid_c);
+                let r_m = self.ibasso_mid_r.process(r_t, &self.ibasso_mid_c);
+                let l_b = self.ibasso_bass_l.process(l_m, &self.ibasso_bass_c);
+                let r_b = self.ibasso_bass_r.process(r_m, &self.ibasso_bass_c);
+
+                // Mid-Side stage width widening (+10% side channel boost)
+                let mid = (l_b + r_b) * 0.5;
+                let side = (l_b - r_b) * 0.5 * 1.10;
+                let l_out = (mid + side) * 0.92;
+                let r_out = (mid - side) * 0.92;
+                [l_out.clamp(-1.0, 1.0), r_out.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::ChordMojo2 => {
-                // Rob Watts WTA sinc timing reconstruction emulation with 0.35ms spatial crossfeed
+                // Rob Watts WTA sinc timing: deep sub-bass + transient attack snap + micro-detail air + 35% 3D crossfeed
+                let l_s = self.chord_sub_l.process(frame[0], &self.chord_sub_c);
+                let r_s = self.chord_sub_r.process(frame[1], &self.chord_sub_c);
+                let l_p = self.chord_pres_l.process(l_s, &self.chord_pres_c);
+                let r_p = self.chord_pres_r.process(r_s, &self.chord_pres_c);
+                let l_a = self.chord_air_l.process(l_p, &self.chord_air_c);
+                let r_a = self.chord_air_r.process(r_p, &self.chord_air_c);
+
                 let cur_idx = self.crossfeed_idx;
-                self.crossfeed_delay_l[cur_idx] = frame[0];
-                self.crossfeed_delay_r[cur_idx] = frame[1];
+                self.crossfeed_delay_l[cur_idx] = l_a;
+                self.crossfeed_delay_r[cur_idx] = r_a;
 
                 let delay_offset = self.crossfeed_delay_samples;
                 let read_idx = if cur_idx >= delay_offset {
@@ -3049,27 +3142,28 @@ impl DacMimickerEngine {
 
                 let delayed_l = self.crossfeed_delay_l[read_idx];
                 let delayed_r = self.crossfeed_delay_r[read_idx];
-
                 self.crossfeed_idx = (cur_idx + 1) % 128;
 
-                let l_filtered_cross = self.chord_lpf_l.process(delayed_r, &self.chord_lpf_c);
-                let r_filtered_cross = self.chord_lpf_r.process(delayed_l, &self.chord_lpf_c);
+                let l_cross = self.chord_lpf_l.process(delayed_r, &self.chord_lpf_c);
+                let r_cross = self.chord_lpf_r.process(delayed_l, &self.chord_lpf_c);
 
-                // Blend crossfeed at -13.5 dB (~0.211) and apply slight unity-gain compensation (0.95x)
-                let l_out = (frame[0] + 0.211 * l_filtered_cross) * 0.95;
-                let r_out = (frame[1] + 0.211 * r_filtered_cross) * 0.95;
+                // Perceptible 35% crossfeed blend with headroom normalization (0.90x)
+                let l_out = (l_a + 0.35 * l_cross) * 0.90;
+                let r_out = (r_a + 0.35 * r_cross) * 0.90;
                 [l_out.clamp(-1.0, 1.0), r_out.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::SchiitMultibit => {
-                // R2R ladder architectural slam: 45Hz low boost, gentle Nyquist roll-off, blended H2+H3 saturation
-                let l_punch = self.schiit_low_l.process(frame[0], &self.schiit_low_c);
-                let r_punch = self.schiit_low_r.process(frame[1], &self.schiit_low_c);
-                let l_roll = self.schiit_high_l.process(l_punch, &self.schiit_high_c);
-                let r_roll = self.schiit_high_r.process(r_punch, &self.schiit_high_c);
+                // True Multibit R2R: "Schiit Slam" dynamic low boost + organic vocal midrange + Supercomb de-glare + Class-A buffer
+                let l_slam = self.schiit_slam_l.process(frame[0], &self.schiit_slam_c);
+                let r_slam = self.schiit_slam_r.process(frame[1], &self.schiit_slam_c);
+                let l_mid = self.schiit_mid_l.process(l_slam, &self.schiit_mid_c);
+                let r_mid = self.schiit_mid_r.process(r_slam, &self.schiit_mid_c);
+                let l_roll = self.schiit_roll_l.process(l_mid, &self.schiit_roll_c);
+                let r_roll = self.schiit_roll_r.process(r_mid, &self.schiit_roll_c);
 
-                // Push-pull class-A buffer stage saturation (even + odd harmonic blend)
-                let l_sat = l_roll + 0.018 * l_roll.powi(2) * l_roll.signum() - 0.010 * l_roll.powi(3);
-                let r_sat = r_roll + 0.018 * r_roll.powi(2) * r_roll.signum() - 0.010 * r_roll.powi(3);
+                // Class-A push-pull discrete stage saturation (even-order dynamic warmth + subtle odd-order compression)
+                let l_sat = (l_roll + 0.080 * l_roll.powi(2) * l_roll.signum() - 0.035 * l_roll.powi(3)) * 0.90;
+                let r_sat = (r_roll + 0.080 * r_roll.powi(2) * r_roll.signum() - 0.035 * r_roll.powi(3)) * 0.90;
                 [l_sat.clamp(-1.0, 1.0), r_sat.clamp(-1.0, 1.0)]
             }
         }
@@ -3250,16 +3344,37 @@ mod tests {
             assert_eq!(frame[1], 0.0);
         }
 
-        // Process test signal with each flavor
+        // Verify Stock OEM+ is 100% bit-perfect pass-through
+        let mut oem_sig = vec![[0.42f32, -0.38f32]; 128];
+        engine.set_flavor(DacHardwareFlavor::StockOemPlus);
+        engine.process(&mut oem_sig);
+        for frame in &oem_sig {
+            assert!((frame[0] - 0.42).abs() < 1e-6, "Stock OEM+ must be bit-perfect pass-through: got {}", frame[0]);
+            assert!((frame[1] - (-0.38)).abs() < 1e-6, "Stock OEM+ must be bit-perfect pass-through: got {}", frame[1]);
+        }
+
+        // Process test signal with each flavor and assert audible variance and stability
         for flavor in DacHardwareFlavor::all() {
-            engine.set_flavor(*flavor);
+            let mut test_engine = DacMimickerEngine::new(48000.0);
+            test_engine.set_flavor(*flavor);
+            // Pre-warm filters so step response stabilizes
+            let mut prewarm = vec![[0.4f32, -0.4f32]; 512];
+            test_engine.process(&mut prewarm);
+
             let mut test_sig = vec![[0.5f32, -0.5f32]; 256];
-            engine.process(&mut test_sig);
+            test_engine.process(&mut test_sig);
             for frame in &test_sig {
                 assert!(!frame[0].is_nan());
                 assert!(!frame[1].is_nan());
                 assert!(frame[0].abs() <= 1.0);
                 assert!(frame[1].abs() <= 1.0);
+            }
+
+            // Assert that non-stock flavors produce noticeably altered output from the 0.5 flat input
+            if *flavor != DacHardwareFlavor::StockOemPlus {
+                let last = test_sig.last().unwrap();
+                let diff_l = (last[0] - 0.5).abs();
+                assert!(diff_l > 0.001, "Flavor {:?} must produce distinct audible modification: diff={}", flavor, diff_l);
             }
         }
 

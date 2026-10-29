@@ -228,11 +228,11 @@ flowchart LR
 
 | Profile | Hardware Architecture & Sonic Signature | Best Paired With |
 | :--- | :--- | :--- |
-| **Schiit Multibit (R2R)** | 16-bit True Multibit resistor ladder with discrete analog buffer. Delivers authoritative low-end dynamic slam (+0.5 dB punch at 55 Hz) and smooth linear phase rolloff at 18.5 kHz, completely eliminating digital harshness and glare. | External R2R DACs (Schiit Bifrost, Modi Multibit, Yggdrasil), dongles, and warm dynamic listening |
-| **Chord Mojo 2** | Custom FPGA 104-bit Pulse Array with ultra-dense micro-detail, ultra-low jitter, and lightning-fast WTA transient response. | High-resolution analytical headphones, intricate acoustic or classical recordings |
-| **iBasso DC Pro** | Flagship dual Cirrus Logic CS43131 architecture with hyper-crisp treble resolution, airy micro-transients, and expansive soundstage. | USB-C dongles (iBasso DC03/DC04/DC06), IEMs, and modern electronic mixes |
-| **iFi Zen DAC V2** | Classic Burr-Brown True Native Bit-Perfect conversion with rich analog musicality, lush vocal midrange, and deep sub-bass warmth. | Extended listening sessions, jazz, vinyl rips, and vintage recordings |
-| **Stock OEM+** | Pure neutral studio reference with zero coloration, flat frequency curve, and 16-point Blackman-Harris sinc precision. | Critical studio mastering and reference monitoring |
+| **Schiit Multibit (R2R)** | 16-bit True Multibit resistor ladder with discrete analog buffer. Delivers authoritative low-end dynamic slam (+3.6 dB punch at 80 Hz), rich grounded analog vocal presence (+1.8 dB at 1.4 kHz), and smooth linear phase de-glare roll-off (-2.5 dB at 12.5 kHz) with Class-A push-pull buffer saturation, completely eliminating digital fatigue. | External R2R DACs (Schiit Bifrost, Modi Multibit, Yggdrasil), dongles, and warm dynamic listening |
+| **Chord Mojo 2** | Custom FPGA 104-bit Pulse Array with holographic 3D crossfeed, subterranean sub-bass punch (+2.8 dB at 32 Hz), lightning-fast WTA transient attack (+2.5 dB at 5.5 kHz), and expansive micro-detail air (+2.0 dB at 14 kHz). | High-resolution analytical headphones, intricate acoustic or classical recordings |
+| **iBasso DC Pro** | Flagship dual Cirrus Logic CS43131 architecture with sparkling treble resolution (+3.0 dB at 8.5 kHz), articulate forward vocal presence (+1.6 dB at 2.8 kHz), fast snappy bass (+1.8 dB at 90 Hz), and Mid-Side stage expansion (+10% width). | USB-C dongles (iBasso DC03/DC04/DC06), IEMs, and modern electronic mixes |
+| **iFi Zen DAC V2** | Classic Burr-Brown True Native Bit-Perfect conversion with rich analog musicality, TrueBass sub-bass analog low shelf (+4.2 dB at 75 Hz), lush velvety midrange (+2.0 dB at 500 Hz), and warm 2nd harmonic tube-like warmth. | Extended listening sessions, jazz, vinyl rips, and vintage recordings |
+| **Stock OEM+** | 100% pure neutral studio reference with zero coloration, flat frequency curve, and 16-point Blackman-Harris sinc precision. | Critical studio mastering and reference monitoring |
 
 #### How to Switch DAC Profiles:
 - **Global Hotkey**: Press **`Ctrl+D`** anywhere in OmniRip to cycle forward through DAC profiles, or **`Ctrl+Shift+D`** to cycle backward.
