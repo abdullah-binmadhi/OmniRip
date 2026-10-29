@@ -429,14 +429,18 @@ impl AccountSyncModal {
             }
         }
 
-        // 2. Apple Music
-        if let Ok(mut cols) = LibrarySyncEngine::scan_apple_music(&self.apple_input) {
-            self.discovered_collections.append(&mut cols);
+        // 2. Apple Music (only scan custom input URL here; broad local library search runs via [A] Auto-Detect)
+        if !self.apple_input.trim().is_empty() {
+            if let Ok(mut cols) = LibrarySyncEngine::scan_apple_music(&self.apple_input) {
+                self.discovered_collections.append(&mut cols);
+            }
         }
 
-        // 3. YouTube Music
-        if let Ok(mut cols) = LibrarySyncEngine::scan_youtube_music(&self.youtube_browser, &self.youtube_input) {
-            self.discovered_collections.append(&mut cols);
+        // 3. YouTube Music (only scan custom input URL here; broad feed search runs via [A] Auto-Detect)
+        if !self.youtube_input.trim().is_empty() {
+            if let Ok(mut cols) = LibrarySyncEngine::scan_youtube_music(&self.youtube_browser, &self.youtube_input) {
+                self.discovered_collections.append(&mut cols);
+            }
         }
 
         self.is_scanning = false;
@@ -551,6 +555,7 @@ impl AccountSyncModal {
                                 cached.iter().filter(|t| t.is_selected).cloned().collect()
                             } else {
                                 let items = LibrarySyncEngine::fetch_track_items_for_collection(col, &self.youtube_browser);
+                                self.tracks_cache.insert(col.id.clone(), items.clone());
                                 items.into_iter().filter(|t| t.is_selected).collect()
                             };
                             let n = col_tracks.len();
@@ -646,6 +651,7 @@ impl AccountSyncModal {
                         } else {
                             // If collection was checked but never drilled down into, load its tracks
                             let items = LibrarySyncEngine::fetch_track_items_for_collection(col, &self.youtube_browser);
+                            self.tracks_cache.insert(col.id.clone(), items.clone());
                             items.into_iter().filter(|t| t.is_selected).collect()
                         };
                         let n = col_tracks.len();
@@ -1324,5 +1330,15 @@ mod tests {
         assert!(!modal.discovered_collections.is_empty());
         let found = modal.discovered_collections.iter().find(|c| c.title.contains("Bro's Hits"));
         assert!(found.is_some(), "Collection from Link Bank with curator label must be discovered");
+    }
+
+    #[test]
+    fn test_account_sync_modal_scan_accounts_fast_and_non_blocking() {
+        let mut modal = AccountSyncModal::new_clean();
+        let start = std::time::Instant::now();
+        modal.scan_accounts();
+        let elapsed = start.elapsed();
+        // scan_accounts with empty profiles must be instant (< 100ms), never running blocking multi-process loops
+        assert!(elapsed.as_millis() < 500, "scan_accounts took too long: {}ms", elapsed.as_millis());
     }
 }

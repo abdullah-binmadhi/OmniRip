@@ -875,24 +875,33 @@ impl LibrarySyncEngine {
         // 1. macOS: Query Music.app via AppleScript
         #[cfg(target_os = "macos")]
         {
+            let batch_script = r#"tell application "Music"
+                set res to ""
+                repeat with p in playlists
+                    set pName to name of p
+                    if pName is not "Music" and pName is not "Downloaded" then
+                        set res to res & pName & ":::" & (count of tracks of p) & "|||"
+                    end if
+                end repeat
+                return res
+            end tell"#;
+
             if let Ok(output) = Command::new("osascript")
-                .args(["-e", "tell application \"Music\" to get name of playlists"])
+                .args(["-e", batch_script])
                 .output()
             {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout);
-                    for (i, name) in text.split(',').enumerate() {
-                        let name = name.trim();
-                        if !name.is_empty() && name != "Music" && name != "Downloaded" {
-                            // Query actual track count
-                            let count_script = format!("tell application \"Music\" to get count of tracks of playlist \"{}\"", name.replace('\"', "\\\""));
-                            let count = Command::new("osascript")
-                                .args(["-e", &count_script])
-                                .output()
-                                .ok()
-                                .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<usize>().ok())
-                                .unwrap_or(25);
+                    for (i, item) in text.split("|||").enumerate() {
+                        let trimmed_item = item.trim();
+                        if trimmed_item.is_empty() {
+                            continue;
+                        }
+                        let mut parts = trimmed_item.split(":::");
+                        let name = parts.next().unwrap_or("").trim();
+                        let count = parts.next().and_then(|c| c.trim().parse::<usize>().ok()).unwrap_or(25);
 
+                        if !name.is_empty() {
                             collections.push(DiscoveredCollection {
                                 id: format!("apple_local_{}", i),
                                 title: format!("Music.app: {}", name),
@@ -1088,12 +1097,14 @@ impl LibrarySyncEngine {
                 // First attempt PlaylistParser oEmbed / HTML parsing for Spotify / Apple Music
                 let parser = PlaylistParser::new();
                 let url_clone = collection.url.clone();
-                let parsed_res = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                    Ok(rt) => rt.block_on(async move {
-                        parser.parse_url_or_path(&url_clone).await
-                    }),
-                    Err(e) => Err(format!("Runtime build error: {}", e)),
-                };
+                let parsed_res = std::thread::spawn(move || {
+                    match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                        Ok(rt) => rt.block_on(async move {
+                            parser.parse_url_or_path(&url_clone).await
+                        }),
+                        Err(e) => Err(format!("Runtime build error: {}", e)),
+                    }
+                }).join().unwrap_or_else(|_| Err("Background playlist parser thread panicked".to_string()));
 
                 if let Ok(pl) = parsed_res {
                     if !pl.tracks.is_empty() {
@@ -1682,5 +1693,23 @@ mod tests {
 
         assert_eq!(cleaned_meta2.artist.as_deref(), Some("Playboi Carti"));
         assert_eq!(cleaned_meta2.title, "ALL RED");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_tracks_for_collection_inside_tokio_runtime_does_not_panic() {
+        let col = DiscoveredCollection {
+            id: "sp_test".to_string(),
+            title: "Test Spotify Playlist".to_string(),
+            url: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M".to_string(),
+            service: StreamingService::Spotify,
+            track_count: 10,
+            is_selected: true,
+        };
+        // Calling fetch_track_items_for_collection directly inside an async tokio test
+        // MUST NOT panic with "Cannot start a runtime from within a runtime"!
+        let res = std::panic::catch_unwind(|| {
+            LibrarySyncEngine::fetch_track_items_for_collection(&col, "chrome")
+        });
+        assert!(res.is_ok(), "fetch_track_items_for_collection must never panic inside tokio runtime");
     }
 }
