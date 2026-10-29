@@ -1724,7 +1724,7 @@ impl StreamingHubState {
     }
 
     fn render_sort_modal(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
-        let popup_w = 80.min(area.width.saturating_sub(4));
+        let popup_w = 84.min(area.width.saturating_sub(4));
         let popup_h = 28.min(area.height.saturating_sub(2));
 
         let v_chunks = Layout::default()
@@ -1830,10 +1830,10 @@ impl StreamingHubState {
             }),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("     Cycle Mode [C] : ", Style::default().fg(theme.text_dim)),
+            Span::styled("     Cycle [C]     : ", Style::default().fg(theme.text_dim)),
             Span::styled("[None]", Style::default().fg(theme.text_dim)),
             Span::raw(" -> "),
-            Span::styled("[Option B: Accent Index]", Style::default().fg(Color::Yellow)),
+            Span::styled("[Option B: Accent]", Style::default().fg(Color::Yellow)),
             Span::raw(" -> "),
             Span::styled("[Option A: Full Row]", Style::default().fg(Color::Green)),
         ]));
@@ -2911,9 +2911,15 @@ mod tests {
         let sub_line = format!(" [S] Section Sub-Sort: {}", state.divider_sub_sort.label());
         assert!(unicode_display_width(&sub_line) <= max_inner_w);
 
-        // 4. Verify footer lines
+        // 4. Verify platform color coding lines
+        let color_line = format!(" [C] Platform Colors:  {} ", state.platform_color_mode.label());
+        assert!(unicode_display_width(&color_line) <= max_inner_w);
+        let cycle_line = "     Cycle [C]     : [None] -> [Option B: Accent] -> [Option A: Full Row]";
+        assert!(unicode_display_width(cycle_line) <= max_inner_w);
+
+        // 5. Verify footer lines
         let foot1 = " [1-9] Direct   [Up/Down] Move   [Enter] Apply   [Esc] Close";
-        let foot2 = " [P] Cycle Lead Platform   [S] Cycle Section Sub-Sort   [O] Cycle Mode";
+        let foot2 = " [P] Lead Platform   [S] Sub-Sort   [C] Platform Colors   [O] Cycle Mode";
         assert!(unicode_display_width(foot1) <= max_inner_w);
         assert!(unicode_display_width(foot2) <= max_inner_w);
     }
