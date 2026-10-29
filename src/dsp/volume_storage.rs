@@ -11,15 +11,15 @@ use std::path::PathBuf;
 const DEFAULT_PLAYER_VOLUME_PCT: usize = 50;
 const DEFAULT_SYSTEM_VOLUME_SCALAR: f32 = 0.5;
 
-fn default_true() -> bool {
-    true
+fn default_false() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeConfig {
     pub player_volume_pct: usize,
     pub system_volume_scalar: f32,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub mic_enabled: bool,
     #[serde(default)]
     pub dac_flavor: Option<super::enhancer::DacHardwareFlavor>,
@@ -30,13 +30,18 @@ impl Default for VolumeConfig {
         Self {
             player_volume_pct: DEFAULT_PLAYER_VOLUME_PCT,
             system_volume_scalar: DEFAULT_SYSTEM_VOLUME_SCALAR,
-            mic_enabled: true,
+            mic_enabled: false,
             dac_flavor: Some(super::enhancer::DacHardwareFlavor::StockOemPlus),
         }
     }
 }
 
 pub fn volume_config_path() -> PathBuf {
+    #[cfg(test)]
+    {
+        return std::env::temp_dir().join(format!("omnirip_test_vol_{}_{:?}.json", std::process::id(), std::thread::current().id()));
+    }
+    #[allow(unreachable_code)]
     if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home).join(".config").join("omnirip").join("volume.json")
     } else if let Ok(profile) = std::env::var("USERPROFILE") {
@@ -67,11 +72,11 @@ pub fn load_volume_settings() -> (usize, f32) {
     (DEFAULT_PLAYER_VOLUME_PCT, DEFAULT_SYSTEM_VOLUME_SCALAR)
 }
 
-/// Loads persistent mic input capture setting from disk. Defaults to true (ON) to ensure system audio loopback works on startup.
+/// Loads persistent mic input capture setting from disk. Defaults to false (OFF) to ensure mic hardware is not held on startup.
 pub fn load_mic_setting() -> bool {
     let path = volume_config_path();
     if !path.exists() {
-        return true;
+        return false;
     }
 
     if let Ok(mut file) = File::open(&path) {
@@ -83,7 +88,7 @@ pub fn load_mic_setting() -> bool {
         }
     }
 
-    true
+    false
 }
 
 /// Loads persistent DAC Mimicker flavor from disk. Defaults to StockOemPlus.
@@ -183,12 +188,12 @@ mod tests {
         let default_cfg = VolumeConfig::default();
         assert_eq!(default_cfg.player_volume_pct, 50);
         assert!((default_cfg.system_volume_scalar - 0.5).abs() < 1e-4);
-        assert!(default_cfg.mic_enabled);
+        assert!(!default_cfg.mic_enabled);
 
         let json = serde_json::to_string(&default_cfg).unwrap();
         let deserialized: VolumeConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.player_volume_pct, 50);
-        assert!(deserialized.mic_enabled);
+        assert!(!deserialized.mic_enabled);
         assert_eq!(deserialized.dac_flavor, Some(crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus));
     }
 }

@@ -616,6 +616,7 @@ impl AudioStreamer {
         if !enable {
             // Drop input stream immediately to dismiss macOS microphone indicator
             if let Some(s) = self.input_stream.take() {
+                let _ = s.pause();
                 drop(s);
             }
             #[cfg(target_os = "macos")]
@@ -1331,26 +1332,26 @@ mod tests {
         let pipe = AudioPipeline::new(48000.0);
         let mut streamer = AudioStreamer::new(pipe);
 
-        // Verify default state is enabled (ON) so system loopback audio works on startup
-        assert!(streamer.is_input_capture_enabled());
-
-        // Toggle to OFF
-        let (enabled, msg) = streamer.toggle_input_capture();
-        assert!(!enabled);
+        // Verify default state is disabled (OFF) to ensure mic hardware is not held on startup
         assert!(!streamer.is_input_capture_enabled());
-        assert!(msg.contains("[OFF]"));
 
-        // Toggle back to ON
-        let (enabled_on, msg_on) = streamer.toggle_input_capture();
-        assert!(enabled_on);
+        // Toggle to ON
+        let (enabled, msg) = streamer.toggle_input_capture();
+        assert!(enabled);
         assert!(streamer.is_input_capture_enabled());
-        assert!(msg_on.contains("[ON]"));
+        assert!(msg.contains("[ON]"));
+
+        // Toggle back to OFF
+        let (enabled_off, msg_off) = streamer.toggle_input_capture();
+        assert!(!enabled_off);
+        assert!(!streamer.is_input_capture_enabled());
+        assert!(msg_off.contains("[OFF]"));
 
         // Direct set
-        let (st, _) = streamer.set_input_capture(false);
-        assert!(!st);
-        let (st2, _) = streamer.set_input_capture(true);
-        assert!(st2);
+        let (st, _) = streamer.set_input_capture(true);
+        assert!(st);
+        let (st2, _) = streamer.set_input_capture(false);
+        assert!(!st2);
     }
 
     #[test]
@@ -1598,18 +1599,22 @@ mod tests {
         }
 
         let is_running = streamer.is_running.load(Ordering::SeqCst);
-        let has_input = streamer.input_stream.is_some();
         let has_output = streamer.output_stream.is_some();
-        let current_out = get_macos_default_output_id();
-        println!("is_running: {}, has_input: {}, has_output: {}, current_out: {:?}", is_running, has_input, has_output, current_out);
         assert!(is_running, "streamer should be running");
-        if !has_input {
-            println!("Skipping input_stream assertion on headless CI runner without audio loopback device");
-            streamer.terminate();
-            return;
-        }
-        assert!(has_input, "streamer must have input_stream");
         assert!(has_output, "streamer must have output_stream");
+
+        // Verify mic defaults to OFF
+        assert!(!streamer.is_input_capture_enabled(), "Mic input must default to false");
+        assert!(streamer.input_stream.is_none(), "Mic input stream must be None when capture is disabled");
+
+        // Test enabling input capture
+        let (enabled, _) = streamer.set_input_capture(true);
+        assert!(enabled, "Mic capture should be enabled");
+
+        // Test disabling input capture (drops input stream)
+        let (disabled, _) = streamer.set_input_capture(false);
+        assert!(!disabled, "Mic capture should be disabled");
+        assert!(streamer.input_stream.is_none(), "Mic input stream must be dropped when capture is disabled");
 
         streamer.terminate();
         let restored_out = get_macos_default_output_id();

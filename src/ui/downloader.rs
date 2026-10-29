@@ -3512,7 +3512,7 @@ impl DownloaderState {
 
         // Navigation mode (not editing URL)
         match code {
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete | KeyCode::Char('x') | KeyCode::Char('X') | KeyCode::Backspace => {
+            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete | KeyCode::Backspace => {
                 self.delete_selected_job();
             }
             KeyCode::Enter | KeyCode::Char('/') | KeyCode::Char('i') if self.focused_field == 0 => {

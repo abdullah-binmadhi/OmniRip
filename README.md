@@ -212,6 +212,43 @@ OmniRip includes a studio-grade spectrum analyzer with **32 visual styles**:
 
 ---
 
+### 11. Hardware DAC Profiles & Analog Flavor Mimicker (`[Ctrl+D]`)
+
+OmniRip features a built-in hardware DAC and analog output stage mimicker that models the distinctive sonic characteristics of legendary digital-to-analog converter architectures:
+
+```mermaid
+flowchart LR
+    SRC["Pure Bit-Perfect Audio Stream"] --> DAC_ENGINE{"DAC Mimicker Engine"}
+    DAC_ENGINE -->|"Schiit Multibit"| R2R["Schiit R2R Ladder<br/>Analog Buffer Dynamic Slam"]
+    DAC_ENGINE -->|"Chord Mojo 2"| FPGA["Chord FPGA Pulse Array<br/>WTA Micro-Detail Speed"]
+    DAC_ENGINE -->|"iBasso DC Pro"| CS["Dual Cirrus CS43131<br/>Crisp Extended Air"]
+    DAC_ENGINE -->|"iFi Zen DAC"| BB["Burr-Brown True Native<br/>Musical Warmth & Weight"]
+    DAC_ENGINE -->|"Stock OEM+"| FLAT["Clean Studio Reference<br/>100% Flat & Neutral"]
+```
+
+| Profile | Hardware Architecture & Sonic Signature | Best Paired With |
+| :--- | :--- | :--- |
+| **Schiit Multibit (R2R)** | 16-bit True Multibit resistor ladder with discrete analog buffer. Delivers authoritative low-end dynamic slam (+0.5 dB punch at 55 Hz) and smooth linear phase rolloff at 18.5 kHz, completely eliminating digital harshness and glare. | External R2R DACs (Schiit Bifrost, Modi Multibit, Yggdrasil), dongles, and warm dynamic listening |
+| **Chord Mojo 2** | Custom FPGA 104-bit Pulse Array with ultra-dense micro-detail, ultra-low jitter, and lightning-fast WTA transient response. | High-resolution analytical headphones, intricate acoustic or classical recordings |
+| **iBasso DC Pro** | Flagship dual Cirrus Logic CS43131 architecture with hyper-crisp treble resolution, airy micro-transients, and expansive soundstage. | USB-C dongles (iBasso DC03/DC04/DC06), IEMs, and modern electronic mixes |
+| **iFi Zen DAC V2** | Classic Burr-Brown True Native Bit-Perfect conversion with rich analog musicality, lush vocal midrange, and deep sub-bass warmth. | Extended listening sessions, jazz, vinyl rips, and vintage recordings |
+| **Stock OEM+** | Pure neutral studio reference with zero coloration, flat frequency curve, and 16-point Blackman-Harris sinc precision. | Critical studio mastering and reference monitoring |
+
+#### How to Switch DAC Profiles:
+- **Global Hotkey**: Press **`Ctrl+D`** anywhere in OmniRip to cycle forward through DAC profiles, or **`Ctrl+Shift+D`** to cycle backward.
+- **Workstation Shortcut**: Press **`Shift+D`** while in Workstation 1, 3, or 4.
+- **Command Bar**: Type `:` then enter your preferred DAC:
+  - `:dac schiit` or `:dac r2r` (activates Schiit Multibit)
+  - `:dac chord` (activates Chord Mojo 2)
+  - `:dac ibasso` (activates iBasso DC Pro)
+  - `:dac ifi` (activates iFi Zen DAC)
+  - `:dac oem` (activates Stock OEM+ Clean Reference)
+  - `:dac status` (inspect current profile)
+  - `:dac list` (view all available profiles)
+- **Live HUD Feedback**: The active DAC profile is continuously shown in the bottom status bar (`[Ctrl+D] DAC: Schiit R2R`).
+
+---
+
 ## Live Terminal Interface
 
 ```text
@@ -280,7 +317,9 @@ omnirip
 | :--- | :--- |
 | `M` | Open Workstation Mode Switcher (`1` Downloader, `2` System EQ, `3` Archiver, `4` Streaming Hub) |
 | `X` or `Shift+M` | Toggle Microphone & Audio Input Capture on/off (dismisses macOS orange mic dot) |
-| `:` | Open Interactive Command Bar (`:game on`, `:game off`, `:mic on`, `:mic off`, `:bypass`, `:q`, `:help`) |
+| `Ctrl+D` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile forward / backward (Schiit R2R, Mojo 2, iBasso DC, iFi Zen, OEM+) |
+| `Shift+D` | Cycle Hardware DAC Profile in Workstations 1, 3, and 4 (or open Preset Download in System EQ) |
+| `:` | Open Interactive Command Bar (`:dac schiit`, `:dac chord`, `:dac ifi`, `:game on`, `:mic on`, `:q`) |
 | `+` / `-` | Increase / decrease volume by 5% (synchronized 1:1 with hardware volume) |
 | `Q` | Cleanly exit OmniRip and restore default audio settings |
 

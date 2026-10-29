@@ -42,7 +42,7 @@ impl BrickwallLimiter {
         }
 
         let thresh = self.threshold;
-        let knee_start = thresh * 0.85; // 1.5 dB soft knee
+        let knee_start = thresh * 0.98; // Transparent 0.17 dB safety soft knee; leaves unclipped dynamics 100% bit-perfect
         let rel_rate = 1.0 - (-1.0 / (self.sample_rate * 0.050)).exp();  // 50 ms smooth release
         let mut max_in_peak = 0.0f32;
 
@@ -102,5 +102,22 @@ mod tests {
             assert!(frame[1].abs() <= limiter.threshold + 1e-4);
         }
         assert!(limiter.is_clipping);
+    }
+
+    #[test]
+    fn test_limiter_transparent_on_unclipped_peaks() {
+        let mut limiter = BrickwallLimiter::new(48000.0);
+        // Clean music master peaking at -0.6 dBFS (0.933)
+        let original_sample = 0.933f32;
+        let mut clean_signal = vec![[original_sample, -original_sample]; 512];
+
+        limiter.process(&mut clean_signal);
+
+        // Verify 100% bit-perfect transparency: zero dynamic compression applied
+        for frame in clean_signal {
+            assert_eq!(frame[0], original_sample, "Unclipped signals must pass through untouched");
+            assert_eq!(frame[1], -original_sample, "Unclipped signals must pass through untouched");
+        }
+        assert!(!limiter.is_clipping);
     }
 }

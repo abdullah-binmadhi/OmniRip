@@ -151,7 +151,7 @@ impl AcousticGearProfile {
             tonal_balance: GearTonalBalance::NeutralStudio,
             source_amp: GearSourceAmp::DesktopSolidState,
             speaker_placement: SpeakerPlacement::DeskSurface,
-            speaker_target: SpeakerCalibrationTarget::VocalClarity,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 
@@ -527,7 +527,7 @@ impl MasteringPreset {
         if max_boost > 0.1 {
             (max_boost * 0.85 + 0.5).clamp(1.5, 6.0)
         } else {
-            0.5 // Baseline true-peak safety pad
+            0.0 // Pure unity gain (0.0 dB) for bit-perfect transparent reference
         }
     }
 
@@ -2334,7 +2334,10 @@ impl AudiophileEnhancer {
                 self.sample_rate,
             ));
         }
-        if self.ultrasonic_filter {
+        if self.ultrasonic_filter && self.sample_rate >= 88200.0 {
+            // At 44.1kHz/48kHz, an analog-modeled biquad LPF at 21kHz causes bilinear transform
+            // frequency warping and phase delay down into the audible 10kHz-18kHz spectrum.
+            // Only engage when sample rate >= 88.2kHz where 21kHz is safely below Nyquist.
             b_filters.push(BiquadFilter::new(
                 BiquadFilterType::LowPass,
                 21000.0,

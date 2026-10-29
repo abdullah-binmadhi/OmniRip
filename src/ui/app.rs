@@ -259,7 +259,8 @@ impl App {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
-        let streamer = AudioStreamer::new(pipeline);
+        let mut streamer = AudioStreamer::new(pipeline);
+        let _ = streamer.set_input_capture(false);
         let mut downloader = DownloaderState::new();
         downloader.player = std::sync::Arc::clone(&streamer.player);
 
@@ -1280,6 +1281,10 @@ impl App {
                                 self.reset_all_settings();
                                 continue;
                             }
+                        } else if key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('D') || key.code == KeyCode::Char('d')) && !self.is_capturing_text_input() {
+                            let new_flavor = self.streamer.cycle_dac_flavor();
+                            self.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
+                            continue;
                         }
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -3969,6 +3974,7 @@ impl App {
         } else {
             "[x] Mic: OFF"
         };
+        let dac_label = format!("[Ctrl+D] DAC: {}", self.streamer.current_dac_flavor().short_label());
         let game_label = if self.streamer.is_game_mode_enabled() {
             "[Shift+G] Game: ON"
         } else {
@@ -3976,16 +3982,16 @@ impl App {
         };
         let help = match self.active_mode {
             WorkstationMode::Downloader => {
-                format!(" [m] Mode  {}  {}  [:] Command  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download  [Tab] Inputs  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [N] Nicotine+  [T] Theme  [Enter] Download  [Tab] Inputs  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::SystemEq => {
-                format!(" [m] Mode  {}  {}  [:] Command  [T] Theme  [V] Visuals  [Shift+S] Save  [Shift+R] Reset  [Space] Play  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [T] Theme  [V] Visuals  [Shift+S] Save  [Shift+R] Reset  [Space] Play  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::Archiver => {
-                format!(" [m] Mode  {}  {}  [:] Command  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::StreamingHub => {
-                format!(" [m] Mode  {}  {}  [:] Command  [S] Search  [L] Accounts  [Enter] Play  [Space] Pause  [+/-] Vol  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [S] Search  [L] Accounts  [Enter] Play  [Space] Pause  [+/-] Vol  [Q] Quit", mic_label, dac_label, game_label)
             }
         };
         let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
@@ -4553,23 +4559,23 @@ mod tests {
     #[test]
     fn test_command_bar_execution_and_mic_commands() {
         let mut app = App::new_test();
-        assert!(app.streamer.is_input_capture_enabled());
-
-        // Test :mic off command
-        app.execute_command(":mic off");
         assert!(!app.streamer.is_input_capture_enabled());
-        assert!(app.status_message.contains("[OFF]"));
 
         // Test :mic on command
         app.execute_command(":mic on");
         assert!(app.streamer.is_input_capture_enabled());
         assert!(app.status_message.contains("[ON]"));
 
+        // Test :mic off command
+        app.execute_command(":mic off");
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
+
         // Test :mic toggle command
         app.execute_command(":mic toggle");
-        assert!(!app.streamer.is_input_capture_enabled());
-        app.execute_command(":mic");
         assert!(app.streamer.is_input_capture_enabled());
+        app.execute_command(":mic");
+        assert!(!app.streamer.is_input_capture_enabled());
 
         // Test CommandBarState typing and handling
         let mut bar = CommandBarState::new();
@@ -4591,18 +4597,18 @@ mod tests {
     #[test]
     fn test_unassigned_key_x_and_mastering_rack_item17_mic_toggle() {
         let mut app = App::new_test();
-        assert!(app.streamer.is_input_capture_enabled());
-
-        // 1. Direct toggle to OFF
-        let (enabled1, msg1) = app.streamer.toggle_input_capture();
-        assert!(!enabled1);
         assert!(!app.streamer.is_input_capture_enabled());
-        assert!(msg1.contains("[OFF]"));
+
+        // 1. Direct toggle to ON
+        let (enabled1, msg1) = app.streamer.toggle_input_capture();
+        assert!(enabled1);
+        assert!(app.streamer.is_input_capture_enabled());
+        assert!(msg1.contains("[ON]"));
 
         let (enabled2, msg2) = app.streamer.toggle_input_capture();
-        assert!(enabled2);
-        assert!(app.streamer.is_input_capture_enabled());
-        assert!(msg2.contains("[ON]"));
+        assert!(!enabled2);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(msg2.contains("[OFF]"));
 
         // 2. Workstation 2 (SystemEq), Tab 1 (Mastering Suite) navigation to Item 17 (idx 16)
         app.active_mode = WorkstationMode::SystemEq;
@@ -4613,15 +4619,15 @@ mod tests {
         app.handle_tab_key(KeyCode::Down);
         assert_eq!(app.selected_mastering_idx, 16);
 
-        // Enter key on item 17 toggles microphone off
-        app.handle_tab_key(KeyCode::Enter);
-        assert!(!app.streamer.is_input_capture_enabled());
-        assert!(app.status_message.contains("[OFF]"));
-
-        // Enter key on item 17 toggles microphone back on
+        // Enter key on item 17 toggles microphone on
         app.handle_tab_key(KeyCode::Enter);
         assert!(app.streamer.is_input_capture_enabled());
         assert!(app.status_message.contains("[ON]"));
+
+        // Enter key on item 17 toggles microphone back off
+        app.handle_tab_key(KeyCode::Enter);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
 
         // Advance to items 18, 19, 20
         app.handle_tab_key(KeyCode::Down);

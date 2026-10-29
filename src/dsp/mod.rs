@@ -174,9 +174,9 @@ mod tests {
         let presets = crate::dsp::enhancer::MasteringPreset::all();
         assert_eq!(presets.len(), 35);
 
-        // Preset 01 (Flat) should have minimal headroom (-0.5 dB)
+        // Preset 01 (Flat / Pure Direct) should have 0.0 dB headroom for bit-perfect transparent unity gain
         pipeline.apply_mastering_preset(&presets[0]);
-        assert_eq!(pipeline.preamp_db, -0.5);
+        assert_eq!(pipeline.preamp_db, 0.0);
 
         // Preset 21 (Esports Tactical) must have significant negative preamp headroom to prevent clipping
         pipeline.apply_mastering_preset(&presets[20]);
