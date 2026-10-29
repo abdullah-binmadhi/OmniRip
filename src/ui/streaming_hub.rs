@@ -832,7 +832,7 @@ impl StreamingHubState {
                 self.sort_modal_selected_idx = modes.iter().position(|&m| m == self.sort_mode).unwrap_or(0);
                 self.status_message = format!("Unified Queue Sorting: Select [1-9], [Up/Down]+Enter, or [O] to cycle (Current: {})", self.sort_mode.label());
             }
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+            KeyCode::Char('d') | KeyCode::Delete => {
                 if !self.queue.is_empty() && self.selected_idx < self.queue.len() {
                     let removed = self.queue.remove(self.selected_idx);
                     if self.currently_playing_idx == Some(self.selected_idx) {
@@ -1779,6 +1779,11 @@ mod tests {
         state.selected_idx = 0;
         state.handle_key(KeyCode::Char('d'));
         assert_eq!(state.queue.len(), 1);
+        assert_eq!(state.queue[0].title, "Song 2");
+
+        // Capital 'D' (Shift+D for DAC cycling) must NOT remove tracks or stop playback
+        state.handle_key(KeyCode::Char('D'));
+        assert_eq!(state.queue.len(), 1, "Capital 'D' must not remove tracks from queue");
         assert_eq!(state.queue[0].title, "Song 2");
     }
 

@@ -109,6 +109,14 @@ impl AudioPipeline {
         self.telemetry.update(buffer);
     }
 
+    /// Update pipeline sample rate and recalculate dependent DSP filters (including DAC mimicker)
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate > 0.0 && (self.sample_rate - sample_rate).abs() > 1.0 {
+            self.sample_rate = sample_rate;
+            self.dac_mimicker.set_sample_rate(sample_rate);
+        }
+    }
+
     /// Set the DAC/Amp mimicker flavor.
     pub fn set_dac_flavor(&mut self, flavor: DacHardwareFlavor) {
         self.dac_mimicker.set_flavor(flavor);
@@ -221,5 +229,22 @@ mod tests {
                 frame[1]
             );
         }
+    }
+
+    #[test]
+    fn test_pipeline_set_sample_rate_syncs_dac_mimicker() {
+        let mut pipeline = AudioPipeline::new(48000.0);
+        assert_eq!(pipeline.sample_rate, 48000.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 48000.0);
+
+        // Switch to 96 kHz (e.g. external DAC high-res audio)
+        pipeline.set_sample_rate(96000.0);
+        assert_eq!(pipeline.sample_rate, 96000.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 96000.0);
+
+        // Switch to 44.1 kHz (CD quality external DAC)
+        pipeline.set_sample_rate(44100.0);
+        assert_eq!(pipeline.sample_rate, 44100.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 44100.0);
     }
 }

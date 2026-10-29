@@ -989,7 +989,7 @@ impl AudioStreamer {
         };
 
         if let Ok(mut pipe) = self.pipeline.lock() {
-            pipe.sample_rate = sample_rate as f32;
+            pipe.set_sample_rate(sample_rate as f32);
         }
 
         let (writer, reader) = create_servo_ring_buffer(32768, self.sync_mode.target_frames());
@@ -1029,7 +1029,7 @@ impl AudioStreamer {
                     r.set_nominal_ratio(in_rate as f64 / out_rate as f64);
                 }
                 if let Ok(mut pipe) = self.pipeline.lock() {
-                    pipe.sample_rate = out_rate as f32;
+                    pipe.set_sample_rate(out_rate as f32);
                 }
 
                 let is_paused_in = Arc::clone(&self.is_paused);

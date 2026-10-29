@@ -461,7 +461,7 @@ pub fn render_preset_modal(f: &mut Frame, area: Rect, state: &PresetModalState) 
 
             let border_color = if *is_loading { Color::Yellow } else { Color::Magenta };
             let block = Block::default()
-                .title(" DOWNLOAD PARAMETRIC PRESET FROM URL [Shift+D] ")
+                .title(" DOWNLOAD PARAMETRIC PRESET FROM URL [Shift+U] ")
                 .title_alignment(Alignment::Center)
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)

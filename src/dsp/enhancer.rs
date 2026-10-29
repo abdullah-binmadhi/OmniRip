@@ -2894,7 +2894,7 @@ impl BiquadState {
 pub struct DacMimickerEngine {
     pub active_flavor: DacHardwareFlavor,
     pub target_flavor: DacHardwareFlavor,
-    sample_rate: f32,
+    pub sample_rate: f32,
 
     // Smooth 15ms clickless crossfader
     crossfade_pos: usize,

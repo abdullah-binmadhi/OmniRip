@@ -235,14 +235,15 @@ flowchart LR
 | **Stock OEM+** | 100% pure neutral studio reference with zero coloration, flat frequency curve, and 16-point Blackman-Harris sinc precision. | Critical studio mastering and reference monitoring |
 
 #### How to Switch DAC Profiles:
-- **Global Hotkey**: Press **`Ctrl+D`** anywhere in OmniRip to cycle forward through DAC profiles, or **`Ctrl+Shift+D`** to cycle backward.
-- **Workstation Shortcut**: Press **`Shift+D`** while in Workstation 1, 3, or 4.
+- **Global Hotkeys**: Press **`Shift+D`**, **`F6`**, or **`Ctrl+D`** anywhere in OmniRip to cycle forward through DAC profiles.
+- **Reverse Cycling**: Press **`Shift+F6`** or **`Ctrl+Shift+D`** to cycle backward.
 - **Command Bar**: Type `:` then enter your preferred DAC:
   - `:dac schiit` or `:dac r2r` (activates Schiit Multibit)
   - `:dac chord` (activates Chord Mojo 2)
   - `:dac ibasso` (activates iBasso DC Pro)
   - `:dac ifi` (activates iFi Zen DAC)
   - `:dac oem` (activates Stock OEM+ Clean Reference)
+  - `:dac cycle` or `:dac next` (advances to next flavor)
   - `:dac status` (inspect current profile)
   - `:dac list` (view all available profiles)
 - **Live HUD Feedback**: The active DAC profile is continuously shown in the bottom status bar (`[Ctrl+D] DAC: Schiit R2R`).
@@ -317,8 +318,8 @@ omnirip
 | :--- | :--- |
 | `M` | Open Workstation Mode Switcher (`1` Downloader, `2` System EQ, `3` Archiver, `4` Streaming Hub) |
 | `X` or `Shift+M` | Toggle Microphone & Audio Input Capture on/off (dismisses macOS orange mic dot) |
-| `Ctrl+D` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile forward / backward (Schiit R2R, Mojo 2, iBasso DC, iFi Zen, OEM+) |
-| `Shift+D` | Cycle Hardware DAC Profile in Workstations 1, 3, and 4 (or open Preset Download in System EQ) |
+| `Shift+D` / `F6` / `Ctrl+D` | Cycle Hardware DAC Profile forward (Schiit R2R, Mojo 2, iBasso DC, iFi Zen, OEM+) |
+| `Shift+F6` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile backward |
 | `:` | Open Interactive Command Bar (`:dac schiit`, `:dac chord`, `:dac ifi`, `:game on`, `:mic on`, `:q`) |
 | `+` / `-` | Increase / decrease volume by 5% (synchronized 1:1 with hardware volume) |
 | `Q` | Cleanly exit OmniRip and restore default audio settings |
@@ -373,7 +374,7 @@ omnirip
 | `B` | Toggle instant sound enhancement bypass |
 | `Shift+S` | Save current sound settings as a custom preset |
 | `Shift+I` | Import preset from Squiglink or EqualizerAPO text |
-| `Shift+D` | Download preset from web URL |
+| `Shift+U` | Download preset from web URL |
 
 ---
 

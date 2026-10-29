@@ -1242,9 +1242,19 @@ impl App {
                             break;
                         }
 
-                        // Global DAC Mimicker Hotkey: Ctrl+D (Forward) / Ctrl+Shift+D (Reverse)
-                        if key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('d') || key.code == KeyCode::Char('D')) {
-                            let new_flavor = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        // Global DAC Mimicker Hotkey: Shift+D / F6 / Ctrl+D (Forward), Shift+F6 / Ctrl+Shift+D (Reverse)
+                        let is_dac_hotkey = match key.code {
+                            KeyCode::F(6) => true,
+                            KeyCode::Char('d') | KeyCode::Char('D') if key.modifiers.contains(KeyModifiers::CONTROL) => true,
+                            KeyCode::Char('D') | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::SHIFT) => true,
+                            KeyCode::Char('D') => true,
+                            _ => false,
+                        };
+
+                        if is_dac_hotkey && !self.is_capturing_text_input() {
+                            let reverse = (key.modifiers.contains(KeyModifiers::SHIFT) && key.modifiers.contains(KeyModifiers::CONTROL))
+                                || (key.code == KeyCode::F(6) && key.modifiers.contains(KeyModifiers::SHIFT));
+                            let new_flavor = if reverse {
                                 self.streamer.cycle_dac_flavor_reverse()
                             } else {
                                 self.streamer.cycle_dac_flavor()
@@ -1253,7 +1263,7 @@ impl App {
                             continue;
                         }
 
-                        // Preset Management Hotkeys (Shift+S, Shift+I, Shift+D, Shift+R)
+                        // Preset Management Hotkeys (Shift+S, Shift+I, Shift+U, Shift+R)
                         // Active only in SystemEq mode to prevent overriding Downloader keys (such as 'S' for Advanced Search)
                         if self.active_mode == WorkstationMode::SystemEq {
                             if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('S') || key.code == KeyCode::Char('s')))
@@ -1268,8 +1278,8 @@ impl App {
                                 self.preset_modal = PresetModalState::new_import_squiglink();
                                 continue;
                             }
-                            if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('D') || key.code == KeyCode::Char('d')))
-                                || key.code == KeyCode::Char('D')
+                            if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('U') || key.code == KeyCode::Char('u')))
+                                || key.code == KeyCode::Char('U')
                             {
                                 self.preset_modal = PresetModalState::new_download_url();
                                 continue;
@@ -1281,10 +1291,6 @@ impl App {
                                 self.reset_all_settings();
                                 continue;
                             }
-                        } else if key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('D') || key.code == KeyCode::Char('d')) && !self.is_capturing_text_input() {
-                            let new_flavor = self.streamer.cycle_dac_flavor();
-                            self.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
-                            continue;
                         }
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -3587,7 +3593,7 @@ impl App {
             Span::styled(format!(" Preamp Headroom: {:+.1} dB (Protection Against Digital Intersample Clipping)", prof.preamp_db), Style::default().fg(self.theme.warning)),
         ]));
         matrix_lines.push(Line::from(vec![
-            Span::styled(" [Enter] Apply  [Shift+S] Save Preset  [Shift+I] Import Text  [Shift+D] Download URL  [Up/Down] Nav", Style::default().fg(self.theme.accent)),
+            Span::styled(" [Enter] Apply  [Shift+S] Save Preset  [Shift+I] Import Text  [Shift+U] Download URL  [Up/Down] Nav", Style::default().fg(self.theme.accent)),
         ]));
 
         let p_matrix = Paragraph::new(matrix_lines).wrap(ratatui::widgets::Wrap { trim: true });
@@ -4756,6 +4762,32 @@ mod tests {
             app.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
         }
         assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IfiZenDac);
+
+        // Test F6 cycles forward
+        let key_f6 = crossterm::event::KeyEvent::new(KeyCode::F(6), crossterm::event::KeyModifiers::NONE);
+        let is_dac_f6 = match key_f6.code {
+            KeyCode::F(6) => true,
+            KeyCode::Char('d') | KeyCode::Char('D') if key_f6.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => true,
+            KeyCode::Char('D') | KeyCode::Char('d') if key_f6.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => true,
+            KeyCode::Char('D') => true,
+            _ => false,
+        };
+        assert!(is_dac_f6);
+        let new_flavor_f6 = app.streamer.cycle_dac_flavor();
+        assert_eq!(new_flavor_f6, crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+
+        // Test Shift+D (KeyCode::Char('D')) cycles forward
+        let key_shift_d = crossterm::event::KeyEvent::new(KeyCode::Char('D'), crossterm::event::KeyModifiers::NONE);
+        let is_dac_shift_d = match key_shift_d.code {
+            KeyCode::F(6) => true,
+            KeyCode::Char('d') | KeyCode::Char('D') if key_shift_d.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => true,
+            KeyCode::Char('D') | KeyCode::Char('d') if key_shift_d.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => true,
+            KeyCode::Char('D') => true,
+            _ => false,
+        };
+        assert!(is_dac_shift_d);
+        let new_flavor_d = app.streamer.cycle_dac_flavor();
+        assert_eq!(new_flavor_d, crate::dsp::enhancer::DacHardwareFlavor::ChordMojo2);
     }
 
     #[test]
