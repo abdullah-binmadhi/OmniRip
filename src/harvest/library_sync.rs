@@ -158,6 +158,32 @@ fn default_sort_mode() -> TrackSortMode {
     TrackSortMode::ArtistAZ
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PlatformColorMode {
+    #[default]
+    None,
+    Accent,
+    Full,
+}
+
+impl PlatformColorMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            PlatformColorMode::None => "None (Monochrome Theme)",
+            PlatformColorMode::Accent => "Option B: Targeted Accent (Track Index)",
+            PlatformColorMode::Full => "Option A: Full Row (Title & Artist)",
+        }
+    }
+
+    pub fn cycle(&self) -> Self {
+        match self {
+            PlatformColorMode::None => PlatformColorMode::Accent,
+            PlatformColorMode::Accent => PlatformColorMode::Full,
+            PlatformColorMode::Full => PlatformColorMode::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkedAccountsConfig {
     #[serde(default)]
@@ -176,6 +202,8 @@ pub struct LinkedAccountsConfig {
     pub divider_platform_priority: DividerPlatformPriority,
     #[serde(default)]
     pub divider_sub_sort: DividerSubSort,
+    #[serde(default)]
+    pub platform_color_mode: PlatformColorMode,
 }
 
 impl Default for LinkedAccountsConfig {
@@ -191,6 +219,7 @@ impl Default for LinkedAccountsConfig {
             sort_by_artist: None,
             divider_platform_priority: DividerPlatformPriority::SpotifyFirst,
             divider_sub_sort: DividerSubSort::LatestAdded,
+            platform_color_mode: PlatformColorMode::None,
         }
     }
 }

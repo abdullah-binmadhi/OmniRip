@@ -194,6 +194,7 @@ impl AccountSyncModal {
             sort_by_artist: None,
             divider_platform_priority: existing.divider_platform_priority,
             divider_sub_sort: existing.divider_sub_sort,
+            platform_color_mode: existing.platform_color_mode,
         };
         cfg.save();
     }

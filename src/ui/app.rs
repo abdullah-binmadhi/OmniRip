@@ -1997,7 +1997,8 @@ impl App {
                 (-60.0, -60.0, 1.0, -70.0, -70.0, 0.0, false, false)
             };
 
-        let is_compact = area.width < 180;
+        let is_compact = area.width < 165;
+        let is_ultra_compact = area.width < 135;
         let mode_badge = match self.active_mode {
             WorkstationMode::Downloader => {
                 if is_compact {
@@ -2065,19 +2066,37 @@ impl App {
         let cur_dac = self.streamer.current_dac_flavor();
         let dac_badge = match cur_dac {
             crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus => {
-                Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(self.theme.text))
+                Span::styled(" [OEM+] ", Style::default().fg(self.theme.text))
             }
             _ => {
                 Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
             }
         };
 
-        let peak_str = format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r);
-        let phase_str = format!("Phase: {:+.2}", phase);
-        let lufs_str = format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s });
-        let crest_str = format!("Crest: {:.1}dB", crest);
+        let (peak_str, phase_str, lufs_str, crest_str) = if is_ultra_compact {
+            (
+                format!("Pk: {:>4.1}dB", peak_l.max(peak_r)),
+                String::new(),
+                format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Cr: {:.1}dB", crest),
+            )
+        } else if is_compact {
+            (
+                format!("L {:>4.1} R {:>4.1}dB", peak_l, peak_r),
+                format!("Phase {:+.2}", phase),
+                format!("LUFS {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Crest: {:.1}dB", crest),
+            )
+        } else {
+            (
+                format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r),
+                format!("Phase: {:+.2}", phase),
+                format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Crest: {:.1}dB", crest),
+            )
+        };
 
-        let title_line = Line::from(vec![
+        let mut spans = vec![
             Span::styled("OMNIRIP ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             mode_badge,
             theme_badge,
@@ -2089,13 +2108,19 @@ impl App {
             mic_badge,
             Span::raw(" | "),
             Span::styled(peak_str, Style::default().fg(self.theme.text)),
-            Span::raw(" | "),
-            Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { self.theme.success } else { self.theme.warning })),
-            Span::raw(" | "),
-            Span::styled(lufs_str, Style::default().fg(self.theme.secondary)),
-            Span::raw(" | "),
-            Span::styled(crest_str, Style::default().fg(self.theme.accent)),
-        ]);
+        ];
+
+        if !phase_str.is_empty() {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { self.theme.success } else { self.theme.warning })));
+        }
+
+        spans.push(Span::raw(" | "));
+        spans.push(Span::styled(lufs_str, Style::default().fg(self.theme.secondary)));
+        spans.push(Span::raw(" | "));
+        spans.push(Span::styled(crest_str, Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)));
+
+        let title_line = Line::from(spans);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -3162,25 +3187,25 @@ impl App {
 
         let test_lines = vec![
             Line::from(vec![
-                Span::styled(" Status: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Status:   ", Style::default().fg(self.theme.text_dim)),
                 test_status_badge,
-                Span::raw("  Mode: "),
+                Span::raw("   Mode: "),
                 Span::styled(format!("[{}]", test_mode.label()), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled(" Description: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Profile:  ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(test_mode.description(), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" Pipeline:    ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Pipeline: ", Style::default().fg(self.theme.text_dim)),
                 Span::styled("Synthesized directly through active 10-Band EQ & Mastering DSP", Style::default().fg(self.theme.secondary)),
             ]),
             Line::from(vec![
-                Span::styled(" Audition:    ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("Test EQ, Tube Warmth & Headphone Curves with zero setup!", Style::default().fg(self.theme.accent)),
+                Span::styled(" Control:  ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("[P] Toggle Audition Tone   [O] Cycle Mode", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
             ]),
         ];
-        let p_test = Paragraph::new(test_lines);
+        let p_test = Paragraph::new(test_lines).wrap(ratatui::widgets::Wrap { trim: true });
         f.render_widget(p_test, test_inner);
 
         // Right Pane: macOS Audio MIDI Setup & System Loopback Guide
@@ -3193,24 +3218,24 @@ impl App {
 
         let guide_lines = vec![
             Line::from(vec![
-                Span::styled(" [A] TRANSDUCER PRIORITY: ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled(" [A] ROUTE PRIORITY:  ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
                 Span::styled("Auto-resolve: USB DAC -> Headphones -> Speakers", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled("     ZERO DRIVER/ROOT:    ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("Pure Rust IPC engine. Zero kernel drivers, zero audio lag.", Style::default().fg(self.theme.text_dim)),
+                Span::styled("     ZERO DRIVER:     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("Pure Rust IPC engine. Zero kernel drivers, zero lag.", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled(" [1] Cycle Output [D]:   ", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" [1] Output [D]:      ", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("Active Output: [{}] (Press [D] to cycle)", out_name), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" [2] Live Stream [Space]: ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled("Audio routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
+                Span::styled(" [2] Stream [Space]:  ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("Routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" [3] Test Tone [P]:      ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled("Play built-in acoustic test tone directly through active EQ.", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" [3] Test Tone [P]:   ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled("Play built-in acoustic test tone through active EQ.", Style::default().fg(self.theme.text_dim)),
             ]),
         ];
         let p_guide = Paragraph::new(guide_lines).wrap(ratatui::widgets::Wrap { trim: true });

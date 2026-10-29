@@ -7,7 +7,8 @@
 
 use crate::dsp::player::TrackPlayer;
 use crate::harvest::library_sync::{
-    DividerPlatformPriority, DividerSubSort, LibrarySyncEngine, LinkedAccountsConfig, TrackSortMode,
+    DividerPlatformPriority, DividerSubSort, LibrarySyncEngine, LinkedAccountsConfig,
+    PlatformColorMode, TrackSortMode,
 };
 use crate::harvest::playlist_parser::{PlaylistParser, StreamingService};
 use crate::harvest::stream_resolver::{AudioQualityTier, StreamResolver};
@@ -185,6 +186,7 @@ pub struct StreamingHubState {
     pub sort_modal_selected_idx: usize,
     pub divider_platform_priority: DividerPlatformPriority,
     pub divider_sub_sort: DividerSubSort,
+    pub platform_color_mode: PlatformColorMode,
 }
 
 impl Default for StreamingHubState {
@@ -228,6 +230,7 @@ impl StreamingHubState {
             sort_modal_selected_idx: 0,
             divider_platform_priority: cfg.divider_platform_priority,
             divider_sub_sort: cfg.divider_sub_sort,
+            platform_color_mode: cfg.platform_color_mode,
         }
     }
 
@@ -568,6 +571,13 @@ impl StreamingHubState {
                     } else {
                         self.status_message = format!("Divider Section Sub-Sort set to: {}", self.divider_sub_sort.label());
                     }
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    self.platform_color_mode = self.platform_color_mode.cycle();
+                    let mut cfg = LinkedAccountsConfig::load();
+                    cfg.platform_color_mode = self.platform_color_mode;
+                    let _ = cfg.save();
+                    self.status_message = format!("Platform Color Coding set to: {}", self.platform_color_mode.label());
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.sort_modal_selected_idx = if self.sort_modal_selected_idx == 0 { modes.len() - 1 } else { self.sort_modal_selected_idx - 1 };
@@ -1329,7 +1339,8 @@ impl StreamingHubState {
         }
 
         let total_w = inner.width as usize;
-        let overhead = 21; // Cursor(2) + Index(4) + 3 * " | "(9) + Duration(6)
+        let idx_w = if self.queue.len() >= 1000 { 6 } else if self.queue.len() >= 100 { 5 } else { 4 };
+        let overhead = 2 + idx_w + 9 + 6; // Cursor(2) + Index(idx_w) + 3 * " | "(9) + Duration(6)
         let status_w = 12.min(total_w.saturating_sub(overhead));
         let content_w = total_w.saturating_sub(overhead + status_w);
         let title_w = (content_w * 58 / 100).min(content_w);
@@ -1376,24 +1387,71 @@ impl StreamingHubState {
                 };
                 let status_span = Span::styled(disp_status, status_style);
 
-                let title_style = if is_current {
-                    Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
-                } else if is_selected {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.text)
+                let platform_color = match item.service {
+                    StreamingService::Spotify => Color::Rgb(30, 215, 96),     // Spotify Green
+                    StreamingService::AppleMusic => Color::Rgb(255, 80, 120),  // Apple Music Rose / Coral
+                    StreamingService::YouTubeMusic => Color::Rgb(255, 60, 60), // YouTube Red
+                    StreamingService::LocalM3u | StreamingService::Unknown => Color::Cyan, // Local / General Cyan
+                };
+
+                let disp_idx = format!("#{:>width$} ", idx + 1, width = idx_w.saturating_sub(2));
+
+                let (idx_style, title_style, artist_style) = match self.platform_color_mode {
+                    PlatformColorMode::None => {
+                        let t_style = if is_current {
+                            Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
+                        } else if is_selected {
+                            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(theme.text)
+                        };
+                        let a_style = Style::default().fg(theme.text_dim);
+                        let i_style = Style::default().fg(theme.text_dim);
+                        (i_style, t_style, a_style)
+                    }
+                    PlatformColorMode::Accent => {
+                        let t_style = if is_current {
+                            Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
+                        } else if is_selected {
+                            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(theme.text)
+                        };
+                        let a_style = Style::default().fg(theme.text_dim);
+                        let i_style = if is_selected {
+                            Style::default().fg(Color::Black).bg(platform_color).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(platform_color).add_modifier(Modifier::BOLD)
+                        };
+                        (i_style, t_style, a_style)
+                    }
+                    PlatformColorMode::Full => {
+                        let t_style = if is_current {
+                            Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
+                        } else if is_selected {
+                            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(platform_color).add_modifier(Modifier::BOLD)
+                        };
+                        let a_style = if is_selected {
+                            Style::default().fg(Color::White)
+                        } else {
+                            Style::default().fg(platform_color)
+                        };
+                        let i_style = Style::default().fg(platform_color);
+                        (i_style, t_style, a_style)
+                    }
                 };
 
                 let disp_title = pad_display_str(&item.title, title_w);
                 let disp_artist = pad_display_str(&item.artist, artist_w);
-                let disp_idx = pad_display_str(&format!("#{}", idx + 1), 4);
 
                 let line = Line::from(vec![
                     Span::styled(cursor, if is_selected { Style::default().fg(theme.accent).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_dim) }),
-                    Span::styled(disp_idx, Style::default().fg(theme.text_dim)),
+                    Span::styled(disp_idx, idx_style),
                     Span::styled(disp_title, title_style),
                     Span::styled(" | ", Style::default().fg(theme.border)),
-                    Span::styled(disp_artist, Style::default().fg(theme.text_dim)),
+                    Span::styled(disp_artist, artist_style),
                     Span::styled(" | ", Style::default().fg(theme.border)),
                     Span::styled(dur_field, Style::default().fg(theme.accent)),
                     Span::styled(" | ", Style::default().fg(theme.border)),
@@ -1492,11 +1550,6 @@ impl StreamingHubState {
             0.0
         };
 
-        let bar_width: usize = 24;
-        let filled = (progress_pct * bar_width as f32).round() as usize;
-        let empty = bar_width.saturating_sub(filled);
-        let progress_bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
-
         let cur_str = format!("{:02}:{:02}", (cur_secs as u32) / 60, (cur_secs as u32) % 60);
         let total_str = format!("{:02}:{:02}", (total_secs as u32) / 60, (total_secs as u32) % 60);
 
@@ -1508,73 +1561,116 @@ impl StreamingHubState {
             AudioQualityTier::CloudAac128 => Color::White,
         };
 
-        let lines = vec![
-            Line::from(vec![
-                Span::styled(" Track:    ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Artist:   ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(artist, Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Quality:  ", Style::default().fg(theme.text_dim)),
-                Span::styled(format!("[{}] ", tier.label()), Style::default().fg(tier_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{} kHz • {} kbps ", tier.sample_rate_hz() / 1000, tier.nominal_bitrate_kbps()), Style::default().fg(theme.accent)),
-                Span::raw("| Status: "),
-                Span::styled(status_str, Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
-                if !tier.is_lossless() {
-                    Span::styled(" [DSP Restorer: Active]", Style::default().fg(Color::Yellow))
-                } else {
-                    Span::styled(" [Bit-Perfect Lossless PCM]", Style::default().fg(Color::Cyan))
-                },
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(" Progress: ", Style::default().fg(theme.text_dim)),
-                Span::styled(progress_bar, Style::default().fg(theme.primary)),
-                Span::styled(format!(" {} / {}", cur_str, total_str), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Volume:   ", Style::default().fg(theme.text_dim)),
-                Span::styled(format!("[{:>3}%] (Persisted Safe Level) ", vol_pct), Style::default().fg(if vol_pct > 80 { Color::Yellow } else { theme.success }).add_modifier(Modifier::BOLD)),
-                Span::styled("([+] / [-]) ", Style::default().fg(theme.accent)),
-                Span::raw(" |  Mode: "),
-                Span::styled(if self.shuffle { "[SHUFFLE: ON] " } else { "[SHUFFLE: OFF] " }, Style::default().fg(if self.shuffle { Color::Green } else { theme.text_dim }).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("[LOOP: {}]", self.loop_mode.label()), Style::default().fg(match self.loop_mode { LoopMode::Off => theme.text_dim, LoopMode::Single => Color::Magenta, LoopMode::All => Color::Cyan }).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("--- SYSTEM EQ (WORKSTATION 2) & DSP RECIPE ---", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Active Preset: ", Style::default().fg(theme.text_dim)),
-                Span::styled(if self.dsp_telemetry.active_preset_name.is_empty() { "Flat Studio Reference" } else { &self.dsp_telemetry.active_preset_name }, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::raw(" ("),
-                Span::styled(format!("{} Filters", self.dsp_telemetry.filter_count), Style::default().fg(theme.accent)),
-                Span::raw(")"),
-            ]),
-            Line::from(vec![
-                Span::styled(" Target Curve:  ", Style::default().fg(theme.text_dim)),
-                Span::styled(if self.dsp_telemetry.target_curve.is_empty() { "Harman Target Curve" } else { &self.dsp_telemetry.target_curve }, Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Calibrated Gear: ", Style::default().fg(theme.text_dim)),
-                Span::styled(if self.dsp_telemetry.active_gear_model.is_empty() { "Auto-Calibrated Output" } else { &self.dsp_telemetry.active_gear_model }, Style::default().fg(theme.primary)),
-            ]),
-            Line::from(vec![
-                Span::styled(" DSP Recipe:    ", Style::default().fg(theme.text_dim)),
-                Span::styled(format!("Preamp {:+.1}dB • Warmth {:.0}% • Width {:.0}% • Ceiling {:+.1}dB",
-                    self.dsp_telemetry.preamp_db,
-                    self.dsp_telemetry.tube_warmth * 100.0,
-                    self.dsp_telemetry.spatial_width * 100.0,
-                    self.dsp_telemetry.limiter_ceiling_db), Style::default().fg(theme.secondary)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Signal Chain:  ", Style::default().fg(theme.text_dim)),
-                Span::styled("Lossless PCM -> System DSP Rack -> Pure Rust Engine", Style::default().fg(theme.success)),
-            ]),
-        ];
+        let mut lines = Vec::new();
+
+        // 1. Now Playing Stream Identity
+        lines.push(Line::from(vec![
+            Span::styled(" Track:      ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Artist:     ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(artist, Style::default().fg(theme.text)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Stream:     ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("[{}] ", tier.label()), Style::default().fg(tier_color).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} kHz • {} kbps", tier.sample_rate_hz() / 1000, tier.nominal_bitrate_kbps()), Style::default().fg(theme.accent)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Processing: ", Style::default().fg(theme.text_dim)),
+            if !tier.is_lossless() {
+                Span::styled("[DSP Audio Restorer: Active]", Style::default().fg(Color::Yellow))
+            } else {
+                Span::styled("[Bit-Perfect Lossless PCM]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            },
+        ]));
+
+        lines.push(Line::from(""));
+
+        // 2. Transport & Acoustic Gauges
+        lines.push(Line::from(vec![
+            Span::styled("─── PLAYBACK TRANSPORT & GAUGES ───", Style::default().fg(theme.border).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" State:      ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!(" {} ", status_str), Style::default().fg(Color::Black).bg(if status_str.contains("PLAYING") { Color::Green } else { Color::Yellow }).add_modifier(Modifier::BOLD)),
+            Span::raw("  "),
+            Span::styled(if self.shuffle { "[SHUFFLE: ON] " } else { "[SHUFFLE: OFF] " }, Style::default().fg(if self.shuffle { Color::Green } else { theme.text_dim })),
+            Span::styled(format!("[LOOP: {}]", self.loop_mode.label()), Style::default().fg(match self.loop_mode { LoopMode::Off => theme.text_dim, LoopMode::Single => Color::Magenta, LoopMode::All => Color::Cyan })),
+        ]));
+
+        // Dynamic progress bar scaled to panel width
+        let bar_width = (inner.width as usize).saturating_sub(24).clamp(10, 32);
+        let filled = (progress_pct * bar_width as f32).round() as usize;
+        let empty = bar_width.saturating_sub(filled);
+        let progress_bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
+
+        lines.push(Line::from(vec![
+            Span::styled(" Progress:   ", Style::default().fg(theme.text_dim)),
+            Span::styled(progress_bar, Style::default().fg(theme.primary)),
+            Span::styled(format!(" {} / {}", cur_str, total_str), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        ]));
+
+        // Volume gauge
+        let vol_bar_width = (inner.width as usize).saturating_sub(28).clamp(8, 18);
+        let vol_filled = ((vol_pct as f32 / 100.0) * vol_bar_width as f32).round() as usize;
+        let vol_empty = vol_bar_width.saturating_sub(vol_filled);
+        let vol_bar = format!("[{}{}]", "■".repeat(vol_filled), "·".repeat(vol_empty));
+
+        lines.push(Line::from(vec![
+            Span::styled(" Master Vol: ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("{:>3}% ", vol_pct), Style::default().fg(if vol_pct > 80 { Color::Yellow } else { theme.success }).add_modifier(Modifier::BOLD)),
+            Span::styled(vol_bar, Style::default().fg(if vol_pct > 80 { Color::Yellow } else { theme.success })),
+            Span::styled(" (Safe Level)", Style::default().fg(theme.text_dim)),
+        ]));
+
+        lines.push(Line::from(""));
+
+        // 3. System DSP & Acoustic Calibration (Workstation 2)
+        lines.push(Line::from(vec![
+            Span::styled("─── SYSTEM DSP & ACOUSTIC RECIPE ───", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Preset:     ", Style::default().fg(theme.text_dim)),
+            Span::styled(if self.dsp_telemetry.active_preset_name.is_empty() { "Flat Studio Reference" } else { &self.dsp_telemetry.active_preset_name }, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" ({} PEQ Filters)", self.dsp_telemetry.filter_count), Style::default().fg(theme.accent)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Target:     ", Style::default().fg(theme.text_dim)),
+            Span::styled(if self.dsp_telemetry.target_curve.is_empty() { "Harman Target Curve" } else { &self.dsp_telemetry.target_curve }, Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Transducer: ", Style::default().fg(theme.text_dim)),
+            Span::styled(if self.dsp_telemetry.active_gear_model.is_empty() { "Auto-Calibrated Output" } else { &self.dsp_telemetry.active_gear_model }, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" DSP Nodes:  ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("Preamp {:+.1}dB  •  Warmth {:.0}%",
+                self.dsp_telemetry.preamp_db,
+                self.dsp_telemetry.tube_warmth * 100.0), Style::default().fg(theme.secondary)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("             ", Style::default().fg(theme.text_dim)),
+            Span::styled(format!("Width {:.0}%  •  Ceiling {:+.1}dB",
+                self.dsp_telemetry.spatial_width * 100.0,
+                self.dsp_telemetry.limiter_ceiling_db), Style::default().fg(theme.secondary)),
+        ]));
+
+        lines.push(Line::from(""));
+
+        // 4. Real-Time Signal Routing
+        lines.push(Line::from(vec![
+            Span::styled("─── REAL-TIME SIGNAL ROUTING ───", Style::default().fg(theme.border).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Signal:     ", Style::default().fg(theme.text_dim)),
+            Span::styled("Lossless PCM -> System DSP Rack -> Rust Audio", Style::default().fg(theme.success)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Audio Core: ", Style::default().fg(theme.text_dim)),
+            Span::styled("48 kHz / 32-bit Float | Bit-Perfect | Low Jitter", Style::default().fg(theme.text_dim)),
+        ]));
 
         let p = Paragraph::new(lines).wrap(Wrap { trim: true });
         f.render_widget(p, inner);
@@ -1585,32 +1681,32 @@ impl StreamingHubState {
             Span::styled(" [S] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::raw("Search/Paste  "),
             Span::styled(" [L] ", Style::default().fg(Color::Rgb(255, 140, 200)).add_modifier(Modifier::BOLD)),
-            Span::raw("Link Accounts  "),
+            Span::raw("Accounts & Sync  "),
             Span::styled(" [Enter] ", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
             Span::raw("Play  "),
             Span::styled(" [Space] ", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
-            Span::raw("Pause/Resume  "),
+            Span::raw("Pause  "),
+            Span::styled(" [N] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("Next  "),
+            Span::styled(" [P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("Prev  "),
             Span::styled(" [PgUp/Dn] ", Style::default().fg(Color::Rgb(100, 200, 255)).add_modifier(Modifier::BOLD)),
-            Span::raw("Jump ±10  "),
+            Span::raw("±10 Track  "),
             Span::styled(" [0-9] ", Style::default().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD)),
             Span::raw("Go to #"),
         ]);
 
         let line2 = Line::from(vec![
             Span::styled(" [+/-] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw("Vol  "),
-            Span::styled(" [N] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Next  "),
-            Span::styled(" [P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Prev  "),
+            Span::raw("Master Vol  "),
             Span::styled(" [Z] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::raw("Shuffle  "),
             Span::styled(" [R] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
             Span::raw("Loop  "),
             Span::styled(" [O] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("Sort: {}  ", self.sort_mode.label()), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("Sort: Dividers  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(" [E] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw("Preset  "),
+            Span::raw("EQ Preset  "),
             Span::styled(" [D] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
             Span::raw("Remove Track  "),
             Span::styled(" [C] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -1629,7 +1725,7 @@ impl StreamingHubState {
 
     fn render_sort_modal(&self, f: &mut ratatui::Frame, area: Rect, theme: &ThemePalette) {
         let popup_w = 80.min(area.width.saturating_sub(4));
-        let popup_h = 24.min(area.height.saturating_sub(2));
+        let popup_h = 28.min(area.height.saturating_sub(2));
 
         let v_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -1723,14 +1819,36 @@ impl StreamingHubState {
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
+            Span::styled(" ── Platform Color Coding (Option A / B / None) ──", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" [C] Platform Colors: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {} ", self.platform_color_mode.label()), match self.platform_color_mode {
+                PlatformColorMode::None => Style::default().fg(theme.text_dim),
+                PlatformColorMode::Accent => Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+                PlatformColorMode::Full => Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
+            }),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("     Cycle Mode [C] : ", Style::default().fg(theme.text_dim)),
+            Span::styled("[None]", Style::default().fg(theme.text_dim)),
+            Span::raw(" -> "),
+            Span::styled("[Option B: Accent Index]", Style::default().fg(Color::Yellow)),
+            Span::raw(" -> "),
+            Span::styled("[Option A: Full Row]", Style::default().fg(Color::Green)),
+        ]));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
             Span::styled(" [1-9] Direct  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(" [Up/Down] Move  ", Style::default().fg(theme.secondary)),
             Span::styled(" [Enter] Apply  ", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
             Span::styled(" [Esc] Close", Style::default().fg(theme.text_dim)),
         ]));
         lines.push(Line::from(vec![
-            Span::styled(" [P] Cycle Lead Platform  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(" [S] Cycle Section Sub-Sort  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" [P] Lead Platform  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(" [S] Sub-Sort  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" [C] Platform Colors  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled(" [O] Cycle Mode", Style::default().fg(theme.accent)),
         ]));
 
@@ -2798,5 +2916,42 @@ mod tests {
         let foot2 = " [P] Cycle Lead Platform   [S] Cycle Section Sub-Sort   [O] Cycle Mode";
         assert!(unicode_display_width(foot1) <= max_inner_w);
         assert!(unicode_display_width(foot2) <= max_inner_w);
+    }
+
+    #[test]
+    fn test_platform_color_mode_cycling_and_hotkey() {
+        let mut state = StreamingHubState::new_clean();
+        assert_eq!(state.platform_color_mode, PlatformColorMode::None);
+
+        // Open sort modal
+        state.sort_modal_open = true;
+
+        // Press 'c' to cycle to Option B (Accent)
+        state.handle_key(KeyCode::Char('c'));
+        assert_eq!(state.platform_color_mode, PlatformColorMode::Accent);
+
+        // Press 'c' to cycle to Option A (Full)
+        state.handle_key(KeyCode::Char('c'));
+        assert_eq!(state.platform_color_mode, PlatformColorMode::Full);
+
+        // Press 'C' to cycle back to None
+        state.handle_key(KeyCode::Char('C'));
+        assert_eq!(state.platform_color_mode, PlatformColorMode::None);
+    }
+
+    #[test]
+    fn test_track_index_padding_guarantees_space_for_large_queues() {
+        // Test index string formatting for various queue sizes
+        for total_len in [50usize, 500, 1088, 5000] {
+            let idx_w: usize = if total_len >= 1000 { 6 } else if total_len >= 100 { 5 } else { 4 };
+            for idx in [0, 8, 98, 196, 999, 1087] {
+                if idx < total_len {
+                    let disp_idx = format!("#{:>width$} ", idx + 1, width = idx_w.saturating_sub(2));
+                    // Must always end with a space so it never concatenates into song title
+                    assert!(disp_idx.ends_with(' '), "disp_idx '{}' must end with a space", disp_idx);
+                    assert_eq!(disp_idx.len(), idx_w, "disp_idx '{}' len must equal idx_w {}", disp_idx, idx_w);
+                }
+            }
+        }
     }
 }

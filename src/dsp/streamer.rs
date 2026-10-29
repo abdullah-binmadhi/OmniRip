@@ -71,10 +71,10 @@ impl TestToneMode {
 
     pub fn description(&self) -> &'static str {
         match self {
-            TestToneMode::AcousticHarmonics => "Multi-octave harmonic chord (55Hz, 220Hz, 880Hz, 3.5kHz, 12kHz) for live EQ auditioning",
-            TestToneMode::PinkNoise => "3-pole -3dB/octave Gardner pink noise generator for calibrated acoustic frequency response",
-            TestToneMode::Sine1k => "1,000 Hz 0.0dBFS calibrated pure reference sine wave for level matching and phase check",
-            TestToneMode::FrequencySweep => "20 Hz - 20,000 Hz continuous logarithmic acoustic sweep for resonant peak detection",
+            TestToneMode::AcousticHarmonics => "Multi-octave harmonic chord (55Hz-12kHz) for real-time EQ auditioning",
+            TestToneMode::PinkNoise => "Gardner -3dB/oct pink noise for acoustic response calibration",
+            TestToneMode::Sine1k => "1,000 Hz 0.0dBFS calibrated sine wave for level & phase matching",
+            TestToneMode::FrequencySweep => "20Hz - 20kHz logarithmic acoustic sweep for resonant peak detection",
         }
     }
 
