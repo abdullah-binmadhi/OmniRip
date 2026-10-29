@@ -527,6 +527,7 @@ impl AccountSyncModal {
                         "safari" => "edge".to_string(),
                         "edge" => "brave".to_string(),
                         "brave" => "firefox".to_string(),
+                        "firefox" => "opera".to_string(),
                         _ => "zen".to_string(),
                     };
                     self.save_config();
@@ -722,13 +723,14 @@ impl AccountSyncModal {
                         self.tracks_cache.insert(col.id.clone(), self.current_tracks.clone());
                     }
                 } else if self.focused_field == 3 {
-                    // Cycle browser: zen -> chrome -> safari -> edge -> brave -> firefox -> zen
+                    // Cycle browser: zen -> chrome -> safari -> edge -> brave -> firefox -> opera -> zen
                     self.youtube_browser = match self.youtube_browser.as_str() {
                         "zen" => "chrome".to_string(),
                         "chrome" => "safari".to_string(),
                         "safari" => "edge".to_string(),
                         "edge" => "brave".to_string(),
                         "brave" => "firefox".to_string(),
+                        "firefox" => "opera".to_string(),
                         _ => "zen".to_string(),
                     };
                     self.save_config();
@@ -1345,5 +1347,27 @@ mod tests {
         let elapsed = start.elapsed();
         // scan_accounts with empty profiles must be instant (< 100ms), never running blocking multi-process loops
         assert!(elapsed.as_millis() < 500, "scan_accounts took too long: {}ms", elapsed.as_millis());
+    }
+
+    #[test]
+    fn test_account_sync_modal_browser_cycle_includes_opera() {
+        let mut modal = AccountSyncModal::new_clean();
+        modal.focused_field = 3; // Browser field
+        modal.youtube_browser = "firefox".to_string();
+
+        // Cycling from firefox on Enter must yield opera
+        modal.handle_key(KeyCode::Enter);
+        assert_eq!(modal.youtube_browser, "opera");
+
+        // Cycling from opera on Space must yield zen
+        modal.handle_key(KeyCode::Char(' '));
+        assert_eq!(modal.youtube_browser, "zen");
+
+        // Complete cycle: zen -> chrome -> safari -> edge -> brave -> firefox -> opera -> zen
+        let expected = ["chrome", "safari", "edge", "brave", "firefox", "opera", "zen"];
+        for exp in expected {
+            modal.handle_key(KeyCode::Enter);
+            assert_eq!(modal.youtube_browser, exp);
+        }
     }
 }

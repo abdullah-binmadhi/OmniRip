@@ -434,6 +434,27 @@ impl LibrarySyncEngine {
             browsers.push("edge".to_string());
         }
 
+        // 7. Opera / Opera GX
+        let opera_exists = if let Some(ref home) = home_path {
+            home.join("Library/Application Support/com.operasoftware.Opera").exists()
+                || home.join("Library/Application Support/com.operasoftware.OperaGX").exists()
+                || PathBuf::from("/Applications/Opera.app").exists()
+                || PathBuf::from("/Applications/Opera GX.app").exists()
+                || home.join(".config/opera").exists()
+                || home.join(".config/opera-gx").exists()
+        } else if let Some(ref appdata) = appdata_path {
+            appdata.join("Opera Software/Opera Stable").exists()
+                || appdata.join("Opera Software/Opera GX Stable").exists()
+        } else if let Some(ref local) = local_path {
+            local.join("Programs/Opera").exists()
+                || local.join("Programs/Opera GX").exists()
+        } else {
+            false
+        };
+        if opera_exists {
+            browsers.push("opera".to_string());
+        }
+
         if browsers.is_empty() {
             browsers.push("chrome".to_string());
         }
