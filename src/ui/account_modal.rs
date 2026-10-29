@@ -38,6 +38,7 @@ pub struct AccountSyncModal {
     pub selected_track_idx: usize,
     pub is_scanning: bool,
     pub status_message: String,
+    pub link_bank_modal: crate::ui::link_bank_modal::LinkBankModal,
 
     // Real-time asynchronous synchronization channels and telemetry
     pub sync_rx: Option<std::sync::mpsc::Receiver<LibrarySyncProgress>>,
@@ -112,6 +113,7 @@ impl AccountSyncModal {
             spotify_status: "Idle".to_string(),
             sync_progress_pct: 0,
             active_fetches: HashSet::new(),
+            link_bank_modal: crate::ui::link_bank_modal::LinkBankModal::new(),
         };
 
         modal
@@ -168,6 +170,8 @@ impl AccountSyncModal {
             }
         }
         self.save_config();
+        self.link_bank_modal.store.add_link(clean, None, None);
+        let _ = self.link_bank_modal.store.save();
         if clean.starts_with("http://") || clean.starts_with("https://") || clean.starts_with("spotify:") {
             self.scan_accounts();
         }
@@ -363,6 +367,60 @@ impl AccountSyncModal {
         }
 
         let mut seen_spotify = HashSet::new();
+
+        // 1. Scan active Link Bank entries
+        for entry in self.link_bank_modal.store.active_entries() {
+            let trimmed = entry.url.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match entry.service {
+                StreamingService::Spotify => {
+                    if seen_spotify.insert(trimmed.to_string()) {
+                        if let Ok(mut cols) = LibrarySyncEngine::scan_spotify(trimmed) {
+                            for col in &mut cols {
+                                if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                                    col.title = format!("[{}] {}", entry.curator.trim(), col.title);
+                                }
+                            }
+                            self.discovered_collections.append(&mut cols);
+                        }
+                    }
+                }
+                StreamingService::YouTubeMusic => {
+                    let col = DiscoveredCollection {
+                        id: format!("linkbank_yt_{}", entry.id),
+                        title: if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                            format!("[{}] {}", entry.curator.trim(), entry.title)
+                        } else {
+                            entry.title.clone()
+                        },
+                        service: StreamingService::YouTubeMusic,
+                        track_count: 50,
+                        url: trimmed.to_string(),
+                        is_selected: true,
+                    };
+                    self.discovered_collections.push(col);
+                }
+                StreamingService::AppleMusic => {
+                    let col = DiscoveredCollection {
+                        id: format!("linkbank_apple_{}", entry.id),
+                        title: if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                            format!("[{}] {}", entry.curator.trim(), entry.title)
+                        } else {
+                            entry.title.clone()
+                        },
+                        service: StreamingService::AppleMusic,
+                        track_count: 50,
+                        url: trimmed.to_string(),
+                        is_selected: true,
+                    };
+                    self.discovered_collections.push(col);
+                }
+                _ => {}
+            }
+        }
+
         for sp_url in &spotify_urls {
             if seen_spotify.insert(sp_url.clone()) {
                 if let Ok(mut cols) = LibrarySyncEngine::scan_spotify(sp_url) {
@@ -429,7 +487,28 @@ impl AccountSyncModal {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) -> Option<AccountModalAction> {
+        if self.link_bank_modal.is_open {
+            let was_open = self.link_bank_modal.is_open;
+            self.link_bank_modal.handle_key(code);
+            if was_open && !self.link_bank_modal.is_open {
+                self.scan_accounts();
+            }
+            return None;
+        }
+
         match code {
+            KeyCode::Char('b') | KeyCode::Char('B') => {
+                self.link_bank_modal.open();
+                return None;
+            }
+            KeyCode::Char('1') => {
+                self.focused_field = 6;
+            }
+            KeyCode::Char('2') => {
+                if !self.current_tracks.is_empty() {
+                    self.focused_field = 7;
+                }
+            }
             KeyCode::Esc => {
                 self.is_open = false;
                 return Some(AccountModalAction::Close);
@@ -737,47 +816,30 @@ impl AccountSyncModal {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // Account URLs
-                Constraint::Length(3), // Settings bar & Auto-Detect trigger
+                Constraint::Length(3), // Settings bar & Auto-Detect trigger + [B] LINK BANK
                 Constraint::Length(3), // Real-time Service Status & Progress Strip
-                Constraint::Min(10),   // 2-Pane Split: Left Playlists (40%), Right Tracklist (60%)
+                Constraint::Min(14),   // 2-Pane Split: Left Playlists (40%), Right Tracklist (60%)
                 Constraint::Length(3), // Footer buttons & Status
             ])
             .split(inner);
 
-        // 1. Account URLs
         let focus_field = self.focused_field;
-        let spotify_style = if focus_field == 0 { Style::default().fg(Color::Black).bg(Color::Green) } else { Style::default().fg(Color::Green) };
-        let apple_style = if focus_field == 1 { Style::default().fg(Color::Black).bg(Color::Rgb(255, 80, 100)) } else { Style::default().fg(Color::Rgb(255, 80, 100)) };
-        let yt_style = if focus_field == 2 { Style::default().fg(Color::Black).bg(Color::LightRed) } else { Style::default().fg(Color::LightRed) };
 
-        let max_url_len = (inner.width as usize).saturating_sub(22).max(25);
-        let acc_lines = vec![
-            Line::from(vec![
-                Span::styled(" [1] Spotify:       ", spotify_style.add_modifier(Modifier::BOLD)),
-                Span::styled(truncate_str(if self.spotify_input.is_empty() { "Auto-probes desktop / Zen browser or paste profile URL" } else { &self.spotify_input }, max_url_len), Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [2] Apple Music:   ", apple_style.add_modifier(Modifier::BOLD)),
-                Span::styled(truncate_str(if self.apple_input.is_empty() { "Auto-reads local library (Music.app) or paste playlist URL" } else { &self.apple_input }, max_url_len), Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [3] YouTube Music: ", yt_style.add_modifier(Modifier::BOLD)),
-                Span::styled(truncate_str(if self.youtube_input.is_empty() { "Auto-probes browser session for Liked Music & playlists" } else { &self.youtube_input }, max_url_len), Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled(" (Press [1-3] or [Tab] to focus URL field | [A] Auto-Detects everything without typing)", Style::default().fg(theme.text_dim)),
-            ]),
-        ];
-        f.render_widget(Paragraph::new(acc_lines), sections[0]);
-
-        // 2. Settings Bar
+        // 1. Settings Bar & Link Bank Access
         let browser_style = if focus_field == 3 { Style::default().fg(Color::Black).bg(theme.accent) } else { Style::default().fg(theme.accent) };
         let dedup_style = if focus_field == 4 { Style::default().fg(Color::Black).bg(theme.success) } else { Style::default().fg(theme.success) };
         let sort_style = if focus_field == 5 { Style::default().fg(Color::Black).bg(theme.primary) } else { Style::default().fg(theme.primary) };
 
+        let bank_total = self.link_bank_modal.store.entries.len();
+        let bank_active = self.link_bank_modal.store.active_entries().len();
+
         let settings_line = Line::from(vec![
             Span::styled(" [A] AUTO-DETECT ALL ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("  "),
+            Span::styled(
+                format!(" [B] LINK BANK ({}/{} Active) ", bank_active, bank_total),
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  "),
             Span::styled(format!(" [Browser: {}] ", self.youtube_browser.to_uppercase()), browser_style.add_modifier(Modifier::BOLD)),
             Span::raw("  "),
@@ -785,9 +847,9 @@ impl AccountSyncModal {
             Span::raw("  "),
             Span::styled(format!(" [Sort: {}] ", self.sort_mode.label()), sort_style.add_modifier(Modifier::BOLD)),
         ]);
-        f.render_widget(Paragraph::new(settings_line), sections[1]);
+        f.render_widget(Paragraph::new(settings_line), sections[0]);
 
-        // 3. Real-Time Service Status & Progress Indicators
+        // 2. Real-Time Service Status & Progress Indicators
         let progress_width = 18;
         let filled_chars = ((self.sync_progress_pct as usize) * progress_width) / 100;
         let bar_filled: String = "=".repeat(filled_chars);
@@ -821,18 +883,18 @@ impl AccountSyncModal {
         let status_block = Block::default()
             .borders(Borders::BOTTOM)
             .border_style(Style::default().fg(theme.border));
-        let status_inner = status_block.inner(sections[2]);
-        f.render_widget(status_block, sections[2]);
+        let status_inner = status_block.inner(sections[1]);
+        f.render_widget(status_block, sections[1]);
         f.render_widget(Paragraph::new(vec![service_status_line, progress_line]), status_inner);
 
-        // 4. Middle 2-Pane Layout (Left Playlists 40%, Right Tracks 60%)
+        // 3. Middle 2-Pane Layout (Left Playlists 40%, Right Tracks 60%)
         let middle_split = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Percentage(40),
                 Constraint::Percentage(60),
             ])
-            .split(sections[3]);
+            .split(sections[2]);
 
         // 4A. Left Pane: Playlists & Collections
         let is_left_focused = focus_field == 6;
@@ -982,14 +1044,14 @@ impl AccountSyncModal {
             f.render_stateful_widget(List::new(track_items), track_inner, &mut self.track_list_state.clone());
         }
 
-        // 5. Footer & Action Buttons
+        // 4. Footer & Action Buttons
         let max_status_len = (inner.width as usize).saturating_sub(14).max(20);
         let status_disp = truncate_str(&self.status_message, max_status_len);
         let footer_lines = vec![
             Line::from(vec![
                 Span::styled(" [A] Auto-Detect  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(" [Tab] Next Field  ", Style::default().fg(theme.secondary)),
-                Span::styled(" [Left/Right] Panes  ", Style::default().fg(theme.accent)),
+                Span::styled(" [B] Link Bank  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" [1/2] Panes  ", Style::default().fg(theme.accent)),
                 Span::styled(" [Space] Check  ", Style::default().fg(theme.success)),
                 Span::styled(" [R] Reload  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::styled(" [I] Import Selected  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -1000,7 +1062,12 @@ impl AccountSyncModal {
                 Span::styled(status_disp, Style::default().fg(Color::White)),
             ]),
         ];
-        f.render_widget(Paragraph::new(footer_lines), sections[4]);
+        f.render_widget(Paragraph::new(footer_lines), sections[3]);
+
+        // 5. Link Bank Overlay Drawer (if open)
+        if self.link_bank_modal.is_open {
+            self.link_bank_modal.render(f, area, theme);
+        }
     }
 }
 
@@ -1231,5 +1298,31 @@ mod tests {
         } else {
             panic!("Expected ImportTracks action");
         }
+    }
+
+    #[test]
+    fn test_account_sync_modal_link_bank_hotkey_and_scan_integration() {
+        let mut modal = AccountSyncModal::new_clean();
+        assert!(!modal.link_bank_modal.is_open);
+
+        // Press 'b' to toggle Link Bank
+        modal.handle_key(KeyCode::Char('b'));
+        assert!(modal.link_bank_modal.is_open);
+
+        // Add friend's playlist link inside Link Bank
+        modal.link_bank_modal.store.add_link(
+            "https://open.spotify.com/playlist/789xyz",
+            Some("Bro's Hits"),
+            None,
+        );
+
+        // Close Link Bank with Esc
+        modal.handle_key(KeyCode::Esc);
+        assert!(!modal.link_bank_modal.is_open);
+
+        // Verify that scan_accounts discovered the link from Link Bank with the curator label
+        assert!(!modal.discovered_collections.is_empty());
+        let found = modal.discovered_collections.iter().find(|c| c.title.contains("Bro's Hits"));
+        assert!(found.is_some(), "Collection from Link Bank with curator label must be discovered");
     }
 }

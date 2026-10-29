@@ -500,9 +500,32 @@ impl LibrarySyncEngine {
                 let _ = tx.send(LibrarySyncProgress::CollectionDiscovered(col));
             }
         }
-        let _ = tx.send(LibrarySyncProgress::ServiceCompleted(StreamingService::AppleMusic, apple_total));
-
         let cfg = LinkedAccountsConfig::load();
+        let link_bank = crate::harvest::link_bank::LinkBankStore::load();
+
+        // 1b. Apple Music links from Universal Link Bank
+        for entry in link_bank.active_entries() {
+            if entry.service == StreamingService::AppleMusic {
+                let trimmed = entry.url.trim();
+                if !trimmed.is_empty() {
+                    apple_total += 1;
+                    let col = DiscoveredCollection {
+                        id: format!("linkbank_apple_{}", entry.id),
+                        title: if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                            format!("[{}] {}", entry.curator.trim(), entry.title)
+                        } else {
+                            entry.title.clone()
+                        },
+                        service: StreamingService::AppleMusic,
+                        track_count: 50,
+                        url: trimmed.to_string(),
+                        is_selected: true,
+                    };
+                    let _ = tx.send(LibrarySyncProgress::CollectionDiscovered(col));
+                }
+            }
+        }
+        let _ = tx.send(LibrarySyncProgress::ServiceCompleted(StreamingService::AppleMusic, apple_total));
         let yt_browser = if !cfg.youtube_browser.is_empty() {
             cfg.youtube_browser.clone()
         } else if Self::detect_zen_browser_profiles().is_some() {
@@ -514,19 +537,61 @@ impl LibrarySyncEngine {
         // 2. YouTube Music (Using configured or auto-detected browser session and handle discovery)
         let _ = tx.send(LibrarySyncProgress::ServiceStarted(StreamingService::YouTubeMusic, format!("Syncing YouTube Music playlists ({})...", yt_browser)));
         let yt_sources = Self::scan_youtube_music_feed(&yt_browser, Some(&cfg.youtube_profile));
-        let yt_total = yt_sources.len();
+        let mut yt_total = yt_sources.len();
         for (idx, col) in yt_sources.into_iter().enumerate() {
             let _ = tx.send(LibrarySyncProgress::ServiceProgress(StreamingService::YouTubeMusic, idx + 1, yt_total, col.title.clone()));
             let _ = tx.send(LibrarySyncProgress::CollectionDiscovered(col));
         }
+
+        // 2b. YouTube links from Universal Link Bank
+        for entry in link_bank.active_entries() {
+            if entry.service == StreamingService::YouTubeMusic {
+                let trimmed = entry.url.trim();
+                if !trimmed.is_empty() {
+                    yt_total += 1;
+                    let col = DiscoveredCollection {
+                        id: format!("linkbank_yt_{}", entry.id),
+                        title: if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                            format!("[{}] {}", entry.curator.trim(), entry.title)
+                        } else {
+                            entry.title.clone()
+                        },
+                        service: StreamingService::YouTubeMusic,
+                        track_count: 50,
+                        url: trimmed.to_string(),
+                        is_selected: true,
+                    };
+                    let _ = tx.send(LibrarySyncProgress::CollectionDiscovered(col));
+                }
+            }
+        }
         let _ = tx.send(LibrarySyncProgress::ServiceCompleted(StreamingService::YouTubeMusic, yt_total));
 
-        // 3. Spotify: Saved Sources & Zen Browser / Desktop Detection
+        // 3. Spotify: Saved Sources, Universal Link Bank & Zen Browser / Desktop Detection
         let _ = tx.send(LibrarySyncProgress::ServiceStarted(StreamingService::Spotify, "Scanning configured Spotify playlists & sessions...".to_string()));
         let mut sp_total = 0;
         let mut seen_spotify_urls = HashSet::new();
 
-        // 3a. First, scan all user-saved Spotify sources (playlists and albums)
+        // 3a. First, scan all user-saved Spotify sources from Link Bank
+        for entry in link_bank.active_entries() {
+            if entry.service == StreamingService::Spotify {
+                let trimmed = entry.url.trim();
+                if !trimmed.is_empty() && !seen_spotify_urls.contains(trimmed) {
+                    seen_spotify_urls.insert(trimmed.to_string());
+                    if let Ok(spotify_cols) = Self::scan_spotify(trimmed) {
+                        for mut col in spotify_cols {
+                            if !entry.curator.trim().is_empty() && entry.curator != "Shared Collection" {
+                                col.title = format!("[{}] {}", entry.curator.trim(), col.title);
+                            }
+                            sp_total += 1;
+                            let _ = tx.send(LibrarySyncProgress::CollectionDiscovered(col));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3b. Legacy saved Spotify sources (playlists and albums)
         for src in &cfg.spotify_sources {
             let trimmed = src.trim();
             if !trimmed.is_empty() && !seen_spotify_urls.contains(trimmed) {

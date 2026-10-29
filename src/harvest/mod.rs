@@ -2,6 +2,7 @@
 
 pub mod bootstrap;
 pub mod library_sync;
+pub mod link_bank;
 pub mod lyrics;
 pub mod musicbrainz;
 pub mod nicotine;
@@ -15,6 +16,7 @@ pub mod updater;
 pub mod yt_dlp;
 
 pub use library_sync::{DiscoveredCollection, LibrarySyncEngine, LinkedAccountsConfig};
+pub use link_bank::{LinkBankEntry, LinkBankStore};
 
 pub use lyrics::{fetch_lyrics_lrclib, resolve_and_save_lyrics, LyricsData};
 pub use musicbrainz::{build_nicotine_query, fetch_cover_art_archive, lookup_metadata, MusicBrainzMetadata};
