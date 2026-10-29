@@ -445,6 +445,30 @@ mod macos_driver {
         Err("Driver installed but OmniRip Audio was not detected within timeout.".into())
     }
 
+    /// Install OmniRipAudio.driver via macOS graphical authorization dialog (Touch ID or Admin password).
+    #[cfg(target_os = "macos")]
+    pub fn install_driver_gui() -> Result<String, String> {
+        let script = "do shell script \"omnirip driver install\" with administrator privileges";
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("Failed to launch authorization dialog: {}", e))?;
+
+        if output.status.success() {
+            Ok("OmniRip Audio Driver installed and activated successfully.".to_string())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Authorization canceled or failed: {}", err.trim()))
+        }
+    }
+
+    /// On non-macOS platforms, native audio loopback is 100% driverless.
+    #[cfg(not(target_os = "macos"))]
+    pub fn install_driver_gui() -> Result<String, String> {
+        Ok("Native desktop audio loopback is supported driverless on this platform.".to_string())
+    }
+
     /// Uninstall OmniRipAudio.driver from /Library/Audio/Plug-Ins/HAL/
     pub fn uninstall_driver() -> Result<(), Box<dyn std::error::Error>> {
         let driver_path = "/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver";

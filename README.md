@@ -275,30 +275,44 @@ flowchart LR
 
 ---
 
-## Quick Start Installation
+## Quick Start Installation & Updates
 
-### macOS (Apple Silicon & Intel)
+### Option 1: Homebrew (macOS & Linux)
 
-OmniRip runs natively on macOS without requiring third-party loopback tools:
+Install and keep OmniRip updated via the official Homebrew Tap:
+
+```bash
+# Add the tap and install
+brew tap abdullah-binmadhi/tap
+brew install omnirip
+
+# Upgrade to future versions anytime
+brew upgrade omnirip
+```
+
+### Option 2: One-Line Universal Script (macOS & Linux)
+
+Install or update the latest pre-built standalone binary directly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.sh | bash
 ```
 
-Or install from source with Cargo:
+### Option 3: Double-Click Desktop Installer (macOS & Windows)
 
-```bash
-cargo install --path .
-omnirip driver install
-```
+- **macOS**: Double-click [`scripts/install.command`](file:///Users/abdullahbinmadhi/Projects/OmniRip/scripts/install.command) in Finder to install and strip Gatekeeper quarantine in 5 seconds.
+- **Windows**: Right-click `scripts/install.ps1` and select **Run with PowerShell**, or execute:
+  ```powershell
+  irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.ps1 | iex
+  ```
 
-### Windows (WASAPI Loopback)
+### Option 4: In-App Self-Updater & Setup Wizard (Zero Terminal)
 
-On Windows, OmniRip captures audio natively through Windows Audio Session API (WASAPI) without needing any virtual driver:
+OmniRip checks for new releases on launch. Inside OmniRip:
+- Type **`:update`** to automatically download and atomically install the latest release.
+- Type **`:setup`** or press **`F12`** to open the **Setup & Dependency Health Wizard**, auto-download missing tools (`yt-dlp`), or install the macOS audio driver via Touch ID.
 
-```powershell
-irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.ps1 | iex
-```
+---
 
 ### Launching OmniRip
 
@@ -318,9 +332,10 @@ omnirip
 | :--- | :--- |
 | `M` | Open Workstation Mode Switcher (`1` Downloader, `2` System EQ, `3` Archiver, `4` Streaming Hub) |
 | `X` or `Shift+M` | Toggle Microphone & Audio Input Capture on/off (dismisses macOS orange mic dot) |
+| `F12` | Open System Setup & Dependency Health Wizard (auto-download tools, Touch ID driver install) |
 | `Shift+D` / `F6` / `Ctrl+D` | Cycle Hardware DAC Profile forward (Schiit R2R, Mojo 2, iBasso DC, iFi Zen, OEM+) |
 | `Shift+F6` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile backward |
-| `:` | Open Interactive Command Bar (`:dac schiit`, `:dac chord`, `:dac ifi`, `:game on`, `:mic on`, `:q`) |
+| `:` | Open Interactive Command Bar (`:update`, `:setup`, `:dac schiit`, `:game on`, `:mic on`, `:q`) |
 | `+` / `-` | Increase / decrease volume by 5% (synchronized 1:1 with hardware volume) |
 | `Q` | Cleanly exit OmniRip and restore default audio settings |
 
@@ -386,7 +401,7 @@ OmniRip contains a comprehensive automated test suite verifying audio engine sta
 cargo test
 ```
 
-All 250 unit and integration tests run and pass cleanly.
+All 264 unit and integration tests run and pass cleanly.
 
 ---
 

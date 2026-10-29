@@ -8,6 +8,7 @@ pub mod ui;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    harvest::bootstrap::ToolResolver::activate_user_tools_path();
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "driver" {
         return driver::run_driver_cli(&args[2..]);

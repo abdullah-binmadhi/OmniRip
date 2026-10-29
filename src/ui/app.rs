@@ -133,6 +133,7 @@ pub struct App {
     pub gear_profile: AcousticGearProfile,
     pub autoeq_view_mode: usize,
     pub command_bar: CommandBarState,
+    pub setup_modal: crate::ui::setup_modal::SetupModalState,
 }
 
 impl App {
@@ -228,6 +229,7 @@ impl App {
             gear_profile,
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
+            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -303,6 +305,7 @@ impl App {
             gear_profile: AcousticGearProfile::default(),
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
+            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -321,6 +324,7 @@ impl App {
             || self.gear_modal.is_open
             || self.preset_modal.is_active()
             || self.nicotine_modal.is_open
+            || self.setup_modal.is_open
     }
 
     pub fn execute_command(&mut self, cmd: &str) {
@@ -489,6 +493,15 @@ impl App {
             "resync" => {
                 self.streamer.force_resync();
                 self.set_status("Pure Rust Master Clock PLL forced re-sync");
+            }
+            "setup" | "doctor" | "install" | "wizard" => {
+                self.setup_modal.open();
+                self.set_status("Opened System Setup & Dependency Health Wizard.");
+            }
+            "update" | "upgrade" => {
+                self.setup_modal.open();
+                self.setup_modal.start_self_update();
+                self.set_status("Checking for latest release and initiating self-update...");
             }
             unknown => {
                 self.set_status(&format!("Unknown command: :{}. Type :help for commands.", unknown));
@@ -1115,6 +1128,18 @@ impl App {
                             continue;
                         }
 
+                        // 1c. If Setup & Dependency Health Wizard is open, intercept wizard keys
+                        if self.setup_modal.is_open {
+                            match self.setup_modal.handle_key(key.code) {
+                                crate::ui::setup_modal::SetupModalAction::None => {}
+                                crate::ui::setup_modal::SetupModalAction::Close => {}
+                                crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
+                                    self.set_status(&msg);
+                                }
+                            }
+                            continue;
+                        }
+
                         // 2. If Downloader is actively capturing input or has an interactive modal open, DO NOT intercept global character hotkeys
                         if self.active_mode == WorkstationMode::Downloader
                             && self.downloader.is_capturing_input()
@@ -1328,6 +1353,11 @@ impl App {
                             KeyCode::F(4) => {
                                 self.nicotine_modal.is_open = !self.nicotine_modal.is_open;
                                 self.set_status("Toggled Nicotine+ Lossless Candidate Browser.");
+                                continue;
+                            }
+                            KeyCode::F(12) if !self.is_capturing_text_input() => {
+                                self.setup_modal.open();
+                                self.set_status("Opened System Setup & Dependency Health Wizard.");
                                 continue;
                             }
                             KeyCode::F(5) if !self.is_capturing_text_input() => {
@@ -1941,6 +1971,11 @@ impl App {
         // Render Acoustic Gear Profiling Wizard on top if open
         if self.gear_modal.is_open {
             self.gear_modal.render(f, f.area(), &self.theme);
+        }
+
+        // Render System Setup & Dependency Health Wizard on top if open
+        if self.setup_modal.is_open {
+            self.setup_modal.render(f, f.area());
         }
     }
 
@@ -4808,6 +4843,24 @@ mod tests {
         assert!(app.status_message.contains("Hardware Rescanned:"));
         assert!(app.status_message.contains("iBasso Audio"));
         assert_eq!(app.streamer.hardware_chip_profile().recommended_flavor, crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+    }
+
+    #[test]
+    fn test_setup_wizard_command_and_modal() {
+        let mut app = App::new_test();
+        assert!(!app.setup_modal.is_open);
+
+        app.execute_command(":setup");
+        assert!(app.setup_modal.is_open);
+        assert!(app.status_message.contains("System Setup"));
+
+        app.setup_modal.handle_key(KeyCode::Esc);
+        assert!(!app.setup_modal.is_open);
+
+        // Test :update command
+        app.execute_command(":update");
+        assert!(app.setup_modal.is_open);
+        assert!(app.status_message.contains("self-update"));
     }
 
     #[test]

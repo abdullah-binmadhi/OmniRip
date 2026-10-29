@@ -1,26 +1,35 @@
 class Omnirip < Formula
-  include Language::Python::Virtualenv
-
-  desc "P2P-first music acquisition, neural repair, and curation studio TUI"
+  desc "Audiophile Studio System EQ, Mastering Suite & Lossless Music Harvester"
   homepage "https://github.com/abdullah-binmadhi/OmniRip"
-  url "https://github.com/abdullah-binmadhi/OmniRip/archive/refs/tags/v0.1.0.tar.gz"
+  version "0.2.0"
   license "MIT"
-  head "https://github.com/abdullah-binmadhi/OmniRip.git", branch: "main"
 
-  depends_on "python@3.12"
-  depends_on "ffmpeg"
-  depends_on "chromaprint"
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/abdullah-binmadhi/OmniRip/releases/download/v#{version}/omnirip-macos-arm64.tar.gz"
+    else
+      url "https://github.com/abdullah-binmadhi/OmniRip/releases/download/v#{version}/omnirip-macos-x86_64.tar.gz"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.intel?
+      url "https://github.com/abdullah-binmadhi/OmniRip/releases/download/v#{version}/omnirip-linux-x86_64.tar.gz"
+    end
+  end
+
+  depends_on "ffmpeg" => :recommended
 
   def install
-    virtualenv_install_with_resources
+    bin.install "omnirip"
   end
 
   def caveats
     <<~EOS
-      OmniRip is ready! Run `omnirip` to launch the cyber TUI workstation.
-      Default AI neural models (Demucs v4, FlashSR) will be auto-downloaded on
-      first launch, or you can provision them ahead of time by running:
-        omnirip --download-models
+      To enable system-wide audio equalization and mastering on macOS,
+      install the lightweight CoreAudio HAL driver by opening OmniRip
+      and typing :setup (or pressing F12) or executing:
+        sudo omnirip driver install
     EOS
   end
 

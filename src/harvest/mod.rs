@@ -1,5 +1,6 @@
 //! OmniRip Harvester: Audio Downloader, Tagging & Quality Analysis Subsystem.
 
+pub mod bootstrap;
 pub mod library_sync;
 pub mod lyrics;
 pub mod musicbrainz;
@@ -10,6 +11,7 @@ pub mod spectral;
 pub mod stream_resolver;
 pub mod tagger;
 pub mod title_cleaner;
+pub mod updater;
 pub mod yt_dlp;
 
 pub use library_sync::{DiscoveredCollection, LibrarySyncEngine, LinkedAccountsConfig};
@@ -22,6 +24,7 @@ pub use slskd::{SlskdClient, SlskdDownloadStatus, SlskdFileResult};
 pub use spectral::{analyze_file, analyze_samples, QualityVerdict, SpectralAnalysisResult};
 pub use tagger::{read_tags, write_tags, AudioTrackInfo};
 pub use title_cleaner::{clean_title, CleanedTrackMeta};
+pub use updater::{check_latest_release, parse_semver, UpdateInfo};
 pub use yt_dlp::{check_installed, download_audio, fetch_video_title, parse_progress_line, AudioFormat, YtDlpProgress};
 
 #[derive(Debug, Clone)]
