@@ -609,14 +609,139 @@ impl AudioStreamer {
         self.input_capture_enabled.load(Ordering::SeqCst)
     }
 
+    /// Internal builder for the CoreAudio loopback input stream.
+    /// Captures system audio from OmniRip Audio or BlackHole loopback into the servo buffer.
+    fn build_input_stream_internal(&mut self) -> Option<Stream> {
+        let (in_dev, _) = self.find_devices();
+        let in_d = in_dev?;
+        let writer_for_in = self.ipc_server.as_ref().map(|s| s.writer())?;
+        let reader_arc = self.reader_handle.as_ref()?.clone();
+
+        let in_dev_name = in_d.name().unwrap_or_default();
+        let in_name_clone = in_dev_name.clone();
+        let needs_rebuild_in = Arc::clone(&self.needs_rebuild);
+        let err_fn = move |err| {
+            eprintln!("Input audio stream error on [{}]: {}", in_name_clone, err);
+            needs_rebuild_in.store(true, Ordering::SeqCst);
+        };
+
+        let out_rate = self.active_sample_rate() as u32;
+        let in_config = in_d
+            .default_input_config()
+            .map(|c| StreamConfig {
+                channels: 2,
+                sample_rate: c.sample_rate(),
+                buffer_size: cpal::BufferSize::Default,
+            })
+            .unwrap_or_else(|_| StreamConfig {
+                channels: 2,
+                sample_rate: cpal::SampleRate(out_rate),
+                buffer_size: cpal::BufferSize::Default,
+            });
+
+        let in_rate = in_config.sample_rate.0;
+        if let Ok(mut r) = reader_arc.lock() {
+            r.set_nominal_ratio(in_rate as f64 / out_rate as f64);
+        }
+
+        let is_paused_in = Arc::clone(&self.is_paused);
+        let sys_vol_in = Arc::clone(&self.system_volume_bits);
+        let in_is_omnirip = in_dev_name.to_lowercase().contains("omnirip");
+        #[cfg(target_os = "macos")]
+        let mut qos_set_in = false;
+
+        match in_d.build_input_stream(
+            &in_config,
+            move |data: &[f32], _: &_| {
+                #[cfg(target_os = "macos")]
+                if !qos_set_in {
+                    unsafe {
+                        pthread_set_qos_class_self_np(0x21, 0); // QOS_CLASS_USER_INTERACTIVE
+                    }
+                    qos_set_in = true;
+                }
+
+                if is_paused_in.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                // Zero-allocation stack buffer (eliminates heap allocation in audio callback)
+                let mut scratch = [[0.0f32, 0.0f32]; 2048];
+                let n_frames = (data.len() / 2).min(2048);
+
+                // If capturing from OmniRip Audio HAL driver, un-scale driver-attenuated samples back to unity gain (1.0).
+                let in_vol = f32::from_bits(sys_vol_in.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+                let norm_factor = if in_is_omnirip && in_vol < 0.999 {
+                    if in_vol > 0.001 { 1.0f32 / in_vol } else { 0.0f32 }
+                } else {
+                    1.0f32
+                };
+
+                for i in 0..n_frames {
+                    scratch[i] = [data[i * 2] * norm_factor, data[i * 2 + 1] * norm_factor];
+                }
+
+                if let Ok(mut w) = writer_for_in.lock() {
+                    w.write(&scratch[..n_frames]);
+                }
+            },
+            err_fn,
+            None,
+        ) {
+            Ok(stream) => {
+                let _ = stream.play();
+                Some(stream)
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to build input capture stream on [{}]: {}", in_dev_name, e);
+                None
+            }
+        }
+    }
+
     pub fn set_input_capture(&mut self, enable: bool) -> (bool, String) {
         self.input_capture_enabled.store(enable, Ordering::SeqCst);
         crate::dsp::volume_storage::save_mic_setting(enable);
 
         if !enable {
-            (false, "Microphone: [OFF] (Private - Sound Engine: [ACTIVE] Loopback)".to_string())
+            // Drop input stream: extinguishes the macOS orange microphone indicator dot immediately
+            if let Some(s) = self.input_stream.take() {
+                let _ = s.pause();
+                drop(s);
+            }
+            #[cfg(target_os = "macos")]
+            {
+                if self.is_running.load(Ordering::SeqCst) {
+                    // Seamlessly switch macOS default output directly to physical hardware (DAC/Speakers)
+                    // so system audio continues playing cleanly without silence while loopback input is off.
+                    if let Some(hw_id) = self.physical_output_device_id().or(self.saved_physical_output_id) {
+                        let _ = set_macos_system_output_to_device_id(hw_id);
+                    } else {
+                        let _ = set_macos_system_output_to_hardware();
+                    }
+                }
+            }
+            (false, "Microphone: [OFF] (Direct Hardware Playback • Orange dot extinguished)".to_string())
         } else {
-            (true, "Microphone: [ON] (Private - Sound Engine: [ACTIVE] Loopback)".to_string())
+            #[cfg(target_os = "macos")]
+            {
+                if self.is_running.load(Ordering::SeqCst) {
+                    // Re-route macOS default output to OmniRip Audio loopback driver
+                    if let Some(loopback_id) = get_macos_device_id_by_keyword("omnirip")
+                        .or_else(|| get_macos_device_id_by_keyword("blackhole"))
+                    {
+                        let _ = set_macos_system_output_to_device_id(loopback_id);
+                    }
+                }
+            }
+            // Re-acquire and start input capture stream
+            if self.is_running.load(Ordering::SeqCst) && self.input_stream.is_none() {
+                self.input_stream = self.build_input_stream_internal();
+                if let Some(ref s) = self.input_stream {
+                    let _ = s.play();
+                }
+            }
+            (true, "Microphone: [ON] (OmniRip DSP Active)".to_string())
         }
     }
 
@@ -631,10 +756,14 @@ impl AudioStreamer {
 
         #[cfg(target_os = "macos")]
         {
-            if let Some(loopback_id) = get_macos_device_id_by_keyword("omnirip")
-                .or_else(|| get_macos_device_id_by_keyword("blackhole"))
-            {
-                let _ = set_macos_system_output_to_device_id(loopback_id);
+            if self.is_input_capture_enabled() {
+                if let Some(loopback_id) = get_macos_device_id_by_keyword("omnirip")
+                    .or_else(|| get_macos_device_id_by_keyword("blackhole"))
+                {
+                    let _ = set_macos_system_output_to_device_id(loopback_id);
+                }
+            } else if let Some(hw_id) = self.physical_output_device_id().or(self.saved_physical_output_id) {
+                let _ = set_macos_system_output_to_device_id(hw_id);
             }
 
             // Auto-heal physical output hardware volume scalar (1.0) and unmute
@@ -676,18 +805,24 @@ impl AudioStreamer {
 
         #[cfg(target_os = "macos")]
         {
-            let loopback_id = get_macos_device_id_by_keyword("omnirip")
-                .or_else(|| get_macos_device_id_by_keyword("blackhole"))
-                .or_else(get_macos_default_output_id);
+            let loopback_id = if self.is_input_capture_enabled() {
+                get_macos_device_id_by_keyword("omnirip")
+                    .or_else(|| get_macos_device_id_by_keyword("blackhole"))
+                    .or_else(get_macos_default_output_id)
+            } else {
+                self.physical_output_device_id().or_else(get_macos_default_output_id)
+            };
             if let Some(id) = loopback_id {
                 if let Some(vol) = crate::driver::get_device_volume(id) {
                     self.system_volume_bits.store(vol.to_bits(), Ordering::Relaxed);
                     // Mirror volume to physical endpoint (speakers, headphones, DAC) so hardware volume matches stock 100%
-                    if let Some(phys_id) = self.physical_output_device_id() {
-                        if phys_id != id {
-                            let current_phys = crate::driver::get_device_volume(phys_id).unwrap_or(-1.0);
-                            if (current_phys - vol).abs() > 0.005 {
-                                let _ = crate::driver::set_device_volume(phys_id, vol);
+                    if self.is_input_capture_enabled() {
+                        if let Some(phys_id) = self.physical_output_device_id() {
+                            if phys_id != id {
+                                let current_phys = crate::driver::get_device_volume(phys_id).unwrap_or(-1.0);
+                                if (current_phys - vol).abs() > 0.005 {
+                                    let _ = crate::driver::set_device_volume(phys_id, vol);
+                                }
                             }
                         }
                     }
@@ -813,24 +948,28 @@ impl AudioStreamer {
         // If OmniRip Audio or loopback is active, automatically redirect macOS system default output
         #[cfg(target_os = "macos")]
         {
-            if let Some(ref in_d) = in_dev {
-                let in_name = in_d.name().unwrap_or_default().to_lowercase();
-                if in_name.contains("omnirip") || in_name.contains("blackhole") {
-                    if let Some(current_id) = get_macos_default_output_id() {
-                        let loopback_id = get_macos_device_id_by_keyword("omnirip")
-                            .or_else(|| get_macos_device_id_by_keyword("blackhole"));
-                        if let Some(target_id) = loopback_id {
-                            if current_id != target_id {
-                                self.saved_physical_output_id = Some(current_id);
-                                let _ = set_macos_system_output_to_device_id(target_id);
-                            } else if self.saved_physical_output_id.is_none() {
-                                if let Ok(out_name) = out_dev.name() {
-                                    self.saved_physical_output_id = crate::driver::get_device_id_by_name(&out_name);
+            if self.input_capture_enabled.load(Ordering::SeqCst) {
+                if let Some(ref in_d) = in_dev {
+                    let in_name = in_d.name().unwrap_or_default().to_lowercase();
+                    if in_name.contains("omnirip") || in_name.contains("blackhole") {
+                        if let Some(current_id) = get_macos_default_output_id() {
+                            let loopback_id = get_macos_device_id_by_keyword("omnirip")
+                                .or_else(|| get_macos_device_id_by_keyword("blackhole"));
+                            if let Some(target_id) = loopback_id {
+                                if current_id != target_id {
+                                    self.saved_physical_output_id = Some(current_id);
+                                    let _ = set_macos_system_output_to_device_id(target_id);
+                                } else if self.saved_physical_output_id.is_none() {
+                                    if let Ok(out_name) = out_dev.name() {
+                                        self.saved_physical_output_id = crate::driver::get_device_id_by_name(&out_name);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } else if let Some(hw_id) = self.physical_output_device_id().or(self.saved_physical_output_id) {
+                let _ = set_macos_system_output_to_device_id(hw_id);
             }
         }
 
@@ -875,89 +1014,11 @@ impl AudioStreamer {
         if let Err(e) = ipc.start() {
             eprintln!("Warning: Failed to start Pure Rust IPC server: {}", e);
         }
-        let writer_for_in = ipc.writer();
         self.ipc_server = Some(ipc);
 
         // 1. Hardware Input Stream Callback (captures system audio loopback from OmniRip Audio / BlackHole)
-        let needs_rebuild_in = Arc::clone(&self.needs_rebuild);
-        let in_stream = if let Some(ref in_d) = in_dev {
-            let in_dev_name = in_d.name().unwrap_or_default();
-            let in_name_clone = in_dev_name.clone();
-            let err_fn = move |err| {
-                eprintln!("Input audio stream error on [{}]: {}", in_name_clone, err);
-                needs_rebuild_in.store(true, Ordering::SeqCst);
-            };
-            let in_config = in_d
-                .default_input_config()
-                .map(|c| StreamConfig {
-                    channels: 2,
-                    sample_rate: c.sample_rate(),
-                    buffer_size: cpal::BufferSize::Default,
-                })
-                .unwrap_or_else(|_| config.clone());
-
-            let in_rate = in_config.sample_rate.0;
-            let out_rate = sample_rate;
-            if let Ok(mut r) = reader_arc.lock() {
-                r.set_nominal_ratio(in_rate as f64 / out_rate as f64);
-            }
-            if let Ok(mut pipe) = self.pipeline.lock() {
-                pipe.set_sample_rate(out_rate as f32);
-            }
-
-            let is_paused_in = Arc::clone(&self.is_paused);
-            let sys_vol_in = Arc::clone(&self.system_volume_bits);
-            let in_is_omnirip = in_dev_name.to_lowercase().contains("omnirip");
-            #[cfg(target_os = "macos")]
-            let mut qos_set_in = false;
-            match in_d.build_input_stream(
-                &in_config,
-                move |data: &[f32], _: &_| {
-                    #[cfg(target_os = "macos")]
-                    if !qos_set_in {
-                        unsafe {
-                            pthread_set_qos_class_self_np(0x21, 0); // QOS_CLASS_USER_INTERACTIVE
-                        }
-                        qos_set_in = true;
-                    }
-
-                    if is_paused_in.load(Ordering::SeqCst) {
-                        return;
-                    }
-
-                    // Zero-allocation stack buffer (eliminates heap allocation in audio callback)
-                    let mut scratch = [[0.0f32, 0.0f32]; 2048];
-                    let n_frames = (data.len() / 2).min(2048);
-
-                    // If capturing from OmniRip Audio HAL driver, un-scale driver-attenuated samples back to unity gain (1.0).
-                    // Physical hardware transducers (speakers, headphones) apply the user's volume scalar directly.
-                    let in_vol = f32::from_bits(sys_vol_in.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-                    let norm_factor = if in_is_omnirip && in_vol < 0.999 {
-                        if in_vol > 0.001 { 1.0f32 / in_vol } else { 0.0f32 }
-                    } else {
-                        1.0f32
-                    };
-
-                    for i in 0..n_frames {
-                        scratch[i] = [data[i * 2] * norm_factor, data[i * 2 + 1] * norm_factor];
-                    }
-
-                    if let Ok(mut w) = writer_for_in.lock() {
-                        w.write(&scratch[..n_frames]);
-                    }
-                },
-                err_fn,
-                None,
-            ) {
-                Ok(stream) => {
-                    let _ = stream.play();
-                    Some(stream)
-                }
-                Err(e) => {
-                    eprintln!("Warning: Failed to build input capture stream on [{}]: {}", in_d.name().unwrap_or_default(), e);
-                    None
-                }
-            }
+        let in_stream = if self.input_capture_enabled.load(Ordering::SeqCst) {
+            self.build_input_stream_internal()
         } else {
             None
         };
@@ -1484,9 +1545,11 @@ mod tests {
         // Test mic isolation toggle
         let (enabled, _) = streamer.set_input_capture(true);
         assert!(enabled, "Mic capture should be enabled");
+        assert!(streamer.input_stream.is_some(), "Input capture stream must be active when enabled");
 
         let (disabled, _) = streamer.set_input_capture(false);
         assert!(!disabled, "Mic capture should be disabled");
+        assert!(streamer.input_stream.is_none(), "Input capture stream must be extinguished when disabled");
 
         streamer.terminate();
         let restored_out = get_macos_default_output_id();
