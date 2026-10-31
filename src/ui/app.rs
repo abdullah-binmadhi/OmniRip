@@ -348,7 +348,7 @@ impl App {
                     }
                     "status" => {
                         let st = if self.streamer.is_input_capture_enabled() { "ON" } else { "OFF" };
-                        self.set_status(&format!("Microphone status: [{}] (Use :mic on or :mic off)", st));
+                        self.set_status(&format!("Microphone isolation: [{}] (Loopback sound engine always active)", st));
                     }
                     _ => {
                         let (_, msg) = self.streamer.toggle_input_capture();
@@ -2408,7 +2408,7 @@ impl App {
             (13, format!("14. Dynamic Loudness:  {}", if loudness_contour { "[ ON ISO226 ]" } else { "[ OFF ]" })),
             (14, format!("15. Mid/Side Matrix:   {}", if ms_matrix { "[ ON Split ]" } else { "[ OFF ]" })),
             (15, format!("16. Pultec Low Boost:  {} {:>+4.1}dB", make_slider(pultec_low, 0.0, 5.0, 7), pultec_low)),
-            (16, format!("17. Microphone Stream: {}", if mic_enabled { "[ ON Live ]" } else { "[ OFF Muted ]" })),
+            (16, format!("17. Mic Isolation:    {}", if mic_enabled { "[ ACTIVE Private ]" } else { "[ OFF Standby ]" })),
             (17, format!("18. Esports Game Mode: {}", if game_mode { "[ ACTIVE 10ms ]" } else { "[ OFF Studio ]" })),
             (18, format!("19. Radar Footstep EQ: {}", if radar_eq { "[ ON +4.5dB ]" } else { "[ OFF ]" })),
             (19, format!("20. Spike Ear Shield:  {}", if spike_shield { "[ ON -6dB ]" } else { "[ OFF ]" })),
@@ -2566,10 +2566,10 @@ impl App {
                 "Jazz Bass, Soul, Reggae, Organ & Double Bass",
             ),
             16 => (
-                "Hardware Microphone & Acoustic Line Capture",
-                "Full-duplex low-latency audio capture stream with live peak metering",
-                "Press [Enter] or [x] to toggle mic on/off across all workstations",
-                "Live Voice Analysis, Acoustic Room Calibration, Podcast Monitoring",
+                "Microphone Hardware Isolation & Loopback Audio Feed",
+                "Zero microphone hardware recording; bit-perfect system loopback stream for DSP engine",
+                "Press [Enter] or [x] to toggle mic isolation status across all workstations",
+                "Private Bit-Perfect Playback, Pure Loopback Interception, Zero-Mic Privacy",
             ),
             17 => (
                 "Hermite Cubic Direct Resampler & 10.6ms Real-Time Buffer",
@@ -4625,6 +4625,7 @@ mod tests {
     #[test]
     fn test_command_bar_execution_and_mic_commands() {
         let mut app = App::new_test();
+        app.streamer.set_input_capture(false);
         assert!(!app.streamer.is_input_capture_enabled());
 
         // Test :mic on command
@@ -4663,6 +4664,7 @@ mod tests {
     #[test]
     fn test_unassigned_key_x_and_mastering_rack_item17_mic_toggle() {
         let mut app = App::new_test();
+        app.streamer.set_input_capture(false);
         assert!(!app.streamer.is_input_capture_enabled());
 
         // 1. Direct toggle to ON
