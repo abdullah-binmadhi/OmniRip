@@ -619,14 +619,6 @@ impl AudioStreamer {
                 let _ = s.pause();
                 drop(s);
             }
-            #[cfg(target_os = "macos")]
-            {
-                if let Some(saved_id) = self.saved_physical_output_id.take() {
-                    let _ = set_macos_system_output_to_device_id(saved_id);
-                } else {
-                    let _ = set_macos_system_output_to_hardware();
-                }
-            }
             (false, "Microphone & Input Capture: [OFF] (Stream stopped, macOS mic indicator dismissed)".to_string())
         } else {
             // Activate input capture stream if engine is running
@@ -635,23 +627,6 @@ impl AudioStreamer {
                     let (in_dev, _) = self.find_devices();
                     if let Some(in_d) = in_dev {
                         let in_dev_name = in_d.name().unwrap_or_default();
-                        #[cfg(target_os = "macos")]
-                        {
-                            let in_name_lower = in_dev_name.to_lowercase();
-                            if in_name_lower.contains("omnirip") || in_name_lower.contains("blackhole") {
-                                if let Some(current_id) = get_macos_default_output_id() {
-                                    let loopback_id = get_macos_device_id_by_keyword("omnirip")
-                                        .or_else(|| get_macos_device_id_by_keyword("blackhole"));
-                                    if let Some(target_id) = loopback_id {
-                                        if current_id != target_id {
-                                            self.saved_physical_output_id = Some(current_id);
-                                            let _ = set_macos_system_output_to_device_id(target_id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         if let Some(ref ipc) = self.ipc_server {
                             let writer_for_in = ipc.writer();
                             let is_paused_in = Arc::clone(&self.is_paused);
@@ -1334,24 +1309,31 @@ mod tests {
 
         // Verify default state is disabled (OFF) to ensure mic hardware is not held on startup
         assert!(!streamer.is_input_capture_enabled());
+        assert_eq!(streamer.saved_physical_output_id, None);
 
         // Toggle to ON
         let (enabled, msg) = streamer.toggle_input_capture();
         assert!(enabled);
         assert!(streamer.is_input_capture_enabled());
         assert!(msg.contains("[ON]"));
+        // Output device state must remain untouched
+        assert_eq!(streamer.saved_physical_output_id, None, "Mic ON must not alter saved_physical_output_id");
 
         // Toggle back to OFF
         let (enabled_off, msg_off) = streamer.toggle_input_capture();
         assert!(!enabled_off);
         assert!(!streamer.is_input_capture_enabled());
         assert!(msg_off.contains("[OFF]"));
+        // Output device state must remain untouched
+        assert_eq!(streamer.saved_physical_output_id, None, "Mic OFF must not alter saved_physical_output_id");
 
         // Direct set
         let (st, _) = streamer.set_input_capture(true);
         assert!(st);
+        assert_eq!(streamer.saved_physical_output_id, None);
         let (st2, _) = streamer.set_input_capture(false);
         assert!(!st2);
+        assert_eq!(streamer.saved_physical_output_id, None);
     }
 
     #[test]
