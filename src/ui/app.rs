@@ -136,6 +136,33 @@ pub struct App {
     pub setup_modal: crate::ui::setup_modal::SetupModalState,
 }
 
+/// Puts the terminal into TUI mode and restores it on drop, so every exit path (including early `?`
+/// returns from the event loop) leaves the shell usable.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> std::io::Result<Self> {
+        enable_raw_mode()?;
+        if let Err(e) = execute!(stdout(), EnterAlternateScreen, EnableBracketedPaste) {
+            let _ = disable_raw_mode();
+            return Err(e);
+        }
+        Ok(TerminalGuard)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            LeaveAlternateScreen,
+            DisableBracketedPaste,
+            crossterm::cursor::Show
+        );
+    }
+}
+
 impl App {
     pub fn new() -> Self {
         let sample_rate = 48000.0;
@@ -1012,9 +1039,9 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+        // Restores the terminal on every exit path, including early `?` returns from the loop below.
+        let _terminal_guard = TerminalGuard::enter()?;
+        let stdout = stdout();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -3272,392 +3299,6 @@ impl App {
 
         // Unified Presets Browser
         self.render_autoeq_presets_browser(f, v_chunks[1]);
-    }
-
-    #[allow(dead_code)]
-    fn render_autoeq_transducer_database(&mut self, f: &mut ratatui::Frame, area: Rect) {
-        let block = Block::default()
-            .title(" TRANSDUCER MEASUREMENT DATABASE & HARMAN TARGET WORKBENCH ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        let h_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(36), Constraint::Percentage(64)])
-            .split(inner);
-
-        // LEFT PANE: Headphone & IEM Database
-        let list_block = Block::default()
-            .title(format!(" HEADPHONE PROFILES ({}) ", self.profiles.len()))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let list_inner = list_block.inner(h_chunks[0]);
-        f.render_widget(list_block, h_chunks[0]);
-
-        let col_w = h_chunks[0].width as usize;
-        let items: Vec<ListItem> = self
-            .profiles
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let is_sel = i == self.selected_profile_idx;
-                let suffix = format!(" ({:+.1}dB, {}f)", p.preamp_db, p.filters.len());
-                let prefix = format!("{}. ", i + 1);
-                let avail = col_w.saturating_sub(prefix.len() + suffix.len() + 4);
-                let name = if p.name.len() > avail && avail > 3 {
-                    format!("{}..", &p.name[..avail - 2])
-                } else if avail <= 3 {
-                    p.name.chars().take(8).collect::<String>()
-                } else {
-                    p.name.clone()
-                };
-                let text = format!("{}{}{}", prefix, name, suffix);
-                let style = if is_sel {
-                    Style::default().fg(self.theme.primary).bg(self.theme.surface).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(self.theme.text)
-                };
-                ListItem::new(text).style(style)
-            })
-            .collect();
-
-        let list = List::new(items)
-            .highlight_style(Style::default().bg(self.theme.surface).add_modifier(Modifier::BOLD))
-            .highlight_symbol("> ");
-
-        f.render_stateful_widget(list, list_inner, &mut self.profile_list_state);
-
-        // RIGHT COLUMN: Frequency Response Plot (Top) & Filter Matrix (Bottom)
-        let right_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
-            .split(h_chunks[1]);
-
-        let prof = &self.profiles[self.selected_profile_idx];
-
-        let plot_inner = right_chunks[0];
-        let mode_title = match self.autoeq_visual_mode {
-            0 => "Smooth Braille Vector Curve",
-            1 => "Solid ISO Response Bars",
-            2 => "Multi-Trace Acoustic Overlay",
-            3 => "Shaded Tolerance Corridor (+/-1.5dB)",
-            4 => "Phase & Group Delay Curve",
-            _ => "Acoustic Response",
-        };
-
-        let plot_block = Block::default()
-            .title(format!(" ACOUSTIC FREQUENCY RESPONSE: {} (Press [V] or [F] to Cycle) ", mode_title))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let p_area = plot_block.inner(plot_inner);
-        f.render_widget(plot_block, plot_inner);
-
-        // Analytic response curve calculation
-        let eval_delta = |freq: f32| -> f32 {
-            let mut sum_db = 0.0f32;
-            for flt in &prof.filters {
-                let f0 = flt.frequency;
-                let g = flt.gain_db;
-                let q = flt.q.max(0.1);
-                let gain = match flt.filter_type {
-                    BiquadFilterType::Peaking => {
-                        let octaves = (freq / f0).log2().abs();
-                        let bw = 1.0 / q;
-                        if octaves < bw * 2.0 {
-                            g * (-(octaves * octaves) / (2.0 * (bw * 0.5) * (bw * 0.5))).exp()
-                        } else {
-                            0.0
-                        }
-                    }
-                    BiquadFilterType::LowShelf => {
-                        if freq <= f0 {
-                            g
-                        } else if freq < f0 * 2.0 {
-                            g * (1.0 - (freq - f0) / f0)
-                        } else {
-                            0.0
-                        }
-                    }
-                    BiquadFilterType::HighShelf => {
-                        if freq >= f0 {
-                            g
-                        } else if freq > f0 * 0.5 {
-                            g * ((freq - f0 * 0.5) / (f0 * 0.5))
-                        } else {
-                            0.0
-                        }
-                    }
-                    _ => 0.0,
-                };
-                sum_db += gain;
-            }
-            sum_db
-        };
-
-        let total_w = p_area.width as usize;
-        let total_h = p_area.height as usize;
-        let axis_w = 7;
-        let graph_w = total_w.saturating_sub(axis_w).max(10);
-        let graph_h = total_h.saturating_sub(4).max(4);
-
-        // Compute logarithmic frequencies and gains across all columns
-        let mut freqs = Vec::with_capacity(graph_w);
-        let mut gains = Vec::with_capacity(graph_w);
-        for col in 0..graph_w {
-            let ratio = if graph_w > 1 { col as f32 / (graph_w - 1) as f32 } else { 0.5 };
-            let f = 20.0 * (1000.0_f32).powf(ratio);
-            freqs.push(f);
-            gains.push(eval_delta(f));
-        }
-
-        let mut plot_lines = Vec::new();
-
-        // 1. Header Line
-        let p_name = if prof.name.len() > 28 {
-            format!("{}..", &prof.name[..26])
-        } else {
-            prof.name.clone()
-        };
-        plot_lines.push(Line::from(vec![
-            Span::styled(format!(" Profile: {} ", p_name), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("| Preamp: {:+.1}dB ", prof.preamp_db), Style::default().fg(self.theme.warning)),
-            Span::styled(format!("| Filters: {} ", prof.filters.len()), Style::default().fg(self.theme.text)),
-            Span::styled(format!("| Mode: {} ", mode_title), Style::default().fg(self.theme.secondary)),
-        ]));
-
-        // 2. Multi-Row Graph Grid
-        let max_db = 12.0f32;
-        let min_db = -12.0f32;
-        let zero_r = ((max_db / (max_db - min_db)) * (graph_h - 1) as f32).round() as usize;
-
-        for r in 0..graph_h {
-            let db_val = max_db - (r as f32 / (graph_h - 1).max(1) as f32) * (max_db - min_db);
-            let axis_label = if r == 0 {
-                format!("{:>+4.0}dB|", max_db)
-            } else if r == zero_r {
-                "  0dB|".to_string()
-            } else if r == graph_h - 1 {
-                format!("{:>+4.0}dB|", min_db)
-            } else if (db_val - 6.0).abs() < (12.0 / graph_h as f32) {
-                " +6dB|".to_string()
-            } else if (db_val + 6.0).abs() < (12.0 / graph_h as f32) {
-                " -6dB|".to_string()
-            } else {
-                "     |".to_string()
-            };
-
-            let mut spans = vec![Span::styled(axis_label, Style::default().fg(self.theme.text_dim))];
-
-            match self.autoeq_visual_mode {
-                1 => {
-                    // Solid ISO Response Bars
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let (ch, style) = if g >= 0.0 {
-                            if r <= zero_r && r >= target_r {
-                                ("█", Style::default().fg(self.theme.primary))
-                            } else if r == zero_r {
-                                ("─", Style::default().fg(self.theme.text_dim))
-                            } else {
-                                (" ", Style::default())
-                            }
-                        } else {
-                            if r >= zero_r && r <= target_r {
-                                ("█", Style::default().fg(self.theme.accent))
-                            } else if r == zero_r {
-                                ("─", Style::default().fg(self.theme.text_dim))
-                            } else {
-                                (" ", Style::default())
-                            }
-                        };
-                        spans.push(Span::styled(ch, style));
-                    }
-                }
-                2 => {
-                    // Multi-Trace Overlay (Raw / Target / Corrected / Delta)
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let raw_r = ((max_db - (-g)) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        if target_r == r {
-                            spans.push(Span::styled("█", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
-                        } else if raw_r == r {
-                            spans.push(Span::styled("*", Style::default().fg(self.theme.warning)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                3 => {
-                    // Shaded Tolerance Corridor (+/-1.5 dB)
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let is_in_corridor = db_val >= -1.5 && db_val <= 1.5;
-                        if target_r == r {
-                            let col = if g.abs() <= 1.5 { self.theme.success } else { self.theme.warning };
-                            spans.push(Span::styled("█", Style::default().fg(col).add_modifier(Modifier::BOLD)));
-                        } else if is_in_corridor {
-                            spans.push(Span::styled("░", Style::default().fg(self.theme.surface)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                4 => {
-                    // Phase & Group Delay Curve
-                    for &g in &gains {
-                        let phase_deg = (g * 15.0).clamp(-180.0, 180.0);
-                        let phase_r = ((180.0 - phase_deg) / 360.0 * (graph_h - 1) as f32).round() as usize;
-                        if phase_r == r {
-                            spans.push(Span::styled("~", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                _ => {
-                    // Mode 0: Smooth Braille Vector Curve
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let frac = (max_db - g) / (max_db - min_db) * (graph_h - 1) as f32 - target_r as f32;
-                        if target_r == r {
-                            let ch = if frac < 0.25 { "▀" } else if frac > 0.75 { "▄" } else { "─" };
-                            spans.push(Span::styled(ch, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-            }
-
-            plot_lines.push(Line::from(spans));
-        }
-
-        // 3. Axis Divider
-        plot_lines.push(Line::from(vec![
-            Span::styled("      +", Style::default().fg(self.theme.text_dim)),
-            Span::styled("─".repeat(graph_w), Style::default().fg(self.theme.text_dim)),
-        ]));
-
-        // 4. Frequency Labels evenly spaced with collision prevention
-        let f_marks: [(f32, &str); 10] = [
-            (20.0, "20Hz"),
-            (50.0, "50"),
-            (100.0, "100"),
-            (250.0, "250"),
-            (500.0, "500"),
-            (1000.0, "1kHz"),
-            (2000.0, "2k"),
-            (4000.0, "4k"),
-            (8000.0, "8k"),
-            (20000.0, "20kHz"),
-        ];
-
-        let mut label_chars: Vec<char> = vec![' '; graph_w];
-        let mut last_end: usize = 0;
-        for &(f_hz, text) in &f_marks {
-            let ratio = (f_hz / 20.0_f32).log10() / 3.0_f32; // log10(1000) = 3.0
-            let pos = (ratio * (graph_w.saturating_sub(text.len())) as f32).round() as usize;
-            if pos >= last_end && pos + text.len() <= graph_w {
-                for (j, c) in text.chars().enumerate() {
-                    label_chars[pos + j] = c;
-                }
-                last_end = pos + text.len() + 1;
-            }
-        }
-        let f_label_str: String = label_chars.into_iter().collect();
-        plot_lines.push(Line::from(vec![
-            Span::styled("       ", Style::default().fg(self.theme.text_dim)),
-            Span::styled(f_label_str, Style::default().fg(self.theme.accent)),
-        ]));
-
-        // 5. Dynamic Legend spanning width
-        let legend_text = match self.autoeq_visual_mode {
-            1 => " [Legend] Solid ISO Bars: Upward=Boost (Primary) | Downward=Cut (Accent) | [V/F] Change Mode",
-            2 => " [Legend] Overlay: [*] Raw Headphone | [─] Harman Target | [█] Equalizer Correction | [V/F] Change",
-            3 => " [Legend] Shaded Corridor: [░] +/-1.5dB Tolerance Corridor | [█] Response Trace | [V/F] Change",
-            4 => " [Legend] Phase: [~] Acoustic Phase Degrees (-180° to +180°) | [─] Reference | [V/F] Change",
-            _ => " [Legend] Smooth Braille: [─/▀/▄] Frequency Response Curve | [·] 0dB Reference Target | [V/F] Change",
-        };
-        plot_lines.push(Line::from(vec![
-            Span::styled(legend_text, Style::default().fg(self.theme.secondary)),
-        ]));
-
-        let p_plot = Paragraph::new(plot_lines);
-        f.render_widget(p_plot, p_area);
-
-        // BOTTOM RIGHT: Parametric Biquad Filter Breakdown Matrix
-        let matrix_block = Block::default()
-            .title(" ACTIVE PARAMETRIC FILTER MATRIX (Biquad Second-Order IIR) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let matrix_inner = matrix_block.inner(right_chunks[1]);
-        f.render_widget(matrix_block, right_chunks[1]);
-
-        let mut matrix_lines = Vec::new();
-        let header = format!(" {:<3} | {:<11} | {:>7} | {:>8} | {:>6} | {}", "ID", "TYPE", "FREQ", "GAIN", "Q", "ACOUSTIC CORRECTION INTENT");
-        matrix_lines.push(Line::from(vec![
-            Span::styled(header, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-        ]));
-        matrix_lines.push(Line::from(vec![
-            Span::styled("-----+-------------+---------+----------+--------+-----------------------------------", Style::default().fg(self.theme.text_dim)),
-        ]));
-
-        for (idx, flt) in prof.filters.iter().enumerate() {
-            let type_str = match flt.filter_type {
-                BiquadFilterType::Peaking => "Peak / Bell",
-                BiquadFilterType::LowShelf => "Low Shelf",
-                BiquadFilterType::HighShelf => "High Shelf",
-                BiquadFilterType::LowPass => "Low Pass",
-                BiquadFilterType::HighPass => "High Pass",
-                BiquadFilterType::Notch => "Notch Filter",
-                BiquadFilterType::BandPass => "Band Pass",
-            };
-
-            let intent = match flt.filter_type {
-                BiquadFilterType::LowShelf => "Harman Sub-Bass Target Shelf Lift",
-                BiquadFilterType::HighShelf => "Upper Treble Air & Sparkle Extension",
-                _ if flt.frequency < 120.0 => "Sub-Bass Punch & Rumble Extension",
-                _ if flt.frequency < 350.0 => "Lower Mid-Bass Resonance Trim",
-                _ if flt.frequency < 1500.0 => "Vocal Lower-Mid Clarification",
-                _ if flt.frequency < 4000.0 => "Ear Pinna Concha Target Alignment",
-                _ if flt.frequency < 8000.0 => "Sibilance & Harshness Attenuation",
-                _ => "High-Frequency Harmonic Polishing",
-            };
-
-            let row = format!(
-                " {:<3} | {:<11} | {:>5.0}Hz | {:>+6.1}dB | {:>6.2} | {}",
-                idx + 1,
-                type_str,
-                flt.frequency,
-                flt.gain_db,
-                flt.q,
-                intent
-            );
-            matrix_lines.push(Line::from(vec![
-                Span::styled(row, Style::default().fg(self.theme.text)),
-            ]));
-        }
-
-        matrix_lines.push(Line::from(""));
-        matrix_lines.push(Line::from(vec![
-            Span::styled(format!(" Preamp Headroom: {:+.1} dB (Protection Against Digital Intersample Clipping)", prof.preamp_db), Style::default().fg(self.theme.warning)),
-        ]));
-        matrix_lines.push(Line::from(vec![
-            Span::styled(" [Enter] Apply  [Shift+S] Save Preset  [Shift+I] Import Text  [Shift+U] Download URL  [Up/Down] Nav", Style::default().fg(self.theme.accent)),
-        ]));
-
-        let p_matrix = Paragraph::new(matrix_lines).wrap(ratatui::widgets::Wrap { trim: true });
-        f.render_widget(p_matrix, matrix_inner);
     }
 
     fn render_autoeq_presets_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {

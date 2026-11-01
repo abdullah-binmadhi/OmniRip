@@ -72,23 +72,18 @@ pub fn load_volume_settings() -> (usize, f32) {
     (DEFAULT_PLAYER_VOLUME_PCT, DEFAULT_SYSTEM_VOLUME_SCALAR)
 }
 
-/// Loads persistent mic input capture setting from disk. Defaults to false (OFF) to ensure mic hardware is not held on startup.
+/// Input capture (the X key, or `:mic on`) always starts off, on every launch. The saved flag is not read,
+/// so a previous session cannot turn capture on at startup.
 pub fn load_mic_setting() -> bool {
-    let path = volume_config_path();
-    if !path.exists() {
-        return false;
-    }
-
-    if let Ok(mut file) = File::open(&path) {
-        let mut contents = String::new();
-        if file.read_to_string(&mut contents).is_ok() {
-            if let Ok(cfg) = serde_json::from_str::<VolumeConfig>(&contents) {
-                return cfg.mic_enabled;
-            }
-        }
-    }
-
     false
+}
+
+#[cfg(test)]
+mod mic_default_tests {
+    #[test]
+    fn input_capture_starts_off_regardless_of_saved_state() {
+        assert!(!super::load_mic_setting());
+    }
 }
 
 /// Loads persistent DAC Mimicker flavor from disk. Defaults to StockOemPlus.
