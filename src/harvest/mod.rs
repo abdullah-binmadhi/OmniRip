@@ -1,6 +1,7 @@
 //! OmniRip Harvester: Audio Downloader, Tagging & Quality Analysis Subsystem.
 
 pub mod bootstrap;
+pub mod integrity;
 pub mod library_sync;
 pub mod link_bank;
 pub mod lyrics;

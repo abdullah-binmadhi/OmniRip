@@ -194,12 +194,15 @@ impl OfficialToolUrls {
 pub struct ToolBootstrapper;
 
 impl ToolBootstrapper {
-    /// Download a file from a URL to destination path with progress updates.
+    /// Downloads `url` into `dest_path`. The body is written to a temporary file first, so a failed or
+    /// truncated transfer never replaces an existing file. With `expected_sha256`, the finished file must
+    /// match that digest before it is moved into place.
     pub async fn download_file<F>(
         url: &str,
         dest_path: &Path,
         progress_cb: F,
         cancel_signal: Arc<AtomicBool>,
+        expected_sha256: Option<&str>,
     ) -> Result<(), String>
     where
         F: Fn(u64, Option<u64>) + Send + 'static,
@@ -223,31 +226,25 @@ impl ToolBootstrapper {
             return Err(format!("Download failed with HTTP status: {}", res.status()));
         }
 
-        let total_size = res.content_length();
-        let mut downloaded: u64 = 0;
-
-        use std::io::Write;
         let temp_dest = dest_path.with_extension("tmp_download");
-        let mut file = std::fs::File::create(&temp_dest)
-            .map_err(|e| format!("Failed to create destination file: {}", e))?;
-
-        let mut res = res;
-        while let Ok(Some(chunk)) = res.chunk().await {
-            if cancel_signal.load(Ordering::Relaxed) {
-                let _ = std::fs::remove_file(&temp_dest);
-                return Err("Download canceled by user.".to_string());
-            }
-
-            file.write_all(&chunk)
-                .map_err(|e| format!("Failed to write chunk to disk: {}", e))?;
-            downloaded += chunk.len() as u64;
-            progress_cb(downloaded, total_size);
+        if let Err(e) = Self::stream_body_to_file(res, &temp_dest, &progress_cb, &cancel_signal).await {
+            let _ = std::fs::remove_file(&temp_dest);
+            return Err(e);
         }
 
-        file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
-        drop(file);
+        if let Some(expected) = expected_sha256 {
+            let actual = crate::harvest::integrity::sha256_file(&temp_dest)?;
+            if !actual.eq_ignore_ascii_case(expected.trim()) {
+                let _ = std::fs::remove_file(&temp_dest);
+                return Err(format!(
+                    "Checksum mismatch for {}: expected {}, got {}",
+                    url,
+                    expected.trim(),
+                    actual
+                ));
+            }
+        }
 
-        // Rename temp file to final destination
         std::fs::rename(&temp_dest, dest_path)
             .map_err(|e| format!("Failed to move downloaded file to destination: {}", e))?;
 
@@ -265,7 +262,56 @@ impl ToolBootstrapper {
         Ok(())
     }
 
-    /// Automatically bootstrap `yt-dlp` into the user tools directory.
+    /// Streams the response body into `temp_dest`. A network error, a cancel, or a body shorter than the
+    /// announced length is an error, so a partial file is never treated as complete.
+    async fn stream_body_to_file<F>(
+        mut res: reqwest::Response,
+        temp_dest: &Path,
+        progress_cb: &F,
+        cancel_signal: &AtomicBool,
+    ) -> Result<(), String>
+    where
+        F: Fn(u64, Option<u64>),
+    {
+        use std::io::Write;
+        let total_size = res.content_length();
+        let mut file = std::fs::File::create(temp_dest)
+            .map_err(|e| format!("Failed to create destination file: {}", e))?;
+        let mut downloaded: u64 = 0;
+
+        while let Some(chunk) = res
+            .chunk()
+            .await
+            .map_err(|e| format!("Download interrupted: {}", e))?
+        {
+            if cancel_signal.load(Ordering::Relaxed) {
+                return Err("Download canceled by user.".to_string());
+            }
+            file.write_all(&chunk)
+                .map_err(|e| format!("Failed to write chunk to disk: {}", e))?;
+            downloaded += chunk.len() as u64;
+            progress_cb(downloaded, total_size);
+        }
+
+        file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
+        drop(file);
+        Self::check_complete(downloaded, total_size)
+    }
+
+    /// Fails when the body ended before the length the server announced.
+    pub fn check_complete(downloaded: u64, announced: Option<u64>) -> Result<(), String> {
+        match announced {
+            Some(total) if downloaded != total => Err(format!(
+                "Incomplete download: received {} of {} bytes",
+                downloaded, total
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// Automatically bootstrap `yt-dlp` into the user tools directory. The digest comes from the release's
+    /// SHA2-256SUMS, so corrupt or truncated downloads are refused. That list is served by the same release,
+    /// so it guards against damage in transit but does not authenticate the release itself.
     pub async fn bootstrap_yt_dlp<F>(progress_cb: F, cancel_signal: Arc<AtomicBool>) -> Result<PathBuf, String>
     where
         F: Fn(u64, Option<u64>) + Send + 'static,
@@ -273,7 +319,27 @@ impl ToolBootstrapper {
         let (url, filename) = OfficialToolUrls::yt_dlp_url();
         let target_path = ToolResolver::user_tools_dir().join(filename);
 
-        Self::download_file(url, &target_path, progress_cb, cancel_signal).await?;
+        let asset = url.rsplit('/').next().unwrap_or(filename);
+        let sums_url = url
+            .rsplit_once('/')
+            .map(|(dir, _)| format!("{dir}/SHA2-256SUMS"))
+            .unwrap_or_default();
+        let sums = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?
+            .get(&sums_url)
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+            .map_err(|e| format!("Could not fetch yt-dlp checksums: {}", e))?
+            .text()
+            .await
+            .map_err(|e| format!("Could not read yt-dlp checksums: {}", e))?;
+        let expected = crate::harvest::integrity::expected_sha256_for(&sums, asset)
+            .ok_or_else(|| format!("{} is missing from yt-dlp SHA2-256SUMS", asset))?;
+
+        Self::download_file(url, &target_path, progress_cb, cancel_signal, Some(expected.as_str())).await?;
         ToolResolver::activate_user_tools_path();
 
         Ok(target_path)
@@ -304,6 +370,13 @@ mod tests {
         assert_eq!(probe.name, "omnirip_nonexistent_tool_xyz");
         assert!(!probe.is_installed);
         assert!(probe.resolved_path.is_none());
+    }
+
+    #[test]
+    fn a_body_shorter_than_announced_is_incomplete() {
+        assert!(ToolBootstrapper::check_complete(10, Some(12)).is_err());
+        assert!(ToolBootstrapper::check_complete(12, Some(12)).is_ok());
+        assert!(ToolBootstrapper::check_complete(7, None).is_ok());
     }
 
     #[test]

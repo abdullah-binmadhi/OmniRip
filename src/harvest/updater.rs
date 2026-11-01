@@ -1,3 +1,4 @@
+use crate::harvest::integrity;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -137,7 +138,32 @@ pub async fn check_latest_release(repo: &str) -> Result<Option<UpdateInfo>, Stri
     }))
 }
 
+/// Release signing key, in minisign's base64 format. It stays empty until the release key is generated and
+/// committed. While it is empty, the updater refuses every update.
+pub const UPDATE_PUBLIC_KEY: &str = "";
+
+/// `SHA256SUMS` and its `.minisig` signature, located next to the archive in the same release.
+pub fn checksum_urls(archive_url: &str) -> Option<(String, String)> {
+    let (dir, _) = archive_url.rsplit_once('/')?;
+    Some((format!("{dir}/SHA256SUMS"), format!("{dir}/SHA256SUMS.minisig")))
+}
+
+async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(|response| response.error_for_status())
+        .map_err(|e| format!("Could not fetch {}: {}", url, e))?;
+    response
+        .text()
+        .await
+        .map_err(|e| format!("Could not read {}: {}", url, e))
+}
+
 /// Downloads the release archive and atomically replaces the currently executing binary.
+/// The archive is installed only after the release's `SHA256SUMS` passes signature verification and
+/// the archive's own digest matches the verified list.
 pub async fn apply_self_update<F>(
     download_url: &str,
     progress_cb: F,
@@ -155,12 +181,28 @@ where
     let is_zip = download_url.ends_with(".zip");
     let archive_path = temp_dir.join(if is_zip { "update.zip" } else { "update.tar.gz" });
 
-    // 1. Download asset archive
+    // 1. Fetch the release checksums, verify their signature, and take this archive's digest from them.
+    let archive_name = download_url.rsplit('/').next().unwrap_or_default().to_string();
+    let (sums_url, sig_url) =
+        checksum_urls(download_url).ok_or("Update URL is not a release asset URL")?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("OmniRip-SelfUpdater/0.2.0")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let sums = fetch_text(&client, &sums_url).await?;
+    let signature = fetch_text(&client, &sig_url).await?;
+    integrity::verify_minisign(sums.as_bytes(), &signature, UPDATE_PUBLIC_KEY)?;
+    let expected = integrity::expected_sha256_for(&sums, &archive_name)
+        .ok_or_else(|| format!("{} is missing from SHA256SUMS", archive_name))?;
+
+    // 2. Download the archive. It must match the verified digest before anything is installed.
     crate::harvest::bootstrap::ToolBootstrapper::download_file(
         download_url,
         &archive_path,
         progress_cb,
         cancel_signal,
+        Some(expected.as_str()),
     )
     .await?;
 
@@ -271,14 +313,25 @@ fn atomic_replace_binary(new_binary: &Path, target_exe: &Path) -> Result<(), Str
 
     #[cfg(windows)]
     {
+        // Stage the new binary first, so a failed copy leaves the running executable untouched.
+        let staged = target_exe.with_extension("new_version");
         let old_exe = target_exe.with_extension("old_version");
+        let _ = std::fs::remove_file(&staged);
+        std::fs::copy(new_binary, &staged)
+            .map_err(|e| format!("Failed to stage new executable: {}", e))?;
+
         let _ = std::fs::remove_file(&old_exe);
-
-        std::fs::rename(target_exe, &old_exe)
-            .map_err(|e| format!("Failed to rename running executable: {}", e))?;
-
-        std::fs::copy(new_binary, target_exe)
-            .map_err(|e| format!("Failed to copy new executable: {}", e))?;
+        // Windows lets a running executable be renamed but not overwritten, so move it aside first.
+        if let Err(e) = std::fs::rename(target_exe, &old_exe) {
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("Failed to move the running executable aside: {}", e));
+        }
+        if let Err(e) = std::fs::rename(&staged, target_exe) {
+            // Put the previous executable back, so the installed program still works.
+            let _ = std::fs::rename(&old_exe, target_exe);
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("Failed to put the new executable in place: {}", e));
+        }
 
         Ok(())
     }
@@ -303,6 +356,14 @@ mod tests {
         assert!(!is_newer_version("0.2.1", "0.2.0"));
         assert!(!is_newer_version("0.2.0", "0.2.0"));
         assert!(!is_newer_version("1.0.0", "0.9.9"));
+    }
+
+    #[test]
+    fn checksum_urls_sit_next_to_the_archive() {
+        let (sums, sig) = checksum_urls("https://example.com/releases/download/v1/omnirip-linux-x86_64.tar.gz")
+            .expect("release asset URL");
+        assert_eq!(sums, "https://example.com/releases/download/v1/SHA256SUMS");
+        assert_eq!(sig, "https://example.com/releases/download/v1/SHA256SUMS.minisig");
     }
 
     #[test]
