@@ -1,6 +1,9 @@
+# Builds OmniRipAudio.driver, the CoreAudio HAL plug-in. The bundle is universal (arm64 and x86_64),
+# so Apple Silicon and Intel Macs both load it.
 CC = clang
 SYSROOT = $(shell xcrun --sdk macosx --show-sdk-path)
-CFLAGS = -O3 -Wall -Wextra -arch arm64 -isysroot $(SYSROOT) -std=c11
+ARCHS = -arch arm64 -arch x86_64
+CFLAGS = -O3 -Wall -Wextra $(ARCHS) -isysroot $(SYSROOT) -std=c11
 LDFLAGS = -bundle -framework CoreAudio -framework CoreFoundation
 
 DRIVER_NAME = OmniRipAudio
@@ -8,7 +11,7 @@ BUNDLE = $(DRIVER_NAME).driver
 CONTENTS_DIR = $(BUNDLE)/Contents
 MACOS_DIR = $(CONTENTS_DIR)/MacOS
 
-.PHONY: all clean install
+.PHONY: all clean
 
 all: $(BUNDLE)
 
