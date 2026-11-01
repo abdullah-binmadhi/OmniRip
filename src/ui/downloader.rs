@@ -6923,7 +6923,7 @@ mod tests {
         assert_eq!(bar_w, 4);
 
         // Marker position test
-        let center_band0 = left_pad + 0 * col_width + (bar_w / 2);
+        let center_band0 = left_pad + (bar_w / 2);
         assert_eq!(center_band0, 9);
         let center_band31 = left_pad + 31 * col_width + (bar_w / 2);
         assert_eq!(center_band31, 7 + 155 + 2); // 164

@@ -1,87 +1,28 @@
-# Byte-compiled / optimized / build artifacts
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-*.egg
-build/
-dist/
-wheels/
-*.so
+# Build output
 target/
+dist/
+build/
 
-# Environments & dependencies
-.venv/
-env/
-venv/
-ENV/
+# Local driver build output (rebuilt by make)
+*.driver/
 
-# Configuration & Secrets
+# Configuration and secrets
 config.toml
 .env
 .env.*
 !.env.example
 
-# Testing & Coverage
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-.hypothesis/
-.tox/
-.nox/
-
-# Type checkers & tooling caches
-.pyrefly/
-.pyre/
-.ropeproject/
-
-# Logs and databases
+# Logs and local data
 *.log
 logs/
 *.sqlite3
 *.db
+.harvester/
+.omnirip/
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# IDE & Editor files
-.idea/
-.vscode/
-.zed/
-*.swp
-*.swo
-*~
-
-# Local environment & versioning
-.python-version
-
-# AI Agent & Harness files (local-only)
-AGENTS.md
-.rules
-.graphifyignore
-
-# Local reference documents
-*.pdf
-
-# Model weights & Checkpoints
-*.pt
-*.pth
-*.ckpt
-*.safetensors
-*.bin
-*.onnx
-
-# Audio outputs & downloads
+# Downloads and audio outputs
+downloads/
+output/
 *.wav
 *.mp3
 *.flac
@@ -90,21 +31,41 @@ AGENTS.md
 *.opus
 *.aac
 *.aiff
-downloads/
-output/
 
-# Local runtime data
-.harvester/
-.omnirip/
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
 
-# Local daemon configuration, credentials, binaries, and runtime data.
+# Tooling and scratch space kept local
 tools/slskd/*
 !tools/slskd/README.md
 !tools/slskd/slskd.yml
-
-# Local scratch scripts and C test binaries
 scratch/
-
-# Graphify knowledge graph outputs and caches
 graphify-out/
 .graphify/
+
+# OS and editor files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+.idea/
+.vscode/
+.zed/
+*.swp
+*.swo
+*~
+
+# Agent instruction files (local only)
+AGENTS.md
+.rules
+.graphifyignore
+
+# Local reference documents
+*.pdf

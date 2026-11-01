@@ -80,10 +80,6 @@ pub fn pad_display_str(s: &str, target_w: usize) -> String {
     }
 }
 
-#[allow(dead_code)]
-fn truncate_str(s: &str, max_len: usize) -> String {
-    truncate_display_str(s, max_len)
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamItemStatus {
@@ -2157,12 +2153,12 @@ mod tests {
     #[test]
     fn test_streaming_queue_dynamic_truncation() {
         let long_title = "Wrath of The Gods \"Suite\" | Epic Battle Music | BEST Anime Track Ever Recorded";
-        let truncated = truncate_str(long_title, 20);
+        let truncated = truncate_display_str(long_title, 20);
         assert!(truncated.chars().count() <= 20);
         assert!(truncated.ends_with('…'));
 
         let short_title = "Song";
-        assert_eq!(truncate_str(short_title, 20), "Song");
+        assert_eq!(truncate_display_str(short_title, 20), "Song");
     }
 
     #[test]

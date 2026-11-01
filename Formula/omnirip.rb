@@ -34,6 +34,6 @@ class Omnirip < Formula
   end
 
   test do
-    assert_match "OmniRip", shell_output("#{bin}/omnirip --help")
+    assert_match "omnirip #{version}", shell_output("#{bin}/omnirip --version")
   end
 end

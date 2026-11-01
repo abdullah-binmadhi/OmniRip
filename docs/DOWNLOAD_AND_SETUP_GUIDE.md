@@ -50,8 +50,8 @@ OmniRip is distributed as a self-contained, statically linked standalone executa
 
 | Target Architecture | Distribution File | Contents | OS Compatibility |
 | :--- | :--- | :--- | :--- |
-| **macOS Apple Silicon (M1/M2/M3/M4)** | `omnirip-macos-arm64.tar.gz` | `omnirip` binary, `install_driver.sh`, `README.md` | macOS 12 Monterey through macOS 15 Sequoia |
-| **macOS Intel (x86_64)** | `omnirip-macos-x86_64.tar.gz` | `omnirip` binary, `install_driver.sh`, `README.md` | macOS 11 Big Sur through macOS 15 Sequoia |
+| **macOS Apple Silicon (M1/M2/M3/M4)** | `omnirip-macos-arm64.tar.gz` | `omnirip` binary, `OmniRipAudio.driver` bundle, `README.md` | macOS 12 Monterey through macOS 15 Sequoia |
+| **macOS Intel (x86_64)** | `omnirip-macos-x86_64.tar.gz` | `omnirip` binary, `OmniRipAudio.driver` bundle, `README.md` | macOS 11 Big Sur through macOS 15 Sequoia |
 | **Linux (x86_64)** | `omnirip-linux-x86_64.tar.gz` | `omnirip` binary, `README.md` | Ubuntu 20.04+, Debian 11+, Arch, Fedora |
 | **Windows 11 / 10 (x64)** | `omnirip-windows-x64.zip` | `omnirip.exe`, `install.ps1`, `README.md` | Windows 10/11 64-bit |
 
