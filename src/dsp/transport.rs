@@ -1,8 +1,12 @@
-//! High-Speed Pure Rust Zero-Copy Unix Domain Socket Audio Transport.
+//! Audio transport into the engine.
 //!
-//! Exposes a local stream socket at `/tmp/omnirip_audio.sock` to receive live,
-//! uncompressed 32-bit floating-point audio directly from browser bridges or
-//! source applications, completely bypassing macOS kernel/HAL driver requirements.
+//! The engine accepts live stereo float audio on two listeners:
+//! - a Unix domain socket at `/tmp/omnirip_audio.sock` for native clients (`omnirip feed`, `omnirip stream`);
+//! - TCP on 127.0.0.1:49152, which takes the same packets from native clients and WebSocket binary
+//!   messages from the browser bridge scripts.
+//!
+//! A packet is a 16-byte little-endian header followed by interleaved f32 stereo frames. The header is
+//! validated before any payload is read, so a client cannot force a large allocation.
 
 use super::servo::ServoWriter;
 use std::fs;
@@ -10,13 +14,23 @@ use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub const OMNIRIP_SOCKET_PATH: &str = "/tmp/omnirip_audio.sock";
 pub const OMNIRIP_TCP_PORT: u16 = 49152;
 pub const OMNIRIP_MAGIC: u32 = 0x4F4D4E49; // "OMNI" in ASCII
+/// Most frames one packet may carry. Matches the engine's 2048-frame block size.
+pub const MAX_FRAMES_PER_PACKET: u16 = 2048;
+pub const MIN_SAMPLE_RATE: u32 = 8_000;
+pub const MAX_SAMPLE_RATE: u32 = 384_000;
+/// Clients served at the same time, across both listeners.
+pub const MAX_CLIENTS: usize = 8;
+/// One stereo frame on the wire: two little-endian f32 samples.
+const FRAME_BYTES: usize = 8;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +55,7 @@ impl AudioPacketHeader {
         }
     }
 
+    /// Reads the header from the first 16 bytes. Returns `None` when the slice is too short or the magic is wrong.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < Self::SIZE {
             return None;
@@ -60,6 +75,208 @@ impl AudioPacketHeader {
             channels,
             frame_count,
         })
+    }
+
+    /// Checks every field that came from the network. Run this before reading any payload.
+    pub fn validate(&self) -> Result<(), PacketError> {
+        if self.magic != OMNIRIP_MAGIC {
+            return Err(PacketError::BadMagic);
+        }
+        if self.channels != 2 {
+            return Err(PacketError::BadChannels(self.channels));
+        }
+        if self.frame_count == 0 || self.frame_count > MAX_FRAMES_PER_PACKET {
+            return Err(PacketError::BadFrameCount(self.frame_count));
+        }
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&self.sample_rate) {
+            return Err(PacketError::BadSampleRate(self.sample_rate));
+        }
+        Ok(())
+    }
+}
+
+/// Why a packet was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketError {
+    Truncated,
+    BadMagic,
+    BadChannels(u16),
+    BadFrameCount(u16),
+    BadSampleRate(u32),
+    PayloadLength { expected: usize, actual: usize },
+}
+
+impl std::fmt::Display for PacketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PacketError::Truncated => write!(f, "packet is shorter than its header"),
+            PacketError::BadMagic => write!(f, "packet does not start with the OMNI magic"),
+            PacketError::BadChannels(channels) => {
+                write!(f, "packet has {channels} channels, expected 2")
+            }
+            PacketError::BadFrameCount(count) => {
+                write!(
+                    f,
+                    "frame count {count} is outside 1..={MAX_FRAMES_PER_PACKET}"
+                )
+            }
+            PacketError::BadSampleRate(rate) => {
+                write!(
+                    f,
+                    "sample rate {rate} Hz is outside {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE}"
+                )
+            }
+            PacketError::PayloadLength { expected, actual } => {
+                write!(f, "payload is {actual} bytes, expected {expected}")
+            }
+        }
+    }
+}
+
+/// Parses and validates the header at the start of `bytes`.
+fn parse_header(bytes: &[u8]) -> Result<AudioPacketHeader, PacketError> {
+    if bytes.len() < AudioPacketHeader::SIZE {
+        return Err(PacketError::Truncated);
+    }
+    let header = AudioPacketHeader::from_bytes(bytes).ok_or(PacketError::BadMagic)?;
+    header.validate()?;
+    Ok(header)
+}
+
+fn frame_from_bytes(chunk: &[u8; FRAME_BYTES]) -> [f32; 2] {
+    [
+        f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+        f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]),
+    ]
+}
+
+/// Decodes one complete packet (header plus payload) into stereo frames.
+pub fn decode_packet(bytes: &[u8]) -> Result<Vec<[f32; 2]>, PacketError> {
+    let header = parse_header(bytes)?;
+    let payload = &bytes[AudioPacketHeader::SIZE..];
+    let expected = header.frame_count as usize * FRAME_BYTES;
+    if payload.len() != expected {
+        return Err(PacketError::PayloadLength {
+            expected,
+            actual: payload.len(),
+        });
+    }
+    Ok(payload
+        .as_chunks::<FRAME_BYTES>()
+        .0
+        .iter()
+        .map(frame_from_bytes)
+        .collect())
+}
+
+/// Moves every complete stereo frame out of `carry` and keeps a trailing partial frame for the next read.
+/// Pipes return any byte count, so a read can end in the middle of a frame.
+pub fn take_whole_frames(carry: &mut Vec<u8>) -> Vec<[f32; 2]> {
+    let whole = carry.len() / FRAME_BYTES * FRAME_BYTES;
+    let frames = carry[..whole]
+        .as_chunks::<FRAME_BYTES>()
+        .0
+        .iter()
+        .map(frame_from_bytes)
+        .collect();
+    carry.drain(..whole);
+    frames
+}
+
+/// Where decoded frames go. Shared by every client.
+#[derive(Clone)]
+struct FrameSink {
+    writer: Arc<Mutex<ServoWriter>>,
+    packets: Arc<AtomicU64>,
+    frames: Arc<AtomicU64>,
+}
+
+impl FrameSink {
+    fn push(&self, frames: &[[f32; 2]]) {
+        if let Ok(mut writer) = self.writer.lock() {
+            writer.write(frames);
+        }
+        self.packets.fetch_add(1, Ordering::Relaxed);
+        self.frames
+            .fetch_add(frames.len() as u64, Ordering::Relaxed);
+    }
+}
+
+/// Serves native clients: each packet is a header followed by exactly `frame_count` frames.
+fn serve_raw<R: Read>(stream: &mut R, running: &AtomicBool, sink: &FrameSink) {
+    // Sized for the largest valid packet once, so reading a payload never allocates.
+    let mut packet =
+        vec![0u8; AudioPacketHeader::SIZE + MAX_FRAMES_PER_PACKET as usize * FRAME_BYTES];
+    while running.load(Ordering::SeqCst) {
+        if stream
+            .read_exact(&mut packet[..AudioPacketHeader::SIZE])
+            .is_err()
+        {
+            break;
+        }
+        let header = match parse_header(&packet[..AudioPacketHeader::SIZE]) {
+            Ok(header) => header,
+            Err(_) => break,
+        };
+        let total = AudioPacketHeader::SIZE + header.frame_count as usize * FRAME_BYTES;
+        if stream
+            .read_exact(&mut packet[AudioPacketHeader::SIZE..total])
+            .is_err()
+        {
+            break;
+        }
+        match decode_packet(&packet[..total]) {
+            Ok(frames) => sink.push(&frames),
+            Err(_) => break,
+        }
+    }
+}
+
+/// Serves a browser bridge: each WebSocket binary message carries one packet.
+fn serve_websocket(stream: std::net::TcpStream, running: &AtomicBool, sink: &FrameSink) {
+    let mut socket = match tungstenite::accept(stream) {
+        Ok(socket) => socket,
+        Err(_) => return,
+    };
+    while running.load(Ordering::SeqCst) {
+        match socket.read() {
+            Ok(tungstenite::Message::Binary(data)) => match decode_packet(&data) {
+                Ok(frames) => sink.push(&frames),
+                Err(_) => break,
+            },
+            Ok(tungstenite::Message::Close(_)) | Err(_) => break,
+            Ok(_) => {}
+        }
+    }
+}
+
+/// Sends a TCP connection to the WebSocket or native handler, based on its first bytes.
+fn serve_tcp_client(mut stream: std::net::TcpStream, running: &AtomicBool, sink: &FrameSink) {
+    let mut probe = [0u8; 4];
+    let is_websocket = matches!(stream.peek(&mut probe), Ok(4)) && &probe == b"GET ";
+    if is_websocket {
+        serve_websocket(stream, running, sink);
+    } else {
+        serve_raw(&mut stream, running, sink);
+    }
+}
+
+/// Runs `serve` on its own thread and counts it against `MAX_CLIENTS` while it runs.
+fn spawn_client<S, F>(clients: &Arc<AtomicUsize>, name: &str, stream: S, serve: F)
+where
+    S: Send + 'static,
+    F: FnOnce(S) + Send + 'static,
+{
+    clients.fetch_add(1, Ordering::SeqCst);
+    let counter = Arc::clone(clients);
+    let spawned = thread::Builder::new()
+        .name(name.to_string())
+        .spawn(move || {
+            serve(stream);
+            counter.fetch_sub(1, Ordering::SeqCst);
+        });
+    if spawned.is_err() {
+        clients.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -101,50 +318,50 @@ impl IpcAudioServer {
         }
     }
 
+    /// Starts the Unix socket and TCP listeners. Calling this while already running does nothing.
     pub fn start(&self) -> io::Result<()> {
-        if self.is_running.load(Ordering::SeqCst) {
+        if self.is_running.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-
-        self.is_running.store(true, Ordering::SeqCst);
+        let sink = FrameSink {
+            writer: Arc::clone(&self.writer),
+            packets: Arc::clone(&self.total_packets),
+            frames: Arc::clone(&self.total_frames),
+        };
 
         #[cfg(unix)]
         {
-            let socket_path = Path::new(OMNIRIP_SOCKET_PATH);
-            let _ = fs::remove_file(socket_path);
-
-            if let Ok(listener) = UnixListener::bind(socket_path) {
+            let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
+            if let Ok(listener) = UnixListener::bind(OMNIRIP_SOCKET_PATH) {
                 let _ = listener.set_nonblocking(true);
-                let running_flag = Arc::clone(&self.is_running);
-                let writer_arc = Arc::clone(&self.writer);
-                let clients_arc = Arc::clone(&self.active_clients);
-                let packets_arc = Arc::clone(&self.total_packets);
-                let frames_arc = Arc::clone(&self.total_frames);
-
-                let _ = thread::Builder::new()
+                let running = Arc::clone(&self.is_running);
+                let clients = Arc::clone(&self.active_clients);
+                let sink = sink.clone();
+                thread::Builder::new()
                     .name("omnirip-ipc-transport".to_string())
                     .spawn(move || {
-                        let mut header_buf = [0u8; AudioPacketHeader::SIZE];
-                        let mut payload_buf = vec![0u8; 16384 * 8]; // max buffer for large bursts
-
-                        while running_flag.load(Ordering::SeqCst) {
+                        while running.load(Ordering::SeqCst) {
                             match listener.accept() {
-                                Ok((mut stream, _)) => {
+                                Ok((stream, _)) => {
+                                    if clients.load(Ordering::SeqCst) >= MAX_CLIENTS {
+                                        continue; // dropping the stream refuses the client
+                                    }
                                     let _ = stream.set_nonblocking(false);
-                                    clients_arc.fetch_add(1, Ordering::SeqCst);
-                                    Self::handle_client(
-                                        &mut stream,
-                                        &writer_arc,
-                                        &running_flag,
-                                        &packets_arc,
-                                        &frames_arc,
-                                        &mut header_buf,
-                                        &mut payload_buf,
+                                    let (running, sink) = (Arc::clone(&running), sink.clone());
+                                    spawn_client(
+                                        &clients,
+                                        "omnirip-ipc-client",
+                                        stream,
+                                        move |mut stream| {
+                                            serve_raw(&mut stream, &running, &sink);
+                                        },
                                     );
-                                    clients_arc.fetch_sub(1, Ordering::SeqCst);
                                 }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::Interrupted => {
-                                    thread::sleep(std::time::Duration::from_millis(5));
+                                Err(ref e)
+                                    if e.kind() == io::ErrorKind::WouldBlock
+                                        || e.kind() == io::ErrorKind::Interrupted =>
+                                {
+                                    thread::sleep(Duration::from_millis(5));
                                 }
                                 Err(e) => {
                                     eprintln!("omnirip-ipc-transport accept error: {}", e);
@@ -152,101 +369,38 @@ impl IpcAudioServer {
                                 }
                             }
                         }
-
                         let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
-                    });
+                    })?;
             }
         }
 
-        // Also bind local TCP listener on 127.0.0.1:49152 for web browser and network bridges
-        if let Ok(tcp_listener) = std::net::TcpListener::bind(format!("127.0.0.1:{}", OMNIRIP_TCP_PORT)) {
-            let _ = tcp_listener.set_nonblocking(true);
-            let running_tcp = Arc::clone(&self.is_running);
-            let writer_tcp = Arc::clone(&self.writer);
-            let clients_tcp = Arc::clone(&self.active_clients);
-            let packets_tcp = Arc::clone(&self.total_packets);
-            let frames_tcp = Arc::clone(&self.total_frames);
-
-            thread::Builder::new()
-                .name("omnirip-tcp-transport".to_string())
-                .spawn(move || {
-                    let mut header_buf = [0u8; AudioPacketHeader::SIZE];
-                    let mut payload_buf = vec![0u8; 16384 * 8];
-
-                    while running_tcp.load(Ordering::SeqCst) {
-                        match tcp_listener.accept() {
-                            Ok((mut stream, _)) => {
-                                let _ = stream.set_nonblocking(false);
-                                clients_tcp.fetch_add(1, Ordering::SeqCst);
-                                Self::handle_client(
-                                    &mut stream,
-                                    &writer_tcp,
-                                    &running_tcp,
-                                    &packets_tcp,
-                                    &frames_tcp,
-                                    &mut header_buf,
-                                    &mut payload_buf,
-                                );
-                                clients_tcp.fetch_sub(1, Ordering::SeqCst);
+        let listener = std::net::TcpListener::bind(("127.0.0.1", OMNIRIP_TCP_PORT))?;
+        let _ = listener.set_nonblocking(true);
+        let running = Arc::clone(&self.is_running);
+        let clients = Arc::clone(&self.active_clients);
+        thread::Builder::new()
+            .name("omnirip-tcp-transport".to_string())
+            .spawn(move || {
+                while running.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            if clients.load(Ordering::SeqCst) >= MAX_CLIENTS {
+                                continue;
                             }
-                            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                                thread::sleep(std::time::Duration::from_millis(10));
-                            }
-                            Err(_) => break,
+                            let _ = stream.set_nonblocking(false);
+                            let (running, sink) = (Arc::clone(&running), sink.clone());
+                            spawn_client(&clients, "omnirip-tcp-client", stream, move |stream| {
+                                serve_tcp_client(stream, &running, &sink);
+                            });
                         }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(_) => break,
                     }
-                })?;
-        }
-
+                }
+            })?;
         Ok(())
-    }
-
-    fn handle_client<S: Read>(
-        stream: &mut S,
-        writer: &Arc<Mutex<ServoWriter>>,
-        running: &Arc<AtomicBool>,
-        packets: &Arc<AtomicU64>,
-        frames: &Arc<AtomicU64>,
-        header_buf: &mut [u8],
-        payload_buf: &mut Vec<u8>,
-    ) {
-        while running.load(Ordering::SeqCst) {
-            // Read packet header
-            if stream.read_exact(header_buf).is_err() {
-                break;
-            }
-
-            let header = match AudioPacketHeader::from_bytes(header_buf) {
-                Some(h) => h,
-                None => break,
-            };
-
-            let bytes_to_read = header.frame_count as usize * header.channels as usize * 4;
-            if payload_buf.len() < bytes_to_read {
-                payload_buf.resize(bytes_to_read, 0);
-            }
-
-            if stream.read_exact(&mut payload_buf[..bytes_to_read]).is_err() {
-                break;
-            }
-
-            // Convert Float32 little-endian bytes to stereo frames
-            let raw_frames = &payload_buf[..bytes_to_read];
-            let mut scratch = Vec::with_capacity(header.frame_count as usize);
-
-            for chunk in raw_frames.chunks_exact(8) {
-                let l = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                let r = f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-                scratch.push([l, r]);
-            }
-
-            if let Ok(mut w) = writer.lock() {
-                w.write(&scratch);
-            }
-
-            packets.fetch_add(1, Ordering::Relaxed);
-            frames.fetch_add(header.frame_count as u64, Ordering::Relaxed);
-        }
     }
 
     pub fn stop(&self) {
@@ -318,12 +472,13 @@ impl IpcAudioClient {
     }
 
     pub fn send_frames(&mut self, frames: &[[f32; 2]]) -> io::Result<()> {
-        use std::io::Write;
         for chunk in frames.chunks(512) {
-            let header = AudioPacketHeader::new(self.sequence, self.sample_rate, chunk.len() as u16);
+            let header =
+                AudioPacketHeader::new(self.sequence, self.sample_rate, chunk.len() as u16);
             self.sequence = self.sequence.wrapping_add(1);
 
-            let mut packet = Vec::with_capacity(AudioPacketHeader::SIZE + chunk.len() * 8);
+            let mut packet =
+                Vec::with_capacity(AudioPacketHeader::SIZE + chunk.len() * FRAME_BYTES);
             packet.extend_from_slice(&header.magic.to_le_bytes());
             packet.extend_from_slice(&header.sequence.to_le_bytes());
             packet.extend_from_slice(&header.sample_rate.to_le_bytes());
@@ -341,33 +496,28 @@ impl IpcAudioClient {
     }
 
     pub fn stream_from_raw_pcm_reader<R: Read>(&mut self, mut reader: R) -> io::Result<u64> {
-        let mut buf = [0u8; 512 * 8]; // 512 stereo f32 frames
+        let mut buf = [0u8; 512 * FRAME_BYTES];
+        let mut carry: Vec<u8> = Vec::with_capacity(512 * FRAME_BYTES);
         let mut total_frames = 0u64;
 
         loop {
-            match reader.read(&mut buf) {
+            let bytes_read = match reader.read(&mut buf) {
                 Ok(0) => break,
-                Ok(bytes_read) => {
-                    let frame_count = bytes_read / 8;
-                    if frame_count == 0 {
-                        continue;
-                    }
-                    let mut frames = Vec::with_capacity(frame_count);
-                    for chunk in buf[..frame_count * 8].chunks_exact(8) {
-                        let l = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                        let r = f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-                        frames.push([l, r]);
-                    }
-                    self.send_frames(&frames)?;
-                    total_frames += frame_count as u64;
-
-                    // Pace at ~95% of real time to prevent buffer starvation while avoiding overflow
-                    let sleep_micros = (frame_count as u64 * 1_000_000) / (self.sample_rate as u64);
-                    std::thread::sleep(std::time::Duration::from_micros(sleep_micros * 95 / 100));
-                }
+                Ok(n) => n,
                 Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
+            };
+            carry.extend_from_slice(&buf[..bytes_read]);
+            let frames = take_whole_frames(&mut carry);
+            if frames.is_empty() {
+                continue;
             }
+            self.send_frames(&frames)?;
+            total_frames += frames.len() as u64;
+
+            // Pace at ~95% of real time to prevent buffer starvation while avoiding overflow
+            let sleep_micros = (frames.len() as u64 * 1_000_000) / (self.sample_rate.max(1) as u64);
+            std::thread::sleep(Duration::from_micros(sleep_micros * 95 / 100));
         }
         Ok(total_frames)
     }
@@ -375,7 +525,10 @@ impl IpcAudioClient {
 
 /// Helper function to handle `omnirip feed` CLI execution.
 pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[OmniRip Feeder] Checking for running OmniRip audio engine at {}...", OMNIRIP_SOCKET_PATH);
+    println!(
+        "[OmniRip Feeder] Checking for running OmniRip audio engine at {}...",
+        OMNIRIP_SOCKET_PATH
+    );
     let mut _standalone_streamer = None;
 
     let mut client = match IpcAudioClient::connect() {
@@ -387,8 +540,10 @@ pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             println!("[OmniRip Feeder] OmniRip TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
             let pipeline = super::AudioPipeline::new(48000.0);
             let mut streamer = super::streamer::AudioStreamer::new(pipeline);
-            streamer.start().map_err(|e| format!("Failed to initialize audio engine: {}", e))?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            streamer
+                .start()
+                .map_err(|e| format!("Failed to initialize audio engine: {}", e))?;
+            std::thread::sleep(Duration::from_millis(100));
             let client = IpcAudioClient::connect()?;
             _standalone_streamer = Some(streamer);
             println!("[OmniRip Feeder] Dedicated hardware audio stream initialized!");
@@ -418,13 +573,22 @@ pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         client.stream_from_raw_pcm_reader(stdin.lock())?
     };
 
-    println!("[OmniRip Feeder] Stream completed! Total frames fed: {}", total);
+    println!(
+        "[OmniRip Feeder] Stream completed! Total frames fed: {}",
+        total
+    );
     Ok(())
 }
 
 /// Helper function to handle `omnirip stream <url>` CLI execution.
 pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    println!("[OmniRip Streamer] Checking for running OmniRip audio engine at {}...", OMNIRIP_SOCKET_PATH);
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("omnirip stream expects an http:// or https:// URL".into());
+    }
+    println!(
+        "[OmniRip Streamer] Checking for running OmniRip audio engine at {}...",
+        OMNIRIP_SOCKET_PATH
+    );
     let mut _standalone_streamer = None;
 
     let mut client = match IpcAudioClient::connect() {
@@ -436,34 +600,99 @@ pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
             println!("[OmniRip Streamer] OmniRip TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
             let pipeline = super::AudioPipeline::new(48000.0);
             let mut streamer = super::streamer::AudioStreamer::new(pipeline);
-            streamer.start().map_err(|e| format!("Failed to initialize audio engine: {}", e))?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            streamer
+                .start()
+                .map_err(|e| format!("Failed to initialize audio engine: {}", e))?;
+            std::thread::sleep(Duration::from_millis(100));
             let client = IpcAudioClient::connect()?;
             _standalone_streamer = Some(streamer);
             println!("[OmniRip Streamer] Dedicated hardware audio stream initialized!");
             client
         }
     };
-    println!("[OmniRip Streamer] Resolving high-res audio stream via yt-dlp for: {}", url);
+    println!(
+        "[OmniRip Streamer] Resolving high-res audio stream via yt-dlp for: {}",
+        url
+    );
 
-    // Spawn yt-dlp to extract audio and pipe through ffmpeg to Float32 LE stereo PCM
-    let mut ffmpeg_child = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("yt-dlp -f bestaudio -o - \"{}\" 2>/dev/null | ffmpeg -i - -f f32le -ac 2 -ar 48000 -loglevel error -", url))
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
+    // No shell is involved: each tool gets its arguments as separate argv entries, so the URL cannot be
+    // read as shell syntax.
+    let mut yt_dlp = Command::new("yt-dlp")
+        .args(["-f", "bestaudio", "-o", "-", "--", url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()?;
+    let yt_out = yt_dlp
+        .stdout
+        .take()
+        .ok_or("Failed to capture yt-dlp output")?;
+    let mut ffmpeg = Command::new("ffmpeg")
+        .args([
+            "-loglevel",
+            "error",
+            "-i",
+            "-",
+            "-f",
+            "f32le",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "-",
+        ])
+        .stdin(yt_out)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    let ff_out = ffmpeg
+        .stdout
+        .take()
+        .ok_or("Failed to capture ffmpeg output")?;
 
-    let stdout = ffmpeg_child.stdout.take().ok_or("Failed to capture audio stream pipe")?;
     println!("[OmniRip Streamer] Streaming live audio directly into 64-bit EQ pipeline...");
-    let total = client.stream_from_raw_pcm_reader(stdout)?;
-    println!("[OmniRip Streamer] Stream finished! Total frames played: {}", total);
+    let result = client.stream_from_raw_pcm_reader(ff_out);
+    let _ = ffmpeg.kill();
+    let _ = yt_dlp.kill();
+    let _ = ffmpeg.wait();
+    let _ = yt_dlp.wait();
+    let total = result?;
+    println!(
+        "[OmniRip Streamer] Stream finished! Total frames played: {}",
+        total
+    );
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn packet_bytes(sample_rate: u32, frames: &[[f32; 2]]) -> Vec<u8> {
+        let header = AudioPacketHeader::new(7, sample_rate, frames.len() as u16);
+        let mut bytes = Vec::with_capacity(AudioPacketHeader::SIZE + frames.len() * FRAME_BYTES);
+        bytes.extend_from_slice(&header.magic.to_le_bytes());
+        bytes.extend_from_slice(&header.sequence.to_le_bytes());
+        bytes.extend_from_slice(&header.sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&header.channels.to_le_bytes());
+        bytes.extend_from_slice(&header.frame_count.to_le_bytes());
+        for [left, right] in frames {
+            bytes.extend_from_slice(&left.to_le_bytes());
+            bytes.extend_from_slice(&right.to_le_bytes());
+        }
+        bytes
+    }
+
+    fn test_sink() -> (FrameSink, Arc<AtomicU64>, Arc<AtomicU64>) {
+        let (writer, _reader) = crate::dsp::servo::create_servo_ring_buffer(4096, 256);
+        let packets = Arc::new(AtomicU64::new(0));
+        let frames = Arc::new(AtomicU64::new(0));
+        let sink = FrameSink {
+            writer: Arc::new(Mutex::new(writer)),
+            packets: Arc::clone(&packets),
+            frames: Arc::clone(&frames),
+        };
+        (sink, packets, frames)
+    }
 
     #[test]
     fn test_packet_header_serialization() {
@@ -486,5 +715,114 @@ mod tests {
         assert_eq!(decoded.sequence, 42);
         assert_eq!(decoded.sample_rate, 48000);
         assert_eq!(decoded.frame_count, 256);
+    }
+
+    #[test]
+    fn decode_round_trips_stereo_frames() {
+        let frames = [[0.25f32, -0.5], [1.0, 0.0]];
+        let decoded = decode_packet(&packet_bytes(48_000, &frames)).expect("valid packet");
+        assert_eq!(decoded, frames.to_vec());
+    }
+
+    #[test]
+    fn oversized_frame_count_is_rejected_before_any_payload_is_read() {
+        let header = AudioPacketHeader::new(0, 48_000, u16::MAX);
+        assert_eq!(header.validate(), Err(PacketError::BadFrameCount(u16::MAX)));
+    }
+
+    #[test]
+    fn empty_and_non_stereo_packets_are_rejected() {
+        assert_eq!(
+            AudioPacketHeader::new(0, 48_000, 0).validate(),
+            Err(PacketError::BadFrameCount(0))
+        );
+        let mut mono = AudioPacketHeader::new(0, 48_000, 16);
+        mono.channels = 1;
+        assert_eq!(mono.validate(), Err(PacketError::BadChannels(1)));
+    }
+
+    #[test]
+    fn implausible_sample_rates_are_rejected() {
+        assert_eq!(
+            AudioPacketHeader::new(0, 0, 16).validate(),
+            Err(PacketError::BadSampleRate(0))
+        );
+    }
+
+    #[test]
+    fn truncated_payload_is_rejected() {
+        let mut bytes = packet_bytes(48_000, &[[0.0, 0.0]; 4]);
+        bytes.truncate(bytes.len() - 8);
+        assert_eq!(
+            decode_packet(&bytes),
+            Err(PacketError::PayloadLength {
+                expected: 32,
+                actual: 24
+            })
+        );
+    }
+
+    #[test]
+    fn wrong_magic_is_rejected() {
+        let mut bytes = packet_bytes(48_000, &[[0.0, 0.0]]);
+        bytes[0] ^= 0xFF;
+        assert_eq!(decode_packet(&bytes), Err(PacketError::BadMagic));
+    }
+
+    #[test]
+    fn partial_frames_wait_for_the_rest_of_their_bytes() {
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&0.25f32.to_le_bytes());
+        frame.extend_from_slice(&(-0.5f32).to_le_bytes());
+
+        let mut carry = frame[..5].to_vec(); // a read that ends mid-frame
+        assert!(take_whole_frames(&mut carry).is_empty());
+        assert_eq!(carry.len(), 5);
+
+        carry.extend_from_slice(&frame[5..]); // the rest arrives with the next read
+        assert_eq!(take_whole_frames(&mut carry), vec![[0.25, -0.5]]);
+        assert!(carry.is_empty());
+    }
+
+    #[test]
+    fn native_clients_deliver_packets_until_the_stream_ends() {
+        let (sink, packets, frames) = test_sink();
+        let mut stream = std::io::Cursor::new(
+            [
+                packet_bytes(48_000, &[[0.0, 0.0]; 5]),
+                packet_bytes(48_000, &[[0.0, 0.0]; 2]),
+            ]
+            .concat(),
+        );
+        serve_raw(&mut stream, &AtomicBool::new(true), &sink);
+        assert_eq!(packets.load(Ordering::SeqCst), 2);
+        assert_eq!(frames.load(Ordering::SeqCst), 7);
+    }
+
+    #[test]
+    fn websocket_clients_deliver_packets_to_the_engine() {
+        let (sink, packets, frames) = test_sink();
+        let running = Arc::new(AtomicBool::new(true));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a test port");
+        let port = listener.local_addr().expect("local address").port();
+        let server = {
+            let running = Arc::clone(&running);
+            thread::spawn(move || {
+                let (stream, _) = listener.accept().expect("accept browser client");
+                serve_tcp_client(stream, &running, &sink);
+            })
+        };
+
+        let (mut socket, _response) =
+            tungstenite::connect(format!("ws://127.0.0.1:{port}")).expect("websocket handshake");
+        let payload = packet_bytes(48_000, &[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]);
+        socket
+            .send(tungstenite::Message::Binary(payload.into()))
+            .expect("send packet");
+        drop(socket);
+        server.join().expect("server thread");
+
+        assert_eq!(packets.load(Ordering::SeqCst), 1);
+        assert_eq!(frames.load(Ordering::SeqCst), 3);
     }
 }
