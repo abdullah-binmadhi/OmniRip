@@ -17,7 +17,6 @@ Usage:
   omnirip driver [status|install|uninstall]
   omnirip feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
   omnirip stream <url>                 stream an http(s) URL through the engine
-  omnirip mic [on|off|toggle|status]
   omnirip --help | --version";
 
 /// What the process was asked to do.
@@ -29,7 +28,6 @@ enum Command {
     Driver(Vec<String>),
     Feed(Vec<String>),
     Stream(Option<String>),
-    Mic(Vec<String>),
     Unknown(String),
 }
 
@@ -43,17 +41,18 @@ fn parse_command(args: &[String]) -> Command {
         Some("driver") => Command::Driver(args[2..].to_vec()),
         Some("feed") => Command::Feed(args[2..].to_vec()),
         Some("stream") => Command::Stream(args.get(2).cloned()),
-        Some("mic") => Command::Mic(args[2..].to_vec()),
         Some(other) => Command::Unknown(other.to_string()),
     }
 }
 
 /// Restores the terminal before a panic message is printed, so a crash never leaves raw mode on.
+/// It also returns system output from a loopback device, so a crash does not leave the Mac silent.
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
         let _ = execute!(std::io::stdout(), LeaveAlternateScreen, DisableBracketedPaste, Show);
+        dsp::streamer::restore_system_output();
         default_hook(info);
     }));
 }
@@ -80,7 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Usage: omnirip stream <url>");
             std::process::exit(1);
         }
-        Command::Mic(rest) => return dsp::streamer::run_mic_cli(&rest),
         Command::Unknown(arg) => {
             eprintln!("omnirip: unknown argument '{arg}'\n\n{USAGE}");
             std::process::exit(2);

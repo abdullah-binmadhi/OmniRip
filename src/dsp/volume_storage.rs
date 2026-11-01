@@ -11,16 +11,10 @@ use std::path::PathBuf;
 const DEFAULT_PLAYER_VOLUME_PCT: usize = 50;
 const DEFAULT_SYSTEM_VOLUME_SCALAR: f32 = 0.5;
 
-fn default_false() -> bool {
-    false
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeConfig {
     pub player_volume_pct: usize,
     pub system_volume_scalar: f32,
-    #[serde(default = "default_false")]
-    pub mic_enabled: bool,
     #[serde(default)]
     pub dac_flavor: Option<super::enhancer::DacHardwareFlavor>,
 }
@@ -30,7 +24,6 @@ impl Default for VolumeConfig {
         Self {
             player_volume_pct: DEFAULT_PLAYER_VOLUME_PCT,
             system_volume_scalar: DEFAULT_SYSTEM_VOLUME_SCALAR,
-            mic_enabled: false,
             dac_flavor: Some(super::enhancer::DacHardwareFlavor::StockOemPlus),
         }
     }
@@ -72,20 +65,6 @@ pub fn load_volume_settings() -> (usize, f32) {
     (DEFAULT_PLAYER_VOLUME_PCT, DEFAULT_SYSTEM_VOLUME_SCALAR)
 }
 
-/// Input capture (the X key, or `:mic on`) always starts off, on every launch. The saved flag is not read,
-/// so a previous session cannot turn capture on at startup.
-pub fn load_mic_setting() -> bool {
-    false
-}
-
-#[cfg(test)]
-mod mic_default_tests {
-    #[test]
-    fn input_capture_starts_off_regardless_of_saved_state() {
-        assert!(!super::load_mic_setting());
-    }
-}
-
 /// Loads persistent DAC Mimicker flavor from disk. Defaults to StockOemPlus.
 pub fn load_dac_flavor_setting() -> super::enhancer::DacHardwareFlavor {
     let path = volume_config_path();
@@ -105,9 +84,8 @@ pub fn load_dac_flavor_setting() -> super::enhancer::DacHardwareFlavor {
     super::enhancer::DacHardwareFlavor::StockOemPlus
 }
 
-/// Saves current volume levels to disk preserving mic setting and DAC flavor.
+/// Saves current volume levels to disk preserving the DAC flavor.
 pub fn save_volume_settings(player_pct: usize, sys_scalar: f32) {
-    let current_mic = load_mic_setting();
     let current_flavor = load_dac_flavor_setting();
     let path = volume_config_path();
     if let Some(parent) = path.parent() {
@@ -117,30 +95,6 @@ pub fn save_volume_settings(player_pct: usize, sys_scalar: f32) {
     let cfg = VolumeConfig {
         player_volume_pct: player_pct.clamp(0, 100),
         system_volume_scalar: sys_scalar.clamp(0.0, 1.0),
-        mic_enabled: current_mic,
-        dac_flavor: Some(current_flavor),
-    };
-
-    if let Ok(json) = serde_json::to_string_pretty(&cfg) {
-        if let Ok(mut file) = File::create(&path) {
-            let _ = file.write_all(json.as_bytes());
-        }
-    }
-}
-
-/// Saves persistent mic capture setting to disk.
-pub fn save_mic_setting(enabled: bool) {
-    let (player_pct, sys_scalar) = load_volume_settings();
-    let current_flavor = load_dac_flavor_setting();
-    let path = volume_config_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    let cfg = VolumeConfig {
-        player_volume_pct: player_pct.clamp(0, 100),
-        system_volume_scalar: sys_scalar.clamp(0.0, 1.0),
-        mic_enabled: enabled,
         dac_flavor: Some(current_flavor),
     };
 
@@ -154,7 +108,6 @@ pub fn save_mic_setting(enabled: bool) {
 /// Saves persistent DAC Mimicker flavor to disk.
 pub fn save_dac_flavor_setting(flavor: super::enhancer::DacHardwareFlavor) {
     let (player_pct, sys_scalar) = load_volume_settings();
-    let current_mic = load_mic_setting();
     let path = volume_config_path();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -163,7 +116,6 @@ pub fn save_dac_flavor_setting(flavor: super::enhancer::DacHardwareFlavor) {
     let cfg = VolumeConfig {
         player_volume_pct: player_pct.clamp(0, 100),
         system_volume_scalar: sys_scalar.clamp(0.0, 1.0),
-        mic_enabled: current_mic,
         dac_flavor: Some(flavor),
     };
 
@@ -183,12 +135,10 @@ mod tests {
         let default_cfg = VolumeConfig::default();
         assert_eq!(default_cfg.player_volume_pct, 50);
         assert!((default_cfg.system_volume_scalar - 0.5).abs() < 1e-4);
-        assert!(!default_cfg.mic_enabled);
 
         let json = serde_json::to_string(&default_cfg).unwrap();
         let deserialized: VolumeConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.player_volume_pct, 50);
-        assert!(!deserialized.mic_enabled);
         assert_eq!(deserialized.dac_flavor, Some(crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus));
     }
 }
