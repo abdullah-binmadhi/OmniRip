@@ -479,30 +479,32 @@ impl SlskdClient {
         if let Ok(home) = std::env::var("HOME") {
             let home_p = std::path::PathBuf::from(home);
             candidates.push(home_p.join(".config/omnirip/slskd.yml"));
-            candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.local.yml"));
-            candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.yml"));
             candidates.push(home_p.join("Library/Application Support/slskd/slskd.yml"));
             candidates.push(home_p.join(".config/slskd/slskd.yml"));
         }
-        for path in candidates {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let mut in_soulseek_section = false;
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed == "soulseek:" {
-                        in_soulseek_section = true;
-                        continue;
-                    }
-                    if in_soulseek_section && !line.starts_with(' ') && !line.starts_with('\t') {
-                        in_soulseek_section = false;
-                    }
-                    if in_soulseek_section && trimmed.starts_with("username:") {
-                        if let Some((_, val)) = trimmed.split_once(':') {
-                            let user = val.trim().trim_matches('"').trim_matches('\'');
-                            if !user.is_empty() && user != "YOUR_SOULSEEK_USERNAME" {
-                                return Some(user.to_string());
-                            }
-                        }
+        candidates
+            .iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .find_map(|content| Self::username_from_config(&content))
+    }
+
+    /// Reads `username` under the `soulseek:` section of a slskd YAML document. The template placeholder counts as unset.
+    fn username_from_config(content: &str) -> Option<String> {
+        let mut in_soulseek_section = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "soulseek:" {
+                in_soulseek_section = true;
+                continue;
+            }
+            if in_soulseek_section && !line.starts_with(' ') && !line.starts_with('\t') {
+                in_soulseek_section = false;
+            }
+            if in_soulseek_section && trimmed.starts_with("username:") {
+                if let Some((_, val)) = trimmed.split_once(':') {
+                    let user = val.trim().trim_matches('"').trim_matches('\'');
+                    if !user.is_empty() && user != "YOUR_SOULSEEK_USERNAME" {
+                        return Some(user.to_string());
                     }
                 }
             }
@@ -924,9 +926,11 @@ mod tests {
     }
 
     #[test]
-    fn test_slskd_detect_configured_username() {
-        let username = SlskdClient::detect_configured_username();
-        assert_eq!(username, Some("abdullah".to_string()));
+    fn test_slskd_username_is_read_from_soulseek_section() {
+        let config = "web:\n  port: 5030\nsoulseek:\n  username: \"alice\"\n  password: secret\n";
+        assert_eq!(SlskdClient::username_from_config(config), Some("alice".to_string()));
+        let placeholder = "soulseek:\n  username: YOUR_SOULSEEK_USERNAME\n";
+        assert_eq!(SlskdClient::username_from_config(placeholder), None);
     }
 
     #[test]
