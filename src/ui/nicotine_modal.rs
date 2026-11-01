@@ -18,11 +18,13 @@ pub enum NicotineModalView {
     Candidates,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum NicotineModalAction {
     Close,
     SubmitSearch(String),
     SelectCandidate(NicotineCandidate),
     SelectAccount(DiscoveredAccount),
+    RestartDaemon,
 }
 
 pub struct NicotineModal {
@@ -134,6 +136,9 @@ impl NicotineModal {
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     self.rescan();
                     None
+                }
+                KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::F(5) => {
+                    Some(NicotineModalAction::RestartDaemon)
                 }
                 KeyCode::Char('m') | KeyCode::Char('M') => {
                     self.view_mode = NicotineModalView::ManualEntry;
@@ -300,10 +305,19 @@ impl NicotineModal {
             ])
             .split(inner);
 
-        // Header status
+        // Header status & daemon health
+        let daemon_online = crate::harvest::slskd::SlskdClient::is_daemon_online();
+        let daemon_badge = if daemon_online {
+            Span::styled(" [● Swarm Daemon Online: 5030] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [○ Swarm Daemon Offline: Press D/F5] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))
+        };
+
         let header_p = Paragraph::new(Line::from(vec![
             Span::styled(" STATUS: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(&self.status_msg, Style::default().fg(Color::Yellow)),
+            Span::raw("  "),
+            daemon_badge,
         ]));
         frame.render_widget(header_p, layout[0]);
 
@@ -323,6 +337,8 @@ impl NicotineModal {
 
             let footer = Line::from(vec![
                 Span::styled(" [M] Manual Entry ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw(" | "),
+                Span::styled(" [D/F5] Start Daemon ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::raw(" | "),
                 Span::styled(" [R] Re-Scan Storage ", Style::default().fg(Color::Green)),
                 Span::raw(" | "),
@@ -350,7 +366,7 @@ impl NicotineModal {
                 let user_col = format!("{:<16}", truncate_str(&acc.username, 16));
                 let source_col = format!("{:<44}", truncate_str(&acc.source, 44));
                 let status_col = if acc.is_active {
-                    Span::styled(" [ACTIVE] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                    Span::styled(" [ACTIVE • VERIFIED] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
                 } else {
                     Span::styled(" [Standby] ", Style::default().fg(Color::DarkGray))
                 };
@@ -376,6 +392,8 @@ impl NicotineModal {
                 Span::styled(" [Enter] Select & Activate ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw(" | "),
                 Span::styled(" [↑/↓] Navigate ", Style::default().fg(Color::White)),
+                Span::raw(" | "),
+                Span::styled(" [D/F5] Restart Daemon ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::raw(" | "),
                 Span::styled(" [R] Re-Scan ", Style::default().fg(Color::Green)),
                 Span::raw(" | "),
@@ -434,7 +452,9 @@ impl NicotineModal {
 
         let note_p = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled(" Credentials will be safely persisted to ~/.config/omnirip/soulseek.ini", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(" • Persists to ~/.config/omnirip/soulseek.ini and syncs with Nicotine+", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(" • slskd internal API keys are automatically generated (no manual setup required)", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(" • Live authentication automatically verifies your password against vps.slsknet.org", Style::default().fg(Color::DarkGray))),
         ]);
         frame.render_widget(note_p, layout[3]);
 
@@ -590,5 +610,17 @@ pub mod tests {
         modal.open_accounts();
         assert!(modal.is_open);
         assert_eq!(modal.view_mode, NicotineModalView::Accounts);
+    }
+
+    #[test]
+    pub fn test_nicotine_modal_daemon_restart_action() {
+        let mut modal = NicotineModal::new();
+        modal.open_accounts();
+
+        let action_d = modal.handle_key(KeyCode::Char('d'));
+        assert_eq!(action_d, Some(NicotineModalAction::RestartDaemon));
+
+        let action_f5 = modal.handle_key(KeyCode::F(5));
+        assert_eq!(action_f5, Some(NicotineModalAction::RestartDaemon));
     }
 }

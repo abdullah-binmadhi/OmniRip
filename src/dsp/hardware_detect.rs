@@ -126,7 +126,7 @@ impl HardwareChipProfile {
         // 1. Check for dedicated external audiophile USB DACs first
         if let Some(dev_name) = active_device_name {
             let lower = dev_name.to_lowercase();
-            if lower.contains("ibasso") || lower.contains("dc03") {
+            if lower.contains("ibasso") || lower.contains("dc03") || lower.contains("dc04") || lower.contains("dc05") || lower.contains("dc06") || lower.contains("dc07") {
                 return Self {
                     chip_name: "Dual Cirrus Logic CS43131 Flagship 32-bit DAC".to_string(),
                     vendor: "iBasso Audio".to_string(),
@@ -252,8 +252,9 @@ impl HardwareChipProfile {
         let lower = name.to_lowercase();
         if lower.contains("blackhole") || lower.contains("omnirip") || lower.contains("loopback") {
             TransducerType::VirtualLoopback
-        } else if lower.contains("ibasso") || lower.contains("dc03") || lower.contains("ifi") || lower.contains("zen")
-            || lower.contains("chord") || lower.contains("mojo") || lower.contains("schiit") || lower.contains("fiio")
+        } else if lower.contains("ibasso") || lower.contains("dc03") || lower.contains("dc04") || lower.contains("dc05") || lower.contains("dc06") || lower.contains("dc07")
+            || lower.contains("ifi") || lower.contains("zen") || lower.contains("chord") || lower.contains("mojo")
+            || lower.contains("schiit") || lower.contains("fiio") || lower.contains("moondrop") || lower.contains("topping") || lower.contains("dac")
             || (lower.contains("usb") && !lower.contains("mic"))
         {
             TransducerType::UsbDacLineOut
@@ -325,6 +326,20 @@ impl HardwareChipProfile {
                     recommended_flavor: DacHardwareFlavor::StockOemPlus,
                 }
             }
+            TransducerType::UsbDacLineOut => Self {
+                chip_name: "High-Resolution External USB DAC / Audio Dongle".to_string(),
+                vendor: "External USB Audiophile DAC".to_string(),
+                hardware_model: model.to_string(),
+                chassis_tier: ChassisAcousticTier::DesktopReference,
+                architecture: SoundChipArchitecture::CirrusLogicDongle,
+                transducer,
+                max_sample_rate_khz: 384,
+                bit_depth: 32,
+                high_impedance_amp_sensing: true,
+                smart_amp_excursion_protection: false,
+                optimal_buffer_frames: 256,
+                recommended_flavor: DacHardwareFlavor::StockOemPlus,
+            },
             _ => Self {
                 chip_name: "Cirrus Logic CS42L84 Integrated Audio Core".to_string(),
                 vendor: "Cirrus Logic / Apple".to_string(),

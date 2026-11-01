@@ -109,6 +109,14 @@ impl AudioPipeline {
         self.telemetry.update(buffer);
     }
 
+    /// Update pipeline sample rate and recalculate dependent DSP filters (including DAC mimicker)
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate > 0.0 && (self.sample_rate - sample_rate).abs() > 1.0 {
+            self.sample_rate = sample_rate;
+            self.dac_mimicker.set_sample_rate(sample_rate);
+        }
+    }
+
     /// Set the DAC/Amp mimicker flavor.
     pub fn set_dac_flavor(&mut self, flavor: DacHardwareFlavor) {
         self.dac_mimicker.set_flavor(flavor);
@@ -124,9 +132,10 @@ impl AudioPipeline {
         self.dac_mimicker.target_flavor
     }
 
-    /// Apply an audiophile mastering preset recipe across enhancer and limiter.
+    /// Apply an audiophile mastering preset recipe across enhancer, preamp headroom, and limiter.
     pub fn apply_mastering_preset(&mut self, preset: &MasteringPreset) {
         self.enhancer.apply_preset(preset);
+        self.preamp_db = -preset.recommended_headroom_db();
         self.limiter.threshold = 10.0f32.powf(preset.limiter_ceiling_dbfs / 20.0);
     }
 
@@ -137,6 +146,7 @@ impl AudioPipeline {
         gear: &AcousticGearProfile,
     ) {
         self.enhancer.apply_preset_with_gear(preset, gear);
+        self.preamp_db = -preset.recommended_headroom_db();
         self.limiter.threshold = 10.0f32.powf(preset.limiter_ceiling_dbfs / 20.0);
     }
 }
@@ -164,5 +174,77 @@ mod tests {
         // Passthrough with flat EQ should preserve signal within 0.05
         let diff = (audio[100][0] - input_clone[100][0]).abs();
         assert!(diff < 0.05);
+    }
+
+    #[test]
+    fn test_preset_headroom_compensation() {
+        let mut pipeline = AudioPipeline::new(48000.0);
+        let presets = crate::dsp::enhancer::MasteringPreset::all();
+        assert_eq!(presets.len(), 35);
+
+        // Preset 01 (Flat / Pure Direct) should have 0.0 dB headroom for bit-perfect transparent unity gain
+        pipeline.apply_mastering_preset(&presets[0]);
+        assert_eq!(pipeline.preamp_db, 0.0);
+
+        // Preset 21 (Esports Tactical) must have significant negative preamp headroom to prevent clipping
+        pipeline.apply_mastering_preset(&presets[20]);
+        assert!(pipeline.preamp_db <= -3.0, "Expected preamp_db <= -3.0, got {}", pipeline.preamp_db);
+
+        // Preset 22 (Hip-Hop Sub-Bass Precision) must have safe negative preamp headroom
+        pipeline.apply_mastering_preset(&presets[21]);
+        assert!(pipeline.preamp_db <= -2.5, "Expected preamp_db <= -2.5, got {}", pipeline.preamp_db);
+    }
+
+    #[test]
+    fn test_esports_tactical_preset_zero_clipping() {
+        let mut pipeline = AudioPipeline::new(48000.0);
+        let presets = crate::dsp::enhancer::MasteringPreset::all();
+        let esports_preset = &presets[20]; // 21. Esports Tactical
+        pipeline.apply_mastering_preset(esports_preset);
+
+        // Generate full-scale 0 dBFS signal at 2.4kHz (radar footstep frequency)
+        let n_samples = 1024;
+        let mut audio = Vec::with_capacity(n_samples);
+        for i in 0..n_samples {
+            let t = i as f32 / 48000.0;
+            let s = (2.0 * std::f32::consts::PI * 2400.0 * t).sin();
+            audio.push([s, s]);
+        }
+
+        pipeline.process(&mut audio);
+
+        for (i, frame) in audio.iter().enumerate() {
+            assert!(!frame[0].is_nan(), "Sample {} L is NaN", i);
+            assert!(!frame[1].is_nan(), "Sample {} R is NaN", i);
+            assert!(
+                frame[0].abs() <= pipeline.limiter.threshold + 1e-4,
+                "Sample {} L exceeded limiter threshold: {}",
+                i,
+                frame[0]
+            );
+            assert!(
+                frame[1].abs() <= pipeline.limiter.threshold + 1e-4,
+                "Sample {} R exceeded limiter threshold: {}",
+                i,
+                frame[1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_pipeline_set_sample_rate_syncs_dac_mimicker() {
+        let mut pipeline = AudioPipeline::new(48000.0);
+        assert_eq!(pipeline.sample_rate, 48000.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 48000.0);
+
+        // Switch to 96 kHz (e.g. external DAC high-res audio)
+        pipeline.set_sample_rate(96000.0);
+        assert_eq!(pipeline.sample_rate, 96000.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 96000.0);
+
+        // Switch to 44.1 kHz (CD quality external DAC)
+        pipeline.set_sample_rate(44100.0);
+        assert_eq!(pipeline.sample_rate, 44100.0);
+        assert_eq!(pipeline.dac_mimicker.sample_rate, 44100.0);
     }
 }

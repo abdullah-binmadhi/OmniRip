@@ -45,8 +45,12 @@ pub struct YtDlpProgress {
     pub is_finished: bool,
 }
 
-/// Resolves the executable path for yt-dlp across PATH and standard install directories.
+/// Resolves the executable path for yt-dlp across local tools, PATH and standard install directories.
 pub fn get_yt_dlp_bin() -> Result<String, String> {
+    if let Some(path) = crate::harvest::bootstrap::ToolResolver::resolve_tool("yt-dlp") {
+        return Ok(path.to_string_lossy().to_string());
+    }
+
     let binary_name = if cfg!(target_os = "windows") { "yt-dlp.exe" } else { "yt-dlp" };
 
     if let Ok(output) = std::process::Command::new(binary_name).arg("--version").output() {

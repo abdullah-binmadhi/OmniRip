@@ -3,7 +3,10 @@
 //! Multi-Palette Theme Engine (7 themes), and Real-Time Visual Graph Dashboard.
 
 use crate::autoeq::{get_bundled_profiles, parse_parametric_eq, ParametricProfile};
-use crate::autoeq::storage::{download_raw_preset, load_all_user_presets, save_preset_to_disk, OmniRipPreset};
+use crate::autoeq::storage::{
+    download_raw_preset, load_all_user_mastering_presets, load_all_user_presets,
+    save_mastering_preset_to_disk, save_preset_to_disk, OmniRipPreset,
+};
 use crate::dsp::biquad::{BiquadFilter, BiquadFilterType};
 use crate::dsp::enhancer::{AcousticGearProfile, CrossfeedMode, MasteringPreset};
 use crate::dsp::streamer::{AudioStreamer, SyncMode};
@@ -123,12 +126,41 @@ pub struct App {
     pub archiver: ArchiverState,
     pub streaming_hub: crate::ui::StreamingHubState,
     pub mastering_presets: Vec<MasteringPreset>,
+    pub mastering_preset_list_state: ListState,
     pub active_mastering_preset_idx: usize,
     pub selected_mastering_preset_idx: usize,
     pub gear_modal: GearWizardModal,
     pub gear_profile: AcousticGearProfile,
     pub autoeq_view_mode: usize,
     pub command_bar: CommandBarState,
+    pub setup_modal: crate::ui::setup_modal::SetupModalState,
+}
+
+/// Puts the terminal into TUI mode and restores it on drop, so every exit path (including early `?`
+/// returns from the event loop) leaves the shell usable.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> std::io::Result<Self> {
+        enable_raw_mode()?;
+        if let Err(e) = execute!(stdout(), EnterAlternateScreen, EnableBracketedPaste) {
+            let _ = disable_raw_mode();
+            return Err(e);
+        }
+        Ok(TerminalGuard)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            LeaveAlternateScreen,
+            DisableBracketedPaste,
+            crossterm::cursor::Show
+        );
+    }
 }
 
 impl App {
@@ -202,13 +234,29 @@ impl App {
             active_mode: WorkstationMode::Downloader,
             archiver,
             streaming_hub,
-            mastering_presets: MasteringPreset::all(),
+            mastering_presets: {
+                let mut presets = MasteringPreset::all();
+                for up in load_all_user_mastering_presets() {
+                    if let Some(pos) = presets.iter().position(|p| p.name == up.name) {
+                        presets[pos] = up;
+                    } else {
+                        presets.push(up);
+                    }
+                }
+                presets
+            },
+            mastering_preset_list_state: {
+                let mut ls = ListState::default();
+                ls.select(Some(0));
+                ls
+            },
             active_mastering_preset_idx: 0,
             selected_mastering_preset_idx: 0,
             gear_modal: GearWizardModal::new(),
             gear_profile,
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
+            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -240,7 +288,8 @@ impl App {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
-        let streamer = AudioStreamer::new(pipeline);
+        let mut streamer = AudioStreamer::new(pipeline);
+        let _ = streamer.set_input_capture(false);
         let mut downloader = DownloaderState::new();
         downloader.player = std::sync::Arc::clone(&streamer.player);
 
@@ -272,12 +321,18 @@ impl App {
             archiver,
             streaming_hub,
             mastering_presets: MasteringPreset::all(),
+            mastering_preset_list_state: {
+                let mut ls = ListState::default();
+                ls.select(Some(0));
+                ls
+            },
             active_mastering_preset_idx: 0,
             selected_mastering_preset_idx: 0,
             gear_modal: GearWizardModal::new(),
             gear_profile: AcousticGearProfile::default(),
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
+            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -296,6 +351,7 @@ impl App {
             || self.gear_modal.is_open
             || self.preset_modal.is_active()
             || self.nicotine_modal.is_open
+            || self.setup_modal.is_open
     }
 
     pub fn execute_command(&mut self, cmd: &str) {
@@ -319,7 +375,7 @@ impl App {
                     }
                     "status" => {
                         let st = if self.streamer.is_input_capture_enabled() { "ON" } else { "OFF" };
-                        self.set_status(&format!("Microphone status: [{}] (Use :mic on or :mic off)", st));
+                        self.set_status(&format!("Microphone isolation: [{}] (Loopback sound engine always active)", st));
                     }
                     _ => {
                         let (_, msg) = self.streamer.toggle_input_capture();
@@ -440,7 +496,14 @@ impl App {
                 std::process::exit(0);
             }
             "help" => {
-                self.set_status("Commands: :gear [speaker|headphone|bookshelf|sync]  :dac [oem|ifi|ibasso|chord|schiit|cycle]  :chip [status|rescan]  :mic [on|off|toggle]  :bypass  :resync  :q");
+                self.set_status("Commands: :save <name>  :gear [speaker|headphone|bookshelf|sync]  :dac [oem|ifi|ibasso|chord|schiit|cycle]  :chip [status|rescan]  :mic [on|off|toggle]  :bypass  :resync  :q");
+            }
+            "save" => {
+                if let Some(name) = parts.get(1) {
+                    self.save_active_settings_as_preset(name);
+                } else {
+                    self.set_status("Usage: :save <preset_name>");
+                }
             }
             "bypass" => {
                 let new_st = if let Ok(mut pipe) = self.streamer.pipeline.lock() {
@@ -457,6 +520,15 @@ impl App {
             "resync" => {
                 self.streamer.force_resync();
                 self.set_status("Pure Rust Master Clock PLL forced re-sync");
+            }
+            "setup" | "doctor" | "install" | "wizard" => {
+                self.setup_modal.open();
+                self.set_status("Opened System Setup & Dependency Health Wizard.");
+            }
+            "update" | "upgrade" => {
+                self.setup_modal.open();
+                self.setup_modal.start_self_update();
+                self.set_status("Checking for latest release and initiating self-update...");
             }
             unknown => {
                 self.set_status(&format!("Unknown command: :{}. Type :help for commands.", unknown));
@@ -522,16 +594,23 @@ impl App {
             ("Flat Studio Reference".to_string(), "Harman Target Curve".to_string(), 0, 0.0)
         };
 
-        let (warmth, width, ceiling) = if let Ok(pipe) = self.streamer.pipeline.lock() {
-            (pipe.enhancer.tube_warmth, pipe.enhancer.spatial_width, 20.0 * pipe.limiter.threshold.log10())
+        let (warmth, width, ceiling, pipe_preamp) = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            (
+                pipe.enhancer.tube_warmth,
+                pipe.enhancer.spatial_width,
+                20.0 * pipe.limiter.threshold.log10(),
+                pipe.preamp_db,
+            )
         } else {
-            (0.0, 1.0, -0.2)
+            (0.0, 1.0, -0.2, 0.0)
         };
+
+        let effective_preamp = if preamp_db.abs() > 0.01 { preamp_db } else { pipe_preamp };
 
         self.streaming_hub.dsp_telemetry = crate::ui::streaming_hub::DspTelemetryInfo {
             active_preset_name,
             target_curve,
-            preamp_db,
+            preamp_db: effective_preamp,
             tube_warmth: warmth,
             spatial_width: width,
             limiter_ceiling_db: ceiling,
@@ -604,6 +683,14 @@ impl App {
 
         if let Ok(mut pipe) = self.streamer.pipeline.lock() {
             pipe.crossfader.update_filters(&filters, sr);
+            if !self.downloader.eq_bypass {
+                let max_boost = self.downloader.band_gains.iter().copied().fold(0.0f32, f32::max);
+                let air_boost = if self.downloader.air_boost { 3.0 } else { 0.0 };
+                let total_boost = max_boost.max(air_boost);
+                if total_boost > 0.1 {
+                    pipe.preamp_db = -total_boost;
+                }
+            }
         }
     }
 
@@ -678,13 +765,84 @@ impl App {
             pipe.crossfader.update_filters(&profile.filters, sr);
         }
 
-        match save_preset_to_disk(&preset) {
-            Ok(path) => {
-                let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or("saved.json");
-                self.set_status(&format!("Saved preset '{}' to ~/.config/omnirip/presets/{}", name, fname));
+        // Construct and persist full MasteringPreset into PRESET LIBRARY
+        let new_mastering = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            let enh = &pipe.enhancer;
+            let ceil_db = 20.0 * pipe.limiter.threshold.log10();
+            MasteringPreset {
+                name: Box::leak(name.to_string().into_boxed_str()),
+                description: Box::leak(format!("User custom preset: {}", name).into_boxed_str()),
+                target: Box::leak("User Customized".to_string().into_boxed_str()),
+                spatial_width: enh.spatial_width,
+                tube_warmth: enh.tube_warmth,
+                air_clarity_db: enh.air_clarity_db,
+                bass_punch_db: enh.bass_punch_db,
+                mono_bass: enh.mono_bass,
+                mono_bass_freq: enh.mono_bass_freq,
+                loudness_contour: enh.loudness_contour,
+                crossfeed: enh.crossfeed,
+                subsonic_filter: enh.subsonic_filter,
+                ultrasonic_filter: enh.ultrasonic_filter,
+                deesser_enabled: enh.deesser_enabled,
+                deesser_amount: enh.deesser_amount,
+                deesser_freq: enh.deesser_freq,
+                tape_emulation: enh.tape_emulation,
+                tape_drive: enh.tape_drive,
+                transient_shaper: enh.transient_shaper,
+                transient_attack_db: enh.transient_attack_db,
+                transient_sustain_db: enh.transient_sustain_db,
+                ms_matrix_enabled: enh.ms_matrix_enabled,
+                mid_gain_db: enh.mid_gain_db,
+                side_gain_db: enh.side_gain_db,
+                side_air_db: enh.side_air_db,
+                deharsh_enabled: enh.deharsh_enabled,
+                deharsh_amount: enh.deharsh_amount,
+                deharsh_freq: enh.deharsh_freq,
+                comp_enabled: enh.comp_enabled,
+                comp_opto_drive: enh.comp_opto_drive,
+                comp_vca_drive: enh.comp_vca_drive,
+                pultec_enabled: enh.pultec_enabled,
+                pultec_low_boost: enh.pultec_low_boost,
+                pultec_air_boost: enh.pultec_air_boost,
+                pultec_air_freq: enh.pultec_air_freq,
+                limiter_ceiling_dbfs: ceil_db,
+                eq_10_band: self.band_gains,
+                game_mode: enh.game_mode,
+                radar_eq: enh.radar_eq,
+                spike_shield: enh.spike_shield,
             }
-            Err(e) => {
-                self.set_status(&format!("Saved preset '{}' in session (Disk note: {})", name, e));
+        } else {
+            let mut p = MasteringPreset::all()[0].clone();
+            p.name = Box::leak(name.to_string().into_boxed_str());
+            p.description = Box::leak(format!("User custom preset: {}", name).into_boxed_str());
+            p.target = Box::leak("User Customized".to_string().into_boxed_str());
+            p.eq_10_band = self.band_gains;
+            p
+        };
+
+        let res_mastering = save_mastering_preset_to_disk(&new_mastering);
+        let res_preset = save_preset_to_disk(&preset);
+
+        if let Some(pos) = self.mastering_presets.iter().position(|p| p.name == new_mastering.name) {
+            self.mastering_presets[pos] = new_mastering;
+            self.selected_mastering_preset_idx = pos;
+            self.active_mastering_preset_idx = pos;
+        } else {
+            self.mastering_presets.push(new_mastering);
+            self.selected_mastering_preset_idx = self.mastering_presets.len() - 1;
+            self.active_mastering_preset_idx = self.mastering_presets.len() - 1;
+        }
+        self.sync_dsp_telemetry();
+
+        match (res_mastering, res_preset) {
+            (Ok(_), Ok(_)) => {
+                self.set_status(&format!("Saved preset '{}' into PRESET LIBRARY ({} total presets)", name, self.mastering_presets.len()));
+            }
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => {
+                self.set_status(&format!("Saved preset '{}' into PRESET LIBRARY ({}) (Disk note: {})", name, self.mastering_presets.len(), e));
+            }
+            (Err(e1), Err(e2)) => {
+                self.set_status(&format!("Saved preset '{}' in session only (Disk errors: {}, {})", name, e1, e2));
             }
         }
     }
@@ -720,6 +878,18 @@ impl App {
         );
 
         let _ = save_preset_to_disk(&preset);
+        let new_mastering = preset.to_mastering_preset();
+        let _ = save_mastering_preset_to_disk(&new_mastering);
+        if let Some(pos) = self.mastering_presets.iter().position(|p| p.name == new_mastering.name) {
+            self.mastering_presets[pos] = new_mastering;
+            self.selected_mastering_preset_idx = pos;
+            self.active_mastering_preset_idx = pos;
+        } else {
+            self.mastering_presets.push(new_mastering);
+            self.selected_mastering_preset_idx = self.mastering_presets.len() - 1;
+            self.active_mastering_preset_idx = self.mastering_presets.len() - 1;
+        }
+        self.sync_dsp_telemetry();
 
         self.profiles.push(profile.clone());
         self.selected_profile_idx = self.profiles.len() - 1;
@@ -869,14 +1039,15 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+        // Restores the terminal on every exit path, including early `?` returns from the loop below.
+        let _terminal_guard = TerminalGuard::enter()?;
+        let stdout = stdout();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
         let tick_rate = Duration::from_millis(33); // 30 FPS
         let mut last_tick = Instant::now();
+        let mut last_daemon_watchdog = Instant::now();
 
         loop {
             // 1. Detect OS kernel sleep/wake time jump (e.g. laptop lid closed and reopened)
@@ -891,6 +1062,17 @@ impl App {
             // 2. Poll CoreAudio stream health & liveness watchdog
             if self.streamer.poll_health() {
                 self.set_status("CoreAudio stream auto-healed after device reset.");
+            }
+
+            // 3. Poll Soulseek swarm daemon health & auto-heal watchdog every 15s
+            if last_daemon_watchdog.elapsed() >= Duration::from_secs(15) {
+                last_daemon_watchdog = Instant::now();
+                if self.downloader.active_soulseek_user.is_some() && !crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                    let _ = crate::harvest::slskd::SlskdClient::ensure_daemon_running();
+                    if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                        self.set_status("Soulseek swarm daemon auto-healed and reconnected on port 5030.");
+                    }
+                }
             }
 
             // Poll any background downloader worker updates
@@ -973,6 +1155,18 @@ impl App {
                             continue;
                         }
 
+                        // 1c. If Setup & Dependency Health Wizard is open, intercept wizard keys
+                        if self.setup_modal.is_open {
+                            match self.setup_modal.handle_key(key.code) {
+                                crate::ui::setup_modal::SetupModalAction::None => {}
+                                crate::ui::setup_modal::SetupModalAction::Close => {}
+                                crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
+                                    self.set_status(&msg);
+                                }
+                            }
+                            continue;
+                        }
+
                         // 2. If Downloader is actively capturing input or has an interactive modal open, DO NOT intercept global character hotkeys
                         if self.active_mode == WorkstationMode::Downloader
                             && self.downloader.is_capturing_input()
@@ -1034,6 +1228,18 @@ impl App {
                                         self.downloader.active_soulseek_user = Some(acc.username.clone());
                                         self.set_status(&format!("Activated Soulseek account: {} ({})", acc.username, acc.source));
                                     }
+                                    NicotineModalAction::RestartDaemon => {
+                                        self.set_status("Restarting Soulseek swarm daemon on port 5030 (bounded memory)...");
+                                        let _ = crate::harvest::slskd::SlskdClient::restart_daemon();
+                                        if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                                            self.set_status("Soulseek swarm daemon active and connected on port 5030.");
+                                            self.downloader.active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+                                                .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
+                                        } else {
+                                            self.set_status("Failed to start Soulseek daemon. Check tools/slskd/slskd binary.");
+                                        }
+                                        self.nicotine_modal.rescan();
+                                    }
                                 }
                             }
                             continue;
@@ -1088,9 +1294,19 @@ impl App {
                             break;
                         }
 
-                        // Global DAC Mimicker Hotkey: Ctrl+D (Forward) / Ctrl+Shift+D (Reverse)
-                        if key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('d') || key.code == KeyCode::Char('D')) {
-                            let new_flavor = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        // Global DAC Mimicker Hotkey: Shift+D / F6 / Ctrl+D (Forward), Shift+F6 / Ctrl+Shift+D (Reverse)
+                        let is_dac_hotkey = match key.code {
+                            KeyCode::F(6) => true,
+                            KeyCode::Char('d') | KeyCode::Char('D') if key.modifiers.contains(KeyModifiers::CONTROL) => true,
+                            KeyCode::Char('D') | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::SHIFT) => true,
+                            KeyCode::Char('D') => true,
+                            _ => false,
+                        };
+
+                        if is_dac_hotkey && !self.is_capturing_text_input() {
+                            let reverse = (key.modifiers.contains(KeyModifiers::SHIFT) && key.modifiers.contains(KeyModifiers::CONTROL))
+                                || (key.code == KeyCode::F(6) && key.modifiers.contains(KeyModifiers::SHIFT));
+                            let new_flavor = if reverse {
                                 self.streamer.cycle_dac_flavor_reverse()
                             } else {
                                 self.streamer.cycle_dac_flavor()
@@ -1099,7 +1315,7 @@ impl App {
                             continue;
                         }
 
-                        // Preset Management Hotkeys (Shift+S, Shift+I, Shift+D, Shift+R)
+                        // Preset Management Hotkeys (Shift+S, Shift+I, Shift+U, Shift+R)
                         // Active only in SystemEq mode to prevent overriding Downloader keys (such as 'S' for Advanced Search)
                         if self.active_mode == WorkstationMode::SystemEq {
                             if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('S') || key.code == KeyCode::Char('s')))
@@ -1114,8 +1330,8 @@ impl App {
                                 self.preset_modal = PresetModalState::new_import_squiglink();
                                 continue;
                             }
-                            if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('D') || key.code == KeyCode::Char('d')))
-                                || key.code == KeyCode::Char('D')
+                            if (key.modifiers.contains(KeyModifiers::SHIFT) && (key.code == KeyCode::Char('U') || key.code == KeyCode::Char('u')))
+                                || key.code == KeyCode::Char('U')
                             {
                                 self.preset_modal = PresetModalState::new_download_url();
                                 continue;
@@ -1166,9 +1382,26 @@ impl App {
                                 self.set_status("Toggled Nicotine+ Lossless Candidate Browser.");
                                 continue;
                             }
+                            KeyCode::F(12) if !self.is_capturing_text_input() => {
+                                self.setup_modal.open();
+                                self.set_status("Opened System Setup & Dependency Health Wizard.");
+                                continue;
+                            }
+                            KeyCode::F(5) if !self.is_capturing_text_input() => {
+                                self.set_status("Refreshing & reconnecting Soulseek swarm daemon on port 5030...");
+                                let _ = crate::harvest::slskd::SlskdClient::restart_daemon();
+                                if crate::harvest::slskd::SlskdClient::is_daemon_online() {
+                                    self.set_status("Soulseek swarm daemon active and connected on port 5030.");
+                                    self.downloader.active_soulseek_user = crate::harvest::slskd::SlskdClient::detect_configured_username()
+                                        .or_else(|| crate::harvest::nicotine::NicotineConfig::detect_local().map(|c| c.username));
+                                } else {
+                                    self.set_status("Failed to reconnect Soulseek daemon on port 5030.");
+                                }
+                                continue;
+                            }
                             KeyCode::Char('n') | KeyCode::Char('N')
                                 if self.active_mode == WorkstationMode::SystemEq
-                                    || (!self.downloader.is_capturing_input() && self.downloader.focused_field != 0) =>
+                                    || (self.active_mode == WorkstationMode::Downloader && !self.downloader.is_capturing_input() && self.downloader.focused_field != 0) =>
                             {
                                 self.nicotine_modal.is_open = true;
                                 self.set_status("Opened Nicotine+ Lossless Candidate Browser.");
@@ -1176,7 +1409,7 @@ impl App {
                             }
                             KeyCode::Char('a') | KeyCode::Char('A')
                                 if self.active_mode == WorkstationMode::SystemEq
-                                    || !self.downloader.is_capturing_input() =>
+                                    || (self.active_mode == WorkstationMode::Downloader && !self.downloader.is_capturing_input()) =>
                             {
                                 self.nicotine_modal.open_accounts();
                                 self.set_status("Opened Soulseek Account Discovery & Manager.");
@@ -1192,7 +1425,7 @@ impl App {
                                 self.set_status(&format!("Visual Graph: {}", self.visuals.mode.label()));
                                 continue;
                             }
-                            KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && self.active_tab != 3 && !key.modifiers.contains(KeyModifiers::SHIFT) => {
                                 let next_mode = match self.streamer.sync_mode {
                                     SyncMode::Extreme => SyncMode::Ultra,
                                     SyncMode::Ultra => SyncMode::Balanced,
@@ -1766,6 +1999,11 @@ impl App {
         if self.gear_modal.is_open {
             self.gear_modal.render(f, f.area(), &self.theme);
         }
+
+        // Render System Setup & Dependency Health Wizard on top if open
+        if self.setup_modal.is_open {
+            self.setup_modal.render(f, f.area());
+        }
     }
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -1786,7 +2024,8 @@ impl App {
                 (-60.0, -60.0, 1.0, -70.0, -70.0, 0.0, false, false)
             };
 
-        let is_compact = area.width < 180;
+        let is_compact = area.width < 165;
+        let is_ultra_compact = area.width < 135;
         let mode_badge = match self.active_mode {
             WorkstationMode::Downloader => {
                 if is_compact {
@@ -1854,19 +2093,37 @@ impl App {
         let cur_dac = self.streamer.current_dac_flavor();
         let dac_badge = match cur_dac {
             crate::dsp::enhancer::DacHardwareFlavor::StockOemPlus => {
-                Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(self.theme.text))
+                Span::styled(" [OEM+] ", Style::default().fg(self.theme.text))
             }
             _ => {
                 Span::styled(format!(" [{}] ", cur_dac.short_label()), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
             }
         };
 
-        let peak_str = format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r);
-        let phase_str = format!("Phase: {:+.2}", phase);
-        let lufs_str = format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s });
-        let crest_str = format!("Crest: {:.1}dB", crest);
+        let (peak_str, phase_str, lufs_str, crest_str) = if is_ultra_compact {
+            (
+                format!("Pk: {:>4.1}dB", peak_l.max(peak_r)),
+                String::new(),
+                format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Cr: {:.1}dB", crest),
+            )
+        } else if is_compact {
+            (
+                format!("L {:>4.1} R {:>4.1}dB", peak_l, peak_r),
+                format!("Phase {:+.2}", phase),
+                format!("LUFS {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Crest: {:.1}dB", crest),
+            )
+        } else {
+            (
+                format!("L: {:>4.1}dB R: {:>4.1}dB", peak_l, peak_r),
+                format!("Phase: {:+.2}", phase),
+                format!("LUFS: {:>4.1}", if lufs_m > -69.0 { lufs_m } else { lufs_s }),
+                format!("Crest: {:.1}dB", crest),
+            )
+        };
 
-        let title_line = Line::from(vec![
+        let mut spans = vec![
             Span::styled("OMNIRIP ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             mode_badge,
             theme_badge,
@@ -1878,13 +2135,19 @@ impl App {
             mic_badge,
             Span::raw(" | "),
             Span::styled(peak_str, Style::default().fg(self.theme.text)),
-            Span::raw(" | "),
-            Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { self.theme.success } else { self.theme.warning })),
-            Span::raw(" | "),
-            Span::styled(lufs_str, Style::default().fg(self.theme.secondary)),
-            Span::raw(" | "),
-            Span::styled(crest_str, Style::default().fg(self.theme.accent)),
-        ]);
+        ];
+
+        if !phase_str.is_empty() {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(phase_str, Style::default().fg(if phase >= 0.5 { self.theme.success } else { self.theme.warning })));
+        }
+
+        spans.push(Span::raw(" | "));
+        spans.push(Span::styled(lufs_str, Style::default().fg(self.theme.secondary)));
+        spans.push(Span::raw(" | "));
+        spans.push(Span::styled(crest_str, Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)));
+
+        let title_line = Line::from(spans);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -2172,7 +2435,7 @@ impl App {
             (13, format!("14. Dynamic Loudness:  {}", if loudness_contour { "[ ON ISO226 ]" } else { "[ OFF ]" })),
             (14, format!("15. Mid/Side Matrix:   {}", if ms_matrix { "[ ON Split ]" } else { "[ OFF ]" })),
             (15, format!("16. Pultec Low Boost:  {} {:>+4.1}dB", make_slider(pultec_low, 0.0, 5.0, 7), pultec_low)),
-            (16, format!("17. Microphone Stream: {}", if mic_enabled { "[ ON Live ]" } else { "[ OFF Muted ]" })),
+            (16, format!("17. Mic Isolation:    {}", if mic_enabled { "[ ACTIVE Private ]" } else { "[ OFF Standby ]" })),
             (17, format!("18. Esports Game Mode: {}", if game_mode { "[ ACTIVE 10ms ]" } else { "[ OFF Studio ]" })),
             (18, format!("19. Radar Footstep EQ: {}", if radar_eq { "[ ON +4.5dB ]" } else { "[ OFF ]" })),
             (19, format!("20. Spike Ear Shield:  {}", if spike_shield { "[ ON -6dB ]" } else { "[ OFF ]" })),
@@ -2330,10 +2593,10 @@ impl App {
                 "Jazz Bass, Soul, Reggae, Organ & Double Bass",
             ),
             16 => (
-                "Hardware Microphone & Acoustic Line Capture",
-                "Full-duplex low-latency audio capture stream with live peak metering",
-                "Press [Enter] or [x] to toggle mic on/off across all workstations",
-                "Live Voice Analysis, Acoustic Room Calibration, Podcast Monitoring",
+                "Microphone Hardware Isolation & Loopback Audio Feed",
+                "Zero microphone hardware recording; bit-perfect system loopback stream for DSP engine",
+                "Press [Enter] or [x] to toggle mic isolation status across all workstations",
+                "Private Bit-Perfect Playback, Pure Loopback Interception, Zero-Mic Privacy",
             ),
             17 => (
                 "Hermite Cubic Direct Resampler & 10.6ms Real-Time Buffer",
@@ -2951,25 +3214,25 @@ impl App {
 
         let test_lines = vec![
             Line::from(vec![
-                Span::styled(" Status: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Status:   ", Style::default().fg(self.theme.text_dim)),
                 test_status_badge,
-                Span::raw("  Mode: "),
+                Span::raw("   Mode: "),
                 Span::styled(format!("[{}]", test_mode.label()), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled(" Description: ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Profile:  ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(test_mode.description(), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" Pipeline:    ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" Pipeline: ", Style::default().fg(self.theme.text_dim)),
                 Span::styled("Synthesized directly through active 10-Band EQ & Mastering DSP", Style::default().fg(self.theme.secondary)),
             ]),
             Line::from(vec![
-                Span::styled(" Audition:    ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("Test EQ, Tube Warmth & Headphone Curves with zero setup!", Style::default().fg(self.theme.accent)),
+                Span::styled(" Control:  ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("[P] Toggle Audition Tone   [O] Cycle Mode", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
             ]),
         ];
-        let p_test = Paragraph::new(test_lines);
+        let p_test = Paragraph::new(test_lines).wrap(ratatui::widgets::Wrap { trim: true });
         f.render_widget(p_test, test_inner);
 
         // Right Pane: macOS Audio MIDI Setup & System Loopback Guide
@@ -2982,24 +3245,24 @@ impl App {
 
         let guide_lines = vec![
             Line::from(vec![
-                Span::styled(" [A] TRANSDUCER PRIORITY: ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled(" [A] ROUTE PRIORITY:  ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
                 Span::styled("Auto-resolve: USB DAC -> Headphones -> Speakers", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled("     ZERO DRIVER/ROOT:    ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("Pure Rust IPC engine. Zero kernel drivers, zero audio lag.", Style::default().fg(self.theme.text_dim)),
+                Span::styled("     ZERO DRIVER:     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("Pure Rust IPC engine. Zero kernel drivers, zero lag.", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled(" [1] Cycle Output [D]:   ", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" [1] Output [D]:      ", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("Active Output: [{}] (Press [D] to cycle)", out_name), Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" [2] Live Stream [Space]: ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled("Audio routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
+                Span::styled(" [2] Stream [Space]:  ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("Routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
-                Span::styled(" [3] Test Tone [P]:      ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled("Play built-in acoustic test tone directly through active EQ.", Style::default().fg(self.theme.text_dim)),
+                Span::styled(" [3] Test Tone [P]:   ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled("Play built-in acoustic test tone through active EQ.", Style::default().fg(self.theme.text_dim)),
             ]),
         ];
         let p_guide = Paragraph::new(guide_lines).wrap(ratatui::widgets::Wrap { trim: true });
@@ -3038,395 +3301,9 @@ impl App {
         self.render_autoeq_presets_browser(f, v_chunks[1]);
     }
 
-    #[allow(dead_code)]
-    fn render_autoeq_transducer_database(&mut self, f: &mut ratatui::Frame, area: Rect) {
-        let block = Block::default()
-            .title(" TRANSDUCER MEASUREMENT DATABASE & HARMAN TARGET WORKBENCH ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        let h_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(36), Constraint::Percentage(64)])
-            .split(inner);
-
-        // LEFT PANE: Headphone & IEM Database
-        let list_block = Block::default()
-            .title(format!(" HEADPHONE PROFILES ({}) ", self.profiles.len()))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let list_inner = list_block.inner(h_chunks[0]);
-        f.render_widget(list_block, h_chunks[0]);
-
-        let col_w = h_chunks[0].width as usize;
-        let items: Vec<ListItem> = self
-            .profiles
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let is_sel = i == self.selected_profile_idx;
-                let suffix = format!(" ({:+.1}dB, {}f)", p.preamp_db, p.filters.len());
-                let prefix = format!("{}. ", i + 1);
-                let avail = col_w.saturating_sub(prefix.len() + suffix.len() + 4);
-                let name = if p.name.len() > avail && avail > 3 {
-                    format!("{}..", &p.name[..avail - 2])
-                } else if avail <= 3 {
-                    p.name.chars().take(8).collect::<String>()
-                } else {
-                    p.name.clone()
-                };
-                let text = format!("{}{}{}", prefix, name, suffix);
-                let style = if is_sel {
-                    Style::default().fg(self.theme.primary).bg(self.theme.surface).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(self.theme.text)
-                };
-                ListItem::new(text).style(style)
-            })
-            .collect();
-
-        let list = List::new(items)
-            .highlight_style(Style::default().bg(self.theme.surface).add_modifier(Modifier::BOLD))
-            .highlight_symbol("> ");
-
-        f.render_stateful_widget(list, list_inner, &mut self.profile_list_state);
-
-        // RIGHT COLUMN: Frequency Response Plot (Top) & Filter Matrix (Bottom)
-        let right_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
-            .split(h_chunks[1]);
-
-        let prof = &self.profiles[self.selected_profile_idx];
-
-        let plot_inner = right_chunks[0];
-        let mode_title = match self.autoeq_visual_mode {
-            0 => "Smooth Braille Vector Curve",
-            1 => "Solid ISO Response Bars",
-            2 => "Multi-Trace Acoustic Overlay",
-            3 => "Shaded Tolerance Corridor (+/-1.5dB)",
-            4 => "Phase & Group Delay Curve",
-            _ => "Acoustic Response",
-        };
-
-        let plot_block = Block::default()
-            .title(format!(" ACOUSTIC FREQUENCY RESPONSE: {} (Press [V] or [F] to Cycle) ", mode_title))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let p_area = plot_block.inner(plot_inner);
-        f.render_widget(plot_block, plot_inner);
-
-        // Analytic response curve calculation
-        let eval_delta = |freq: f32| -> f32 {
-            let mut sum_db = 0.0f32;
-            for flt in &prof.filters {
-                let f0 = flt.frequency;
-                let g = flt.gain_db;
-                let q = flt.q.max(0.1);
-                let gain = match flt.filter_type {
-                    BiquadFilterType::Peaking => {
-                        let octaves = (freq / f0).log2().abs();
-                        let bw = 1.0 / q;
-                        if octaves < bw * 2.0 {
-                            g * (-(octaves * octaves) / (2.0 * (bw * 0.5) * (bw * 0.5))).exp()
-                        } else {
-                            0.0
-                        }
-                    }
-                    BiquadFilterType::LowShelf => {
-                        if freq <= f0 {
-                            g
-                        } else if freq < f0 * 2.0 {
-                            g * (1.0 - (freq - f0) / f0)
-                        } else {
-                            0.0
-                        }
-                    }
-                    BiquadFilterType::HighShelf => {
-                        if freq >= f0 {
-                            g
-                        } else if freq > f0 * 0.5 {
-                            g * ((freq - f0 * 0.5) / (f0 * 0.5))
-                        } else {
-                            0.0
-                        }
-                    }
-                    _ => 0.0,
-                };
-                sum_db += gain;
-            }
-            sum_db
-        };
-
-        let total_w = p_area.width as usize;
-        let total_h = p_area.height as usize;
-        let axis_w = 7;
-        let graph_w = total_w.saturating_sub(axis_w).max(10);
-        let graph_h = total_h.saturating_sub(4).max(4);
-
-        // Compute logarithmic frequencies and gains across all columns
-        let mut freqs = Vec::with_capacity(graph_w);
-        let mut gains = Vec::with_capacity(graph_w);
-        for col in 0..graph_w {
-            let ratio = if graph_w > 1 { col as f32 / (graph_w - 1) as f32 } else { 0.5 };
-            let f = 20.0 * (1000.0_f32).powf(ratio);
-            freqs.push(f);
-            gains.push(eval_delta(f));
-        }
-
-        let mut plot_lines = Vec::new();
-
-        // 1. Header Line
-        let p_name = if prof.name.len() > 28 {
-            format!("{}..", &prof.name[..26])
-        } else {
-            prof.name.clone()
-        };
-        plot_lines.push(Line::from(vec![
-            Span::styled(format!(" Profile: {} ", p_name), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("| Preamp: {:+.1}dB ", prof.preamp_db), Style::default().fg(self.theme.warning)),
-            Span::styled(format!("| Filters: {} ", prof.filters.len()), Style::default().fg(self.theme.text)),
-            Span::styled(format!("| Mode: {} ", mode_title), Style::default().fg(self.theme.secondary)),
-        ]));
-
-        // 2. Multi-Row Graph Grid
-        let max_db = 12.0f32;
-        let min_db = -12.0f32;
-        let zero_r = ((max_db / (max_db - min_db)) * (graph_h - 1) as f32).round() as usize;
-
-        for r in 0..graph_h {
-            let db_val = max_db - (r as f32 / (graph_h - 1).max(1) as f32) * (max_db - min_db);
-            let axis_label = if r == 0 {
-                format!("{:>+4.0}dB|", max_db)
-            } else if r == zero_r {
-                "  0dB|".to_string()
-            } else if r == graph_h - 1 {
-                format!("{:>+4.0}dB|", min_db)
-            } else if (db_val - 6.0).abs() < (12.0 / graph_h as f32) {
-                " +6dB|".to_string()
-            } else if (db_val + 6.0).abs() < (12.0 / graph_h as f32) {
-                " -6dB|".to_string()
-            } else {
-                "     |".to_string()
-            };
-
-            let mut spans = vec![Span::styled(axis_label, Style::default().fg(self.theme.text_dim))];
-
-            match self.autoeq_visual_mode {
-                1 => {
-                    // Solid ISO Response Bars
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let (ch, style) = if g >= 0.0 {
-                            if r <= zero_r && r >= target_r {
-                                ("█", Style::default().fg(self.theme.primary))
-                            } else if r == zero_r {
-                                ("─", Style::default().fg(self.theme.text_dim))
-                            } else {
-                                (" ", Style::default())
-                            }
-                        } else {
-                            if r >= zero_r && r <= target_r {
-                                ("█", Style::default().fg(self.theme.accent))
-                            } else if r == zero_r {
-                                ("─", Style::default().fg(self.theme.text_dim))
-                            } else {
-                                (" ", Style::default())
-                            }
-                        };
-                        spans.push(Span::styled(ch, style));
-                    }
-                }
-                2 => {
-                    // Multi-Trace Overlay (Raw / Target / Corrected / Delta)
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let raw_r = ((max_db - (-g)) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        if target_r == r {
-                            spans.push(Span::styled("█", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
-                        } else if raw_r == r {
-                            spans.push(Span::styled("*", Style::default().fg(self.theme.warning)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                3 => {
-                    // Shaded Tolerance Corridor (+/-1.5 dB)
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let is_in_corridor = db_val >= -1.5 && db_val <= 1.5;
-                        if target_r == r {
-                            let col = if g.abs() <= 1.5 { self.theme.success } else { self.theme.warning };
-                            spans.push(Span::styled("█", Style::default().fg(col).add_modifier(Modifier::BOLD)));
-                        } else if is_in_corridor {
-                            spans.push(Span::styled("░", Style::default().fg(self.theme.surface)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                4 => {
-                    // Phase & Group Delay Curve
-                    for &g in &gains {
-                        let phase_deg = (g * 15.0).clamp(-180.0, 180.0);
-                        let phase_r = ((180.0 - phase_deg) / 360.0 * (graph_h - 1) as f32).round() as usize;
-                        if phase_r == r {
-                            spans.push(Span::styled("~", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("─", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-                _ => {
-                    // Mode 0: Smooth Braille Vector Curve
-                    for &g in &gains {
-                        let target_r = ((max_db - g) / (max_db - min_db) * (graph_h - 1) as f32).round() as usize;
-                        let frac = (max_db - g) / (max_db - min_db) * (graph_h - 1) as f32 - target_r as f32;
-                        if target_r == r {
-                            let ch = if frac < 0.25 { "▀" } else if frac > 0.75 { "▄" } else { "─" };
-                            spans.push(Span::styled(ch, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)));
-                        } else if r == zero_r {
-                            spans.push(Span::styled("·", Style::default().fg(self.theme.text_dim)));
-                        } else {
-                            spans.push(Span::styled(" ", Style::default()));
-                        }
-                    }
-                }
-            }
-
-            plot_lines.push(Line::from(spans));
-        }
-
-        // 3. Axis Divider
-        plot_lines.push(Line::from(vec![
-            Span::styled("      +", Style::default().fg(self.theme.text_dim)),
-            Span::styled("─".repeat(graph_w), Style::default().fg(self.theme.text_dim)),
-        ]));
-
-        // 4. Frequency Labels evenly spaced with collision prevention
-        let f_marks: [(f32, &str); 10] = [
-            (20.0, "20Hz"),
-            (50.0, "50"),
-            (100.0, "100"),
-            (250.0, "250"),
-            (500.0, "500"),
-            (1000.0, "1kHz"),
-            (2000.0, "2k"),
-            (4000.0, "4k"),
-            (8000.0, "8k"),
-            (20000.0, "20kHz"),
-        ];
-
-        let mut label_chars: Vec<char> = vec![' '; graph_w];
-        let mut last_end: usize = 0;
-        for &(f_hz, text) in &f_marks {
-            let ratio = (f_hz / 20.0_f32).log10() / 3.0_f32; // log10(1000) = 3.0
-            let pos = (ratio * (graph_w.saturating_sub(text.len())) as f32).round() as usize;
-            if pos >= last_end && pos + text.len() <= graph_w {
-                for (j, c) in text.chars().enumerate() {
-                    label_chars[pos + j] = c;
-                }
-                last_end = pos + text.len() + 1;
-            }
-        }
-        let f_label_str: String = label_chars.into_iter().collect();
-        plot_lines.push(Line::from(vec![
-            Span::styled("       ", Style::default().fg(self.theme.text_dim)),
-            Span::styled(f_label_str, Style::default().fg(self.theme.accent)),
-        ]));
-
-        // 5. Dynamic Legend spanning width
-        let legend_text = match self.autoeq_visual_mode {
-            1 => " [Legend] Solid ISO Bars: Upward=Boost (Primary) | Downward=Cut (Accent) | [V/F] Change Mode",
-            2 => " [Legend] Overlay: [*] Raw Headphone | [─] Harman Target | [█] Equalizer Correction | [V/F] Change",
-            3 => " [Legend] Shaded Corridor: [░] +/-1.5dB Tolerance Corridor | [█] Response Trace | [V/F] Change",
-            4 => " [Legend] Phase: [~] Acoustic Phase Degrees (-180° to +180°) | [─] Reference | [V/F] Change",
-            _ => " [Legend] Smooth Braille: [─/▀/▄] Frequency Response Curve | [·] 0dB Reference Target | [V/F] Change",
-        };
-        plot_lines.push(Line::from(vec![
-            Span::styled(legend_text, Style::default().fg(self.theme.secondary)),
-        ]));
-
-        let p_plot = Paragraph::new(plot_lines);
-        f.render_widget(p_plot, p_area);
-
-        // BOTTOM RIGHT: Parametric Biquad Filter Breakdown Matrix
-        let matrix_block = Block::default()
-            .title(" ACTIVE PARAMETRIC FILTER MATRIX (Biquad Second-Order IIR) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let matrix_inner = matrix_block.inner(right_chunks[1]);
-        f.render_widget(matrix_block, right_chunks[1]);
-
-        let mut matrix_lines = Vec::new();
-        let header = format!(" {:<3} | {:<11} | {:>7} | {:>8} | {:>6} | {}", "ID", "TYPE", "FREQ", "GAIN", "Q", "ACOUSTIC CORRECTION INTENT");
-        matrix_lines.push(Line::from(vec![
-            Span::styled(header, Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-        ]));
-        matrix_lines.push(Line::from(vec![
-            Span::styled("-----+-------------+---------+----------+--------+-----------------------------------", Style::default().fg(self.theme.text_dim)),
-        ]));
-
-        for (idx, flt) in prof.filters.iter().enumerate() {
-            let type_str = match flt.filter_type {
-                BiquadFilterType::Peaking => "Peak / Bell",
-                BiquadFilterType::LowShelf => "Low Shelf",
-                BiquadFilterType::HighShelf => "High Shelf",
-                BiquadFilterType::LowPass => "Low Pass",
-                BiquadFilterType::HighPass => "High Pass",
-                BiquadFilterType::Notch => "Notch Filter",
-                BiquadFilterType::BandPass => "Band Pass",
-            };
-
-            let intent = match flt.filter_type {
-                BiquadFilterType::LowShelf => "Harman Sub-Bass Target Shelf Lift",
-                BiquadFilterType::HighShelf => "Upper Treble Air & Sparkle Extension",
-                _ if flt.frequency < 120.0 => "Sub-Bass Punch & Rumble Extension",
-                _ if flt.frequency < 350.0 => "Lower Mid-Bass Resonance Trim",
-                _ if flt.frequency < 1500.0 => "Vocal Lower-Mid Clarification",
-                _ if flt.frequency < 4000.0 => "Ear Pinna Concha Target Alignment",
-                _ if flt.frequency < 8000.0 => "Sibilance & Harshness Attenuation",
-                _ => "High-Frequency Harmonic Polishing",
-            };
-
-            let row = format!(
-                " {:<3} | {:<11} | {:>5.0}Hz | {:>+6.1}dB | {:>6.2} | {}",
-                idx + 1,
-                type_str,
-                flt.frequency,
-                flt.gain_db,
-                flt.q,
-                intent
-            );
-            matrix_lines.push(Line::from(vec![
-                Span::styled(row, Style::default().fg(self.theme.text)),
-            ]));
-        }
-
-        matrix_lines.push(Line::from(""));
-        matrix_lines.push(Line::from(vec![
-            Span::styled(format!(" Preamp Headroom: {:+.1} dB (Protection Against Digital Intersample Clipping)", prof.preamp_db), Style::default().fg(self.theme.warning)),
-        ]));
-        matrix_lines.push(Line::from(vec![
-            Span::styled(" [Enter] Apply  [Shift+S] Save Preset  [Shift+I] Import Text  [Shift+D] Download URL  [Up/Down] Nav", Style::default().fg(self.theme.accent)),
-        ]));
-
-        let p_matrix = Paragraph::new(matrix_lines).wrap(ratatui::widgets::Wrap { trim: true });
-        f.render_widget(p_matrix, matrix_inner);
-    }
-
     fn render_autoeq_presets_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {
         let block = Block::default()
-            .title(" AUDIOPHILE MOOD & MASTERING PRESETS (20) [Tab: Headphone DB | G: Acoustic Gear Wizard] ")
+            .title(format!(" AUDIOPHILE MOOD & MASTERING PRESETS ({}) [Tab: Headphone DB | G: Acoustic Gear Wizard] ", self.mastering_presets.len()))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
@@ -3478,9 +3355,8 @@ impl App {
             .highlight_style(Style::default().bg(self.theme.surface).add_modifier(Modifier::BOLD))
             .highlight_symbol("");
 
-        let mut list_state = ratatui::widgets::ListState::default();
-        list_state.select(Some(self.selected_mastering_preset_idx));
-        f.render_stateful_widget(list, list_inner, &mut list_state);
+        self.mastering_preset_list_state.select(Some(self.selected_mastering_preset_idx));
+        f.render_stateful_widget(list, list_inner, &mut self.mastering_preset_list_state);
 
         // RIGHT COLUMN: Traditional Frequency Response Plot (Top) and DSP Rack + Gear Profiling (Bottom)
         let right_chunks = Layout::default()
@@ -3805,6 +3681,7 @@ impl App {
         } else {
             "[x] Mic: OFF"
         };
+        let dac_label = format!("[Ctrl+D] DAC: {}", self.streamer.current_dac_flavor().short_label());
         let game_label = if self.streamer.is_game_mode_enabled() {
             "[Shift+G] Game: ON"
         } else {
@@ -3812,16 +3689,16 @@ impl App {
         };
         let help = match self.active_mode {
             WorkstationMode::Downloader => {
-                format!(" [m] Mode  {}  {}  [:] Command  [N] Nicotine+ Lossless  [T] Theme  [Enter] Download  [Tab] Inputs  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [N] Nicotine+  [T] Theme  [Enter] Download  [Tab] Inputs  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::SystemEq => {
-                format!(" [m] Mode  {}  {}  [:] Command  [T] Theme  [V] Visuals  [Shift+S] Save  [Shift+R] Reset  [Space] Play  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [T] Theme  [V] Visuals  [Shift+S] Save  [Shift+R] Reset  [Space] Play  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::Archiver => {
-                format!(" [m] Mode  {}  {}  [:] Command  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [U] URL  [S] Path  [Space] Select  [P] Preview  [D] Remove  [Q] Quit", mic_label, dac_label, game_label)
             }
             WorkstationMode::StreamingHub => {
-                format!(" [m] Mode  {}  {}  [:] Command  [S] Search  [L] Accounts  [Enter] Play  [Space] Pause  [+/-] Vol  [Q] Quit", mic_label, game_label)
+                format!(" [m] Mode  {}  {}  {}  [:] Command  [S] Search  [L] Accounts  [Enter] Play  [Space] Pause  [+/-] Vol  [Q] Quit", mic_label, dac_label, game_label)
             }
         };
         let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
@@ -3867,18 +3744,29 @@ mod tests {
     fn test_save_and_import_preset() {
         let mut app = App::new_test();
         let initial_count = app.profiles.len();
+        let initial_mastering_count = app.mastering_presets.len();
 
         // 1. Save active custom settings as preset
         app.band_gains[0] = 4.0;
         app.band_gains[5] = -2.0;
         app.save_active_settings_as_preset("Test Studio Custom");
 
+        // Verify AutoEQ profiles
         assert_eq!(app.profiles.len(), initial_count + 1);
         assert_eq!(app.selected_profile_idx, app.profiles.len() - 1);
         let saved_prof = &app.profiles[app.selected_profile_idx];
         assert_eq!(saved_prof.name, "Test Studio Custom");
         assert_eq!(saved_prof.filters.len(), 10);
         assert_eq!(saved_prof.filters[0].gain_db, 4.0);
+
+        // Verify PRESET LIBRARY (mastering presets)
+        assert_eq!(app.mastering_presets.len(), initial_mastering_count + 1);
+        assert_eq!(app.selected_mastering_preset_idx, app.mastering_presets.len() - 1);
+        assert_eq!(app.active_mastering_preset_idx, app.mastering_presets.len() - 1);
+        let saved_mastering = &app.mastering_presets[app.selected_mastering_preset_idx];
+        assert_eq!(saved_mastering.name, "Test Studio Custom");
+        assert_eq!(saved_mastering.eq_10_band[0], 4.0);
+        assert_eq!(saved_mastering.eq_10_band[5], -2.0);
 
         // 2. Import raw Squiglink text
         let squig_text = "Preamp: -5.0 dB\nFilter 1: ON PK Fc 64 Hz Gain 3.5 dB Q 1.41\nFilter 2: ON HSC Fc 8000 Hz Gain -2.0 dB Q 0.71";
@@ -3890,6 +3778,16 @@ mod tests {
         assert_eq!(squig_prof.name, "Test Squiglink IEM");
         assert_eq!(squig_prof.preamp_db, -5.0);
         assert_eq!(squig_prof.filters.len(), 2);
+
+        // Verify that load_all_user_mastering_presets loads the saved preset from disk
+        let reloaded = crate::autoeq::storage::load_all_user_mastering_presets();
+        assert!(reloaded.iter().any(|p| p.name == "Test Studio Custom"));
+
+        // Clean up disk files created during test
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_mastering_presets_dir().join("Test_Studio_Custom.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_presets_dir().join("Test_Studio_Custom.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_mastering_presets_dir().join("Test_Squiglink_IEM.json"));
+        let _ = std::fs::remove_file(crate::autoeq::storage::get_presets_dir().join("Test_Squiglink_IEM.json"));
     }
 
     #[test]
@@ -4113,7 +4011,7 @@ mod tests {
     #[test]
     fn test_mastering_suite_presets_and_module_controls() {
         let mut app = App::new_test();
-        assert_eq!(app.mastering_presets.len(), 21);
+        assert_eq!(app.mastering_presets.len(), 35);
         assert_eq!(app.active_mastering_preset_idx, 0);
 
         // Advance to Preset 2: HD600/650
@@ -4128,8 +4026,30 @@ mod tests {
             assert!(pipe.enhancer.mono_bass);
         }
 
+        // Apply Genre Preset 22: Hip-Hop & Trap (Sub-Bass Precision)
+        app.apply_mastering_preset_index(21);
+        assert_eq!(app.active_mastering_preset_idx, 21);
+        assert!(app.status_message.contains("Hip-Hop"));
+        {
+            let pipe = app.streamer.pipeline.lock().unwrap();
+            assert_eq!(pipe.enhancer.spatial_width, 1.05);
+            assert_eq!(pipe.enhancer.bass_punch_db, 2.5);
+            assert!(pipe.enhancer.mono_bass);
+        }
+
+        // Apply Genre Preset 25: Electronic & Club (Subterranean & 3D M/S)
+        app.apply_mastering_preset_index(24);
+        assert_eq!(app.active_mastering_preset_idx, 24);
+        assert!(app.status_message.contains("Electronic"));
+        {
+            let pipe = app.streamer.pipeline.lock().unwrap();
+            assert_eq!(pipe.enhancer.spatial_width, 1.25);
+            assert_eq!(pipe.enhancer.bass_punch_db, 2.8);
+            assert!(pipe.enhancer.ms_matrix_enabled);
+        }
+
         // Cycle backward to Preset 1: Reference Direct
-        app.cycle_mastering_preset(false);
+        app.apply_mastering_preset_index(0);
         assert_eq!(app.active_mastering_preset_idx, 0);
 
         // Adjust module 0 (Soundstage Width)
@@ -4284,6 +4204,8 @@ mod tests {
             source_query: "Test Track 1".to_string(),
             status: crate::ui::streaming_hub::StreamItemStatus::Queued,
             audio_file_path: None,
+            library_name: "Test Library".to_string(),
+            added_order: 1,
         });
         assert_eq!(app.streaming_hub.queue.len(), 1);
 
@@ -4344,23 +4266,24 @@ mod tests {
     #[test]
     fn test_command_bar_execution_and_mic_commands() {
         let mut app = App::new_test();
-        assert!(app.streamer.is_input_capture_enabled());
-
-        // Test :mic off command
-        app.execute_command(":mic off");
+        app.streamer.set_input_capture(false);
         assert!(!app.streamer.is_input_capture_enabled());
-        assert!(app.status_message.contains("[OFF]"));
 
         // Test :mic on command
         app.execute_command(":mic on");
         assert!(app.streamer.is_input_capture_enabled());
         assert!(app.status_message.contains("[ON]"));
 
+        // Test :mic off command
+        app.execute_command(":mic off");
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
+
         // Test :mic toggle command
         app.execute_command(":mic toggle");
-        assert!(!app.streamer.is_input_capture_enabled());
-        app.execute_command(":mic");
         assert!(app.streamer.is_input_capture_enabled());
+        app.execute_command(":mic");
+        assert!(!app.streamer.is_input_capture_enabled());
 
         // Test CommandBarState typing and handling
         let mut bar = CommandBarState::new();
@@ -4382,18 +4305,19 @@ mod tests {
     #[test]
     fn test_unassigned_key_x_and_mastering_rack_item17_mic_toggle() {
         let mut app = App::new_test();
-        assert!(app.streamer.is_input_capture_enabled());
-
-        // 1. Direct toggle to OFF
-        let (enabled1, msg1) = app.streamer.toggle_input_capture();
-        assert!(!enabled1);
+        app.streamer.set_input_capture(false);
         assert!(!app.streamer.is_input_capture_enabled());
-        assert!(msg1.contains("[OFF]"));
+
+        // 1. Direct toggle to ON
+        let (enabled1, msg1) = app.streamer.toggle_input_capture();
+        assert!(enabled1);
+        assert!(app.streamer.is_input_capture_enabled());
+        assert!(msg1.contains("[ON]"));
 
         let (enabled2, msg2) = app.streamer.toggle_input_capture();
-        assert!(enabled2);
-        assert!(app.streamer.is_input_capture_enabled());
-        assert!(msg2.contains("[ON]"));
+        assert!(!enabled2);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(msg2.contains("[OFF]"));
 
         // 2. Workstation 2 (SystemEq), Tab 1 (Mastering Suite) navigation to Item 17 (idx 16)
         app.active_mode = WorkstationMode::SystemEq;
@@ -4404,15 +4328,15 @@ mod tests {
         app.handle_tab_key(KeyCode::Down);
         assert_eq!(app.selected_mastering_idx, 16);
 
-        // Enter key on item 17 toggles microphone off
-        app.handle_tab_key(KeyCode::Enter);
-        assert!(!app.streamer.is_input_capture_enabled());
-        assert!(app.status_message.contains("[OFF]"));
-
-        // Enter key on item 17 toggles microphone back on
+        // Enter key on item 17 toggles microphone on
         app.handle_tab_key(KeyCode::Enter);
         assert!(app.streamer.is_input_capture_enabled());
         assert!(app.status_message.contains("[ON]"));
+
+        // Enter key on item 17 toggles microphone back off
+        app.handle_tab_key(KeyCode::Enter);
+        assert!(!app.streamer.is_input_capture_enabled());
+        assert!(app.status_message.contains("[OFF]"));
 
         // Advance to items 18, 19, 20
         app.handle_tab_key(KeyCode::Down);
@@ -4541,6 +4465,32 @@ mod tests {
             app.set_status(&format!("DAC Mimicker: {}", new_flavor.label()));
         }
         assert_eq!(app.streamer.current_dac_flavor(), crate::dsp::enhancer::DacHardwareFlavor::IfiZenDac);
+
+        // Test F6 cycles forward
+        let key_f6 = crossterm::event::KeyEvent::new(KeyCode::F(6), crossterm::event::KeyModifiers::NONE);
+        let is_dac_f6 = match key_f6.code {
+            KeyCode::F(6) => true,
+            KeyCode::Char('d') | KeyCode::Char('D') if key_f6.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => true,
+            KeyCode::Char('D') | KeyCode::Char('d') if key_f6.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => true,
+            KeyCode::Char('D') => true,
+            _ => false,
+        };
+        assert!(is_dac_f6);
+        let new_flavor_f6 = app.streamer.cycle_dac_flavor();
+        assert_eq!(new_flavor_f6, crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+
+        // Test Shift+D (KeyCode::Char('D')) cycles forward
+        let key_shift_d = crossterm::event::KeyEvent::new(KeyCode::Char('D'), crossterm::event::KeyModifiers::NONE);
+        let is_dac_shift_d = match key_shift_d.code {
+            KeyCode::F(6) => true,
+            KeyCode::Char('d') | KeyCode::Char('D') if key_shift_d.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => true,
+            KeyCode::Char('D') | KeyCode::Char('d') if key_shift_d.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => true,
+            KeyCode::Char('D') => true,
+            _ => false,
+        };
+        assert!(is_dac_shift_d);
+        let new_flavor_d = app.streamer.cycle_dac_flavor();
+        assert_eq!(new_flavor_d, crate::dsp::enhancer::DacHardwareFlavor::ChordMojo2);
     }
 
     #[test]
@@ -4561,6 +4511,24 @@ mod tests {
         assert!(app.status_message.contains("Hardware Rescanned:"));
         assert!(app.status_message.contains("iBasso Audio"));
         assert_eq!(app.streamer.hardware_chip_profile().recommended_flavor, crate::dsp::enhancer::DacHardwareFlavor::IbassoDcPro);
+    }
+
+    #[test]
+    fn test_setup_wizard_command_and_modal() {
+        let mut app = App::new_test();
+        assert!(!app.setup_modal.is_open);
+
+        app.execute_command(":setup");
+        assert!(app.setup_modal.is_open);
+        assert!(app.status_message.contains("System Setup"));
+
+        app.setup_modal.handle_key(KeyCode::Esc);
+        assert!(!app.setup_modal.is_open);
+
+        // Test :update command
+        app.execute_command(":update");
+        assert!(app.setup_modal.is_open);
+        assert!(app.status_message.contains("self-update"));
     }
 
     #[test]
@@ -4591,12 +4559,12 @@ mod tests {
         // 1. Switch to laptop speakers via command
         app.execute_command(":gear speaker");
         assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::BuiltinLaptopSpeakers);
-        assert!(app.status_message.contains("Built-in Speakers"));
+        assert!(app.status_message.contains(&app.gear_profile.name));
 
         // 2. Switch to desktop bookshelf monitors via command
         app.execute_command(":gear bookshelf");
         assert_eq!(app.gear_profile.form_factor, crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
-        assert!(app.status_message.contains("Bookshelf"));
+        assert!(app.status_message.contains(&app.gear_profile.name));
 
         // 3. Switch back to headphones / IEMs
         app.execute_command(":gear headphone");

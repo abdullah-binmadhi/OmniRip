@@ -23,7 +23,6 @@ pub struct TelemetryEngine {
     pub spectrum_32: [f32; 32],
     pub mid_side_ratio: (f32, f32),
 
-    #[allow(dead_code)]
     sample_rate: f32,
     k_filter: FastSosFilter,
     accum_frames: usize,
@@ -31,8 +30,6 @@ pub struct TelemetryEngine {
     fft_buffer: Vec<Complex<f32>>,
     hanning_window: Vec<f32>,
     lufs_m_history: Vec<f32>,
-    #[allow(dead_code)]
-    lufs_s_history: Vec<f32>,
 }
 
 impl std::fmt::Debug for TelemetryEngine {
@@ -84,7 +81,6 @@ impl TelemetryEngine {
             fft_buffer: vec![Complex::new(0.0, 0.0); 2048],
             hanning_window: hanning,
             lufs_m_history: Vec::with_capacity(64),
-            lufs_s_history: Vec::with_capacity(256),
         }
     }
 

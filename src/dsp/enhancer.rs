@@ -17,7 +17,7 @@
 
 use super::biquad::{BiquadFilter, BiquadFilterType, FastSosFilter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CrossfeedMode {
     Off,
     Subtle,
@@ -41,6 +41,10 @@ pub enum GearEnclosure {
     SemiOpen,
     ClosedBack,
     Anc,
+    PortedRear,
+    PortedFront,
+    SealedSuspension,
+    PassiveRadiator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -49,6 +53,9 @@ pub enum GearCoupling {
     MemoryFoam,
     CustomMolded,
     OpenAir,
+    VelourPads,
+    LeatherPads,
+    HybridPads,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -66,6 +73,28 @@ pub enum GearSourceAmp {
     DesktopSolidState,
     TubeAmp,
     BluetoothWireless,
+    ActivePoweredMonitors,
+    PassiveWithStereoAmp,
+    BalancedAudioInterface,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SpeakerPlacement {
+    #[default]
+    DeskSurface,
+    ElevatedStand,
+    SoftSurfaceOrLap,
+    NearWallCorner,
+    FreeField,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SpeakerCalibrationTarget {
+    #[default]
+    VocalClarity,
+    SpatialExpansion,
+    BassProtection,
+    FlatReference,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -77,6 +106,10 @@ pub struct AcousticGearProfile {
     pub coupling: GearCoupling,
     pub tonal_balance: GearTonalBalance,
     pub source_amp: GearSourceAmp,
+    #[serde(default)]
+    pub speaker_placement: SpeakerPlacement,
+    #[serde(default)]
+    pub speaker_target: SpeakerCalibrationTarget,
 }
 
 impl Default for AcousticGearProfile {
@@ -89,6 +122,8 @@ impl Default for AcousticGearProfile {
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::DeskSurface,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 }
@@ -115,6 +150,8 @@ impl AcousticGearProfile {
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::DeskSurface,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 
@@ -122,11 +159,13 @@ impl AcousticGearProfile {
         Self {
             name: "Desktop Bookshelf Monitors".to_string(),
             form_factor: GearFormFactor::DesktopBookshelfSpeakers,
-            enclosure: GearEnclosure::OpenBack,
+            enclosure: GearEnclosure::PortedRear,
             drivers: [true, false, false, false, false, false],
             coupling: GearCoupling::OpenAir,
             tonal_balance: GearTonalBalance::NeutralStudio,
-            source_amp: GearSourceAmp::DesktopSolidState,
+            source_amp: GearSourceAmp::ActivePoweredMonitors,
+            speaker_placement: SpeakerPlacement::ElevatedStand,
+            speaker_target: SpeakerCalibrationTarget::FlatReference,
         }
     }
 
@@ -136,6 +175,10 @@ impl AcousticGearProfile {
             GearEnclosure::SemiOpen => "Semi-Open",
             GearEnclosure::ClosedBack => "Closed-Back",
             GearEnclosure::Anc => "ANC Chamber",
+            GearEnclosure::PortedRear => "Rear-Ported",
+            GearEnclosure::PortedFront => "Front-Ported",
+            GearEnclosure::SealedSuspension => "Sealed Acoustic",
+            GearEnclosure::PassiveRadiator => "Passive Radiator",
         }
     }
 
@@ -166,12 +209,46 @@ impl AcousticGearProfile {
         }
     }
 
+    pub fn coupling_label(&self) -> &'static str {
+        match self.coupling {
+            GearCoupling::Silicone => "Silicone Tips",
+            GearCoupling::MemoryFoam => "Memory Foam",
+            GearCoupling::CustomMolded => "Custom Molded",
+            GearCoupling::OpenAir => "Open-Air",
+            GearCoupling::VelourPads => "Velour Pads",
+            GearCoupling::LeatherPads => "Leather Pads",
+            GearCoupling::HybridPads => "Hybrid Pads",
+        }
+    }
+
+    pub fn speaker_placement_label(&self) -> &'static str {
+        match self.speaker_placement {
+            SpeakerPlacement::DeskSurface => "Desk Surface",
+            SpeakerPlacement::ElevatedStand => "Elevated Stand",
+            SpeakerPlacement::SoftSurfaceOrLap => "Lap/Soft Surface",
+            SpeakerPlacement::NearWallCorner => "Near Wall/Corner",
+            SpeakerPlacement::FreeField => "Free-Field",
+        }
+    }
+
+    pub fn speaker_target_label(&self) -> &'static str {
+        match self.speaker_target {
+            SpeakerCalibrationTarget::VocalClarity => "Vocal Clarity",
+            SpeakerCalibrationTarget::SpatialExpansion => "Spatial Expansion",
+            SpeakerCalibrationTarget::BassProtection => "Bass Protection",
+            SpeakerCalibrationTarget::FlatReference => "Flat Reference",
+        }
+    }
+
     pub fn source_amp_label(&self) -> &'static str {
         match self.source_amp {
             GearSourceAmp::PortableDongle => "Portable Dongle",
             GearSourceAmp::DesktopSolidState => "Desktop Solid-State",
             GearSourceAmp::TubeAmp => "Vacuum Tube",
             GearSourceAmp::BluetoothWireless => "Bluetooth Wireless",
+            GearSourceAmp::ActivePoweredMonitors => "Active Powered",
+            GearSourceAmp::PassiveWithStereoAmp => "Passive + Stereo Amp",
+            GearSourceAmp::BalancedAudioInterface => "Balanced Studio Interface",
         }
     }
 
@@ -231,8 +308,230 @@ pub struct MasteringPreset {
     pub spike_shield: bool,
 }
 
+/// Serializable representation of a mastering preset for persisting custom user presets to disk.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SavedMasteringPreset {
+    pub name: String,
+    pub description: String,
+    pub target: String,
+    pub spatial_width: f32,
+    pub tube_warmth: f32,
+    pub air_clarity_db: f32,
+    pub bass_punch_db: f32,
+    pub mono_bass: bool,
+    pub mono_bass_freq: f32,
+    pub loudness_contour: bool,
+    pub crossfeed: CrossfeedMode,
+    pub subsonic_filter: bool,
+    pub ultrasonic_filter: bool,
+    pub deesser_enabled: bool,
+    pub deesser_amount: f32,
+    pub deesser_freq: f32,
+    pub tape_emulation: bool,
+    pub tape_drive: f32,
+    pub transient_shaper: bool,
+    pub transient_attack_db: f32,
+    pub transient_sustain_db: f32,
+    pub ms_matrix_enabled: bool,
+    pub mid_gain_db: f32,
+    pub side_gain_db: f32,
+    pub side_air_db: f32,
+    pub deharsh_enabled: bool,
+    pub deharsh_amount: f32,
+    pub deharsh_freq: f32,
+    pub comp_enabled: bool,
+    pub comp_opto_drive: f32,
+    pub comp_vca_drive: f32,
+    pub pultec_enabled: bool,
+    pub pultec_low_boost: f32,
+    pub pultec_air_boost: f32,
+    pub pultec_air_freq: f32,
+    pub limiter_ceiling_dbfs: f32,
+    pub eq_10_band: [f32; 10],
+    pub game_mode: bool,
+    pub radar_eq: bool,
+    pub spike_shield: bool,
+}
+
+impl Default for SavedMasteringPreset {
+    fn default() -> Self {
+        Self {
+            name: "Custom Preset".to_string(),
+            description: "User customized mastering preset".to_string(),
+            target: "User Customized".to_string(),
+            spatial_width: 1.0,
+            tube_warmth: 0.0,
+            air_clarity_db: 0.0,
+            bass_punch_db: 0.0,
+            mono_bass: false,
+            mono_bass_freq: 85.0,
+            loudness_contour: false,
+            crossfeed: CrossfeedMode::Off,
+            subsonic_filter: true,
+            ultrasonic_filter: true,
+            deesser_enabled: false,
+            deesser_amount: 0.0,
+            deesser_freq: 6500.0,
+            tape_emulation: false,
+            tape_drive: 0.0,
+            transient_shaper: false,
+            transient_attack_db: 0.0,
+            transient_sustain_db: 0.0,
+            ms_matrix_enabled: false,
+            mid_gain_db: 0.0,
+            side_gain_db: 0.0,
+            side_air_db: 0.0,
+            deharsh_enabled: false,
+            deharsh_amount: 0.0,
+            deharsh_freq: 3800.0,
+            comp_enabled: false,
+            comp_opto_drive: 0.0,
+            comp_vca_drive: 0.0,
+            pultec_enabled: false,
+            pultec_low_boost: 0.0,
+            pultec_air_boost: 0.0,
+            pultec_air_freq: 16000.0,
+            limiter_ceiling_dbfs: -0.2,
+            eq_10_band: [0.0; 10],
+            game_mode: false,
+            radar_eq: false,
+            spike_shield: false,
+        }
+    }
+}
+
+impl SavedMasteringPreset {
+    pub fn from_preset(p: &MasteringPreset) -> Self {
+        Self {
+            name: p.name.to_string(),
+            description: p.description.to_string(),
+            target: p.target.to_string(),
+            spatial_width: p.spatial_width,
+            tube_warmth: p.tube_warmth,
+            air_clarity_db: p.air_clarity_db,
+            bass_punch_db: p.bass_punch_db,
+            mono_bass: p.mono_bass,
+            mono_bass_freq: p.mono_bass_freq,
+            loudness_contour: p.loudness_contour,
+            crossfeed: p.crossfeed,
+            subsonic_filter: p.subsonic_filter,
+            ultrasonic_filter: p.ultrasonic_filter,
+            deesser_enabled: p.deesser_enabled,
+            deesser_amount: p.deesser_amount,
+            deesser_freq: p.deesser_freq,
+            tape_emulation: p.tape_emulation,
+            tape_drive: p.tape_drive,
+            transient_shaper: p.transient_shaper,
+            transient_attack_db: p.transient_attack_db,
+            transient_sustain_db: p.transient_sustain_db,
+            ms_matrix_enabled: p.ms_matrix_enabled,
+            mid_gain_db: p.mid_gain_db,
+            side_gain_db: p.side_gain_db,
+            side_air_db: p.side_air_db,
+            deharsh_enabled: p.deharsh_enabled,
+            deharsh_amount: p.deharsh_amount,
+            deharsh_freq: p.deharsh_freq,
+            comp_enabled: p.comp_enabled,
+            comp_opto_drive: p.comp_opto_drive,
+            comp_vca_drive: p.comp_vca_drive,
+            pultec_enabled: p.pultec_enabled,
+            pultec_low_boost: p.pultec_low_boost,
+            pultec_air_boost: p.pultec_air_boost,
+            pultec_air_freq: p.pultec_air_freq,
+            limiter_ceiling_dbfs: p.limiter_ceiling_dbfs,
+            eq_10_band: p.eq_10_band,
+            game_mode: p.game_mode,
+            radar_eq: p.radar_eq,
+            spike_shield: p.spike_shield,
+        }
+    }
+
+    pub fn to_mastering_preset(&self) -> MasteringPreset {
+        MasteringPreset {
+            name: Box::leak(self.name.clone().into_boxed_str()),
+            description: Box::leak(self.description.clone().into_boxed_str()),
+            target: Box::leak(self.target.clone().into_boxed_str()),
+            spatial_width: self.spatial_width,
+            tube_warmth: self.tube_warmth,
+            air_clarity_db: self.air_clarity_db,
+            bass_punch_db: self.bass_punch_db,
+            mono_bass: self.mono_bass,
+            mono_bass_freq: self.mono_bass_freq,
+            loudness_contour: self.loudness_contour,
+            crossfeed: self.crossfeed,
+            subsonic_filter: self.subsonic_filter,
+            ultrasonic_filter: self.ultrasonic_filter,
+            deesser_enabled: self.deesser_enabled,
+            deesser_amount: self.deesser_amount,
+            deesser_freq: self.deesser_freq,
+            tape_emulation: self.tape_emulation,
+            tape_drive: self.tape_drive,
+            transient_shaper: self.transient_shaper,
+            transient_attack_db: self.transient_attack_db,
+            transient_sustain_db: self.transient_sustain_db,
+            ms_matrix_enabled: self.ms_matrix_enabled,
+            mid_gain_db: self.mid_gain_db,
+            side_gain_db: self.side_gain_db,
+            side_air_db: self.side_air_db,
+            deharsh_enabled: self.deharsh_enabled,
+            deharsh_amount: self.deharsh_amount,
+            deharsh_freq: self.deharsh_freq,
+            comp_enabled: self.comp_enabled,
+            comp_opto_drive: self.comp_opto_drive,
+            comp_vca_drive: self.comp_vca_drive,
+            pultec_enabled: self.pultec_enabled,
+            pultec_low_boost: self.pultec_low_boost,
+            pultec_air_boost: self.pultec_air_boost,
+            pultec_air_freq: self.pultec_air_freq,
+            limiter_ceiling_dbfs: self.limiter_ceiling_dbfs,
+            eq_10_band: self.eq_10_band,
+            game_mode: self.game_mode,
+            radar_eq: self.radar_eq,
+            spike_shield: self.spike_shield,
+        }
+    }
+}
+
 impl MasteringPreset {
-    /// Returns the 20 handcrafted audiophile and mood presets.
+    /// Calculates the required digital preamp headroom in dB for this preset to prevent inter-sample clipping and harsh distortion.
+    pub fn recommended_headroom_db(&self) -> f32 {
+        let mut max_boost = 0.0f32;
+        for &g in &self.eq_10_band {
+            if g > max_boost {
+                max_boost = g;
+            }
+        }
+        if self.air_clarity_db > 0.0 {
+            max_boost += self.air_clarity_db * 0.5;
+        }
+        if self.bass_punch_db > 0.0 {
+            max_boost += self.bass_punch_db * 0.5;
+        }
+        if self.pultec_enabled {
+            let pultec_max = self.pultec_low_boost.max(self.pultec_air_boost);
+            if pultec_max > 0.0 {
+                max_boost += pultec_max * 0.5;
+            }
+        }
+        if self.radar_eq {
+            max_boost += 1.8;
+        }
+        if self.transient_shaper && self.transient_attack_db > 0.0 {
+            max_boost += self.transient_attack_db * 0.4;
+        }
+        if self.side_air_db > 0.0 {
+            max_boost += self.side_air_db * 0.3;
+        }
+        // Always provide proportional safe headroom when positive boost is present
+        if max_boost > 0.1 {
+            (max_boost * 0.85 + 0.5).clamp(1.5, 6.0)
+        } else {
+            0.0 // Pure unity gain (0.0 dB) for bit-perfect transparent reference
+        }
+    }
+
+    /// Returns the 35 handcrafted audiophile, mood, and genre mastering presets.
     pub fn all() -> Vec<MasteringPreset> {
         vec![
             MasteringPreset {
@@ -1077,36 +1376,36 @@ impl MasteringPreset {
             },
             MasteringPreset {
                 name: "21. Esports Tactical & Low-Latency Gaming",
-                description: "Zero-lag 10.6ms buffer, footstep radar lift (+3.5dB), spatial widening, and explosive spike protection.",
-                target: "Esports, League of Legends, Valorant, CS2, Fast-Paced Action",
-                spatial_width: 1.20,
+                description: "Zero-lag 10.6ms buffer, surgical footstep isolation (1-3kHz), explosive rumble roll-off, and crystal-clear spatial audio.",
+                target: "Esports, Valorant, CS2, Apex Legends, Call of Duty, Fast-Paced Action",
+                spatial_width: 1.15,
                 tube_warmth: 0.0,
-                air_clarity_db: 1.5,
+                air_clarity_db: 0.0,
                 bass_punch_db: 0.0,
                 mono_bass: true,
-                mono_bass_freq: 85.0,
+                mono_bass_freq: 100.0,
                 loudness_contour: false,
                 crossfeed: CrossfeedMode::Subtle,
                 subsonic_filter: true,
                 ultrasonic_filter: true,
                 deesser_enabled: true,
-                deesser_amount: 0.40,
-                deesser_freq: 6500.0,
+                deesser_amount: 0.35,
+                deesser_freq: 6200.0,
                 tape_emulation: false,
                 tape_drive: 0.0,
                 transient_shaper: true,
-                transient_attack_db: 2.5,
-                transient_sustain_db: 0.0,
+                transient_attack_db: 1.0,
+                transient_sustain_db: -0.5,
                 ms_matrix_enabled: true,
                 mid_gain_db: 0.0,
-                side_gain_db: 1.0,
-                side_air_db: 1.5,
+                side_gain_db: 0.5,
+                side_air_db: 0.0,
                 deharsh_enabled: true,
-                deharsh_amount: 0.30,
-                deharsh_freq: 3800.0,
+                deharsh_amount: 0.25,
+                deharsh_freq: 3500.0,
                 comp_enabled: true,
-                comp_opto_drive: 0.20,
-                comp_vca_drive: 0.15,
+                comp_opto_drive: 0.10,
+                comp_vca_drive: 0.10,
                 pultec_enabled: false,
                 pultec_low_boost: 0.0,
                 pultec_air_boost: 0.0,
@@ -1114,8 +1413,596 @@ impl MasteringPreset {
                 game_mode: true,
                 radar_eq: true,
                 spike_shield: true,
+                limiter_ceiling_dbfs: -0.5,
+                eq_10_band: [-3.0, -2.0, -1.0, 0.0, 0.8, 1.5, 1.8, 0.5, 0.0, -0.5],
+            },
+            MasteringPreset {
+                name: "22. Hip-Hop & Trap (Sub-Bass Precision)",
+                description: "Subterranean 808 sub-bass extension with 250Hz anti-mud dip and snappy drum transients.",
+                target: "Modern Hip-Hop, Trap, Drill & Bass-Heavy Urban",
+                spatial_width: 1.05,
+                tube_warmth: 0.12,
+                air_clarity_db: 1.5,
+                bass_punch_db: 2.5,
+                mono_bass: true,
+                mono_bass_freq: 80.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: true,
+                deesser_amount: 0.25,
+                deesser_freq: 6800.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: true,
+                transient_attack_db: 0.8,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.20,
+                pultec_enabled: true,
+                pultec_low_boost: 1.0,
+                pultec_air_boost: 1.5,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
                 limiter_ceiling_dbfs: -0.2,
-                eq_10_band: [-1.5, -0.5, 0.0, 0.5, 1.5, 2.5, 3.0, 2.0, 1.5, 2.0],
+                eq_10_band: [3.5, 2.0, 0.5, -1.0, 0.0, 0.5, 1.0, 0.5, -0.5, 1.5],
+            },
+            MasteringPreset {
+                name: "23. R&B & Neo-Soul (Velvet Vocal Intimacy)",
+                description: "Lush analog tube saturation, warm mid-bass roundness, LA-2A vocal smoothing, and 16kHz Pultec air.",
+                target: "Contemporary R&B, Neo-Soul & Motown Groove",
+                spatial_width: 1.15,
+                tube_warmth: 0.22,
+                air_clarity_db: 1.8,
+                bass_punch_db: 1.8,
+                mono_bass: true,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: true,
+                deesser_amount: 0.20,
+                deesser_freq: 6500.0,
+                tape_emulation: true,
+                tape_drive: 0.18,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.30,
+                comp_vca_drive: 0.0,
+                pultec_enabled: true,
+                pultec_low_boost: 1.2,
+                pultec_air_boost: 2.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [1.5, 2.5, 1.5, 0.5, 0.0, 1.0, 1.2, 0.0, 0.8, 2.0],
+            },
+            MasteringPreset {
+                name: "24. Rock & Heavy Metal (Punch & Treble Tamer)",
+                description: "Punchy kick/bass guitar lock, cutting electric guitar presence, with 3.5kHz and 6.5kHz harshness suppressors.",
+                target: "Hard Rock, Heavy Metal, Djent & Post-Hardcore",
+                spatial_width: 1.10,
+                tube_warmth: 0.15,
+                air_clarity_db: 1.0,
+                bass_punch_db: 2.0,
+                mono_bass: true,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: true,
+                deesser_amount: 0.35,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: true,
+                transient_attack_db: 1.5,
+                transient_sustain_db: -0.5,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: true,
+                deharsh_amount: 0.45,
+                deharsh_freq: 3500.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.25,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.5, 2.2, 1.5, -0.5, 0.0, 1.2, 1.5, -1.0, -1.2, 1.0],
+            },
+            MasteringPreset {
+                name: "25. Electronic & Club (Subterranean & 3D M/S)",
+                description: "Deep 31Hz club rumble, strictly mono sub-bass below 90Hz, fast VCA pump, and expanded holographic side air.",
+                target: "Techno, Deep House, Drum & Bass, Dubstep & Trance",
+                spatial_width: 1.25,
+                tube_warmth: 0.10,
+                air_clarity_db: 2.0,
+                bass_punch_db: 2.8,
+                mono_bass: true,
+                mono_bass_freq: 90.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: true,
+                transient_attack_db: 1.0,
+                transient_sustain_db: 0.5,
+                ms_matrix_enabled: true,
+                mid_gain_db: 0.0,
+                side_gain_db: 1.5,
+                side_air_db: 2.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.15,
+                pultec_enabled: true,
+                pultec_low_boost: 1.5,
+                pultec_air_boost: 2.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [3.8, 2.5, 0.5, -0.8, 0.0, 0.0, 0.8, 1.0, 0.5, 2.2],
+            },
+            MasteringPreset {
+                name: "26. Pop & Mainstream (Harman Reference Master)",
+                description: "Harman 2024 acoustic target curve with punchy sub-bass shelf, forward lead vocal body, and sparkling sheen.",
+                target: "Modern Pop, Dance-Pop, Hyperpop & Commercial Radio",
+                spatial_width: 1.12,
+                tube_warmth: 0.12,
+                air_clarity_db: 1.8,
+                bass_punch_db: 2.0,
+                mono_bass: true,
+                mono_bass_freq: 80.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: true,
+                deesser_amount: 0.25,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.20,
+                pultec_enabled: true,
+                pultec_low_boost: 0.8,
+                pultec_air_boost: 1.5,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [3.0, 2.2, 0.8, -0.5, 0.0, 0.8, 1.5, 1.0, 0.5, 1.8],
+            },
+            MasteringPreset {
+                name: "27. Classical & Orchestral (Symphonic Hall)",
+                description: "Zero compression to retain 100% micro-dynamic headroom, wide concert hall side reflections, and violin scrape guard.",
+                target: "Symphony Orchestra, Chamber Music & Concerto",
+                spatial_width: 1.30,
+                tube_warmth: 0.0,
+                air_clarity_db: 1.2,
+                bass_punch_db: 0.5,
+                mono_bass: false,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Standard,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: true,
+                mid_gain_db: 0.0,
+                side_gain_db: 1.8,
+                side_air_db: 2.2,
+                deharsh_enabled: true,
+                deharsh_amount: 0.30,
+                deharsh_freq: 3200.0,
+                comp_enabled: false,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.5, 0.8, 0.5, 0.0, 0.0, 0.0, 0.5, -0.5, 0.8, 2.2],
+            },
+            MasteringPreset {
+                name: "28. Jazz & Acoustic Trio (Living Room Hologram)",
+                description: "Woody upright bass body, natural micro-dynamics, subtle tube warmth, and crossfeed for speaker-like imaging.",
+                target: "Acoustic Jazz, Bebop, Hard Bop & Cool Jazz",
+                spatial_width: 1.10,
+                tube_warmth: 0.18,
+                air_clarity_db: 1.5,
+                bass_punch_db: 1.0,
+                mono_bass: false,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Standard,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: false,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.0,
+                pultec_enabled: true,
+                pultec_low_boost: 0.5,
+                pultec_air_boost: 1.2,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.0, 1.2, 1.0, 0.5, 0.0, 0.8, 1.0, 0.5, 1.0, 1.8],
+            },
+            MasteringPreset {
+                name: "29. Acoustic & Folk (Wood Timbre & Pick Snap)",
+                description: "Resonant dreadnought wooden body (125Hz), crisp fingerstyle pick transient snap, and analog tape warmth.",
+                target: "Fingerstyle Acoustic, Folk, Americana & Bluegrass",
+                spatial_width: 1.15,
+                tube_warmth: 0.14,
+                air_clarity_db: 1.2,
+                bass_punch_db: 1.0,
+                mono_bass: false,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Standard,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: true,
+                tape_drive: 0.15,
+                transient_shaper: true,
+                transient_attack_db: 1.2,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: false,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.0, 1.0, 1.8, 0.8, 0.0, 1.2, 1.5, 0.8, 0.5, 1.2],
+            },
+            MasteringPreset {
+                name: "30. Reggae & Dub (Sub-Weight & Analog Tape)",
+                description: "Deep 30-60Hz roots foundation, scooped 250Hz low-mids to let skank guitars breathe, and analog tape drive.",
+                target: "Roots Reggae, Dub, Dancehall & Sound System Culture",
+                spatial_width: 1.20,
+                tube_warmth: 0.20,
+                air_clarity_db: 0.8,
+                bass_punch_db: 3.2,
+                mono_bass: true,
+                mono_bass_freq: 95.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: true,
+                tape_drive: 0.25,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.25,
+                comp_vca_drive: 0.0,
+                pultec_enabled: true,
+                pultec_low_boost: 1.5,
+                pultec_air_boost: 0.5,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [4.2, 3.0, 1.0, -1.2, 0.0, 0.5, 0.8, 0.0, -1.0, 0.5],
+            },
+            MasteringPreset {
+                name: "31. Funk & Disco (Slap Bass & Brass Punch)",
+                description: "Tight 62-125Hz kick and bass lock, crisp 2-4kHz slap thumb/pop transient attack, and brass section punch.",
+                target: "Classic Funk, Disco, Nu-Disco & Soul-Funk",
+                spatial_width: 1.15,
+                tube_warmth: 0.12,
+                air_clarity_db: 1.6,
+                bass_punch_db: 2.2,
+                mono_bass: true,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: true,
+                transient_attack_db: 1.8,
+                transient_sustain_db: -0.2,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.22,
+                pultec_enabled: true,
+                pultec_low_boost: 1.0,
+                pultec_air_boost: 1.2,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [1.5, 2.5, 1.8, 0.0, 0.5, 1.2, 1.8, 1.2, 0.8, 1.5],
+            },
+            MasteringPreset {
+                name: "32. Latin & Afro-Cuban (Percussion & Tumbao)",
+                description: "Sharp conga/timbales percussive definition, warm acoustic baby bass tumbao, and rich nylon-string guitar mids.",
+                target: "Salsa, Bossa Nova, Latin Jazz, Reggaeton & Bachata",
+                spatial_width: 1.15,
+                tube_warmth: 0.16,
+                air_clarity_db: 1.5,
+                bass_punch_db: 1.8,
+                mono_bass: true,
+                mono_bass_freq: 80.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: true,
+                transient_attack_db: 1.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: false,
+                comp_opto_drive: 0.0,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.5, 1.8, 1.5, 0.5, 0.0, 1.0, 1.2, 1.0, 0.8, 1.5],
+            },
+            MasteringPreset {
+                name: "33. Ambient & Cinematic (Panoramic Drone Space)",
+                description: "Sub-harmonic drone foundation, ultra-wide 1.40x spatial soundstage, zero-fatigue high-mid dip, and shimmering 16kHz air.",
+                target: "Ambient Drone, Modern Classical, Film Score & Soundscapes",
+                spatial_width: 1.40,
+                tube_warmth: 0.10,
+                air_clarity_db: 2.5,
+                bass_punch_db: 1.5,
+                mono_bass: false,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: false,
+                tape_drive: 0.0,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: true,
+                mid_gain_db: 0.0,
+                side_gain_db: 2.2,
+                side_air_db: 2.8,
+                deharsh_enabled: true,
+                deharsh_amount: 0.25,
+                deharsh_freq: 3600.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.20,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [3.0, 1.5, 0.5, 0.0, 0.0, -0.5, 0.0, -0.8, 1.0, 2.8],
+            },
+            MasteringPreset {
+                name: "34. Country & Americana (Steel Guitar Twang & Vocal Body)",
+                description: "Pedal steel guitar articulation, rich acoustic rhythm guitar body, and forward lead vocal clarity.",
+                target: "Modern & Outlaw Country, Americana, Bluegrass & Roots",
+                spatial_width: 1.12,
+                tube_warmth: 0.15,
+                air_clarity_db: 1.4,
+                bass_punch_db: 1.5,
+                mono_bass: true,
+                mono_bass_freq: 80.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Off,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: true,
+                deesser_amount: 0.20,
+                deesser_freq: 6500.0,
+                tape_emulation: true,
+                tape_drive: 0.12,
+                transient_shaper: true,
+                transient_attack_db: 1.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.20,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.0, 1.2, 1.5, 0.5, 0.0, 1.2, 1.6, 1.2, 0.6, 1.2],
+            },
+            MasteringPreset {
+                name: "35. Blues & Electric Guitar (Vintage Tube Saturation)",
+                description: "Vintage tube console warmth, dynamic guitar touch sensitivity, and smooth rounded top end.",
+                target: "Electric Blues, Chicago Blues, Texas Blues & Soul-Rock",
+                spatial_width: 1.10,
+                tube_warmth: 0.25,
+                air_clarity_db: 1.2,
+                bass_punch_db: 1.8,
+                mono_bass: true,
+                mono_bass_freq: 85.0,
+                loudness_contour: false,
+                crossfeed: CrossfeedMode::Standard,
+                subsonic_filter: true,
+                ultrasonic_filter: true,
+                deesser_enabled: false,
+                deesser_amount: 0.0,
+                deesser_freq: 6500.0,
+                tape_emulation: true,
+                tape_drive: 0.15,
+                transient_shaper: false,
+                transient_attack_db: 0.0,
+                transient_sustain_db: 0.0,
+                ms_matrix_enabled: false,
+                mid_gain_db: 0.0,
+                side_gain_db: 0.0,
+                side_air_db: 0.0,
+                deharsh_enabled: false,
+                deharsh_amount: 0.0,
+                deharsh_freq: 3800.0,
+                comp_enabled: true,
+                comp_opto_drive: 0.25,
+                comp_vca_drive: 0.0,
+                pultec_enabled: false,
+                pultec_low_boost: 0.0,
+                pultec_air_boost: 0.0,
+                pultec_air_freq: 16000.0,
+                game_mode: false,
+                radar_eq: false,
+                spike_shield: false,
+                limiter_ceiling_dbfs: -0.2,
+                eq_10_band: [0.5, 1.8, 1.5, 0.8, 0.5, 1.5, 1.2, 0.0, 0.5, 1.0],
             },
         ]
     }
@@ -1314,6 +2201,34 @@ impl AudiophileEnhancer {
                 self.subsonic_freq = 45.0;
                 // 4. Do not engage IEM de-harshing or mono-bass clamping
                 self.mono_bass = false;
+
+                // 5. Dynamic Placement adaptations
+                match gear.speaker_placement {
+                    SpeakerPlacement::ElevatedStand => {
+                        self.spatial_width = (self.spatial_width * 1.05).clamp(1.15, 1.65);
+                    }
+                    SpeakerPlacement::SoftSurfaceOrLap => {
+                        self.air_clarity_db = (self.air_clarity_db + 0.8).min(6.0);
+                    }
+                    _ => {}
+                }
+
+                // 6. Dynamic Calibration Target adaptations
+                match gear.speaker_target {
+                    SpeakerCalibrationTarget::VocalClarity => {
+                        self.air_clarity_db = (self.air_clarity_db + 1.0).min(6.0);
+                        self.deharsh_enabled = true;
+                        self.deharsh_amount = (self.deharsh_amount + 0.10).min(1.0);
+                    }
+                    SpeakerCalibrationTarget::SpatialExpansion => {
+                        self.spatial_width = (self.spatial_width * 1.10).clamp(1.20, 1.70);
+                    }
+                    SpeakerCalibrationTarget::BassProtection => {
+                        self.subsonic_freq = 52.0;
+                        self.tube_warmth = (self.tube_warmth + 0.08).min(0.5);
+                    }
+                    SpeakerCalibrationTarget::FlatReference => {}
+                }
             }
             GearFormFactor::DesktopBookshelfSpeakers => {
                 // Desktop Bookshelf Speakers:
@@ -1326,6 +2241,14 @@ impl AudiophileEnhancer {
                 self.subsonic_freq = 35.0;
                 // 4. Leave natural stereo bass intact for stereo sub-bass imaging
                 self.mono_bass = false;
+
+                // 5. Enclosure and boundary adaptations
+                if gear.enclosure == GearEnclosure::PortedRear && gear.speaker_placement == SpeakerPlacement::NearWallCorner {
+                    self.bass_punch_db = (self.bass_punch_db - 1.0).max(0.0);
+                }
+                if gear.speaker_placement == SpeakerPlacement::DeskSurface {
+                    self.deharsh_enabled = true;
+                }
             }
             GearFormFactor::InEar => {
                 // IEMs bypass pinna: enforce tighter sub-bass mono and gentle spatial cap
@@ -1341,6 +2264,9 @@ impl AudiophileEnhancer {
                 if gear.enclosure == GearEnclosure::ClosedBack {
                     self.spatial_width = (self.spatial_width * 1.15).clamp(0.5, 2.0);
                     self.deharsh_enabled = true;
+                }
+                if gear.coupling == GearCoupling::VelourPads {
+                    self.bass_punch_db = (self.bass_punch_db + 0.5).min(6.0);
                 }
             }
             GearFormFactor::BoneConduction => {
@@ -1408,7 +2334,10 @@ impl AudiophileEnhancer {
                 self.sample_rate,
             ));
         }
-        if self.ultrasonic_filter {
+        if self.ultrasonic_filter && self.sample_rate >= 88200.0 {
+            // At 44.1kHz/48kHz, an analog-modeled biquad LPF at 21kHz causes bilinear transform
+            // frequency warping and phase delay down into the audible 10kHz-18kHz spectrum.
+            // Only engage when sample rate >= 88.2kHz where 21kHz is safely below Nyquist.
             b_filters.push(BiquadFilter::new(
                 BiquadFilterType::LowPass,
                 21000.0,
@@ -1563,8 +2492,8 @@ impl AudiophileEnhancer {
             let pres = vec![BiquadFilter::new(
                 BiquadFilterType::Peaking,
                 2400.0,
-                3.5,
                 1.8,
+                2.0,
                 self.sample_rate,
             )];
             self.radar_presence_filter.update_filters(&pres);
@@ -1572,7 +2501,7 @@ impl AudiophileEnhancer {
             let air = vec![BiquadFilter::new(
                 BiquadFilterType::HighShelf,
                 10000.0,
-                2.0,
+                0.0,
                 0.707,
                 self.sample_rate,
             )];
@@ -1669,7 +2598,7 @@ impl AudiophileEnhancer {
                         let u = (abs_x - 0.6) / 0.8;
                         0.6 + 0.8 * (u - 0.5 * u * u)
                     } else {
-                        1.0
+                        1.0 + ((abs_x - 1.4) * 0.2).tanh() * 0.05
                     };
                     let y = sign * sat;
                     let warm = y + t * 0.08 * (y * y - 0.5 * abs_x.min(1.0));
@@ -1834,9 +2763,9 @@ impl AudiophileEnhancer {
                 for ch in 0..2 {
                     let s = frame[ch];
                     let abs_s = s.abs();
-                    if abs_s > 0.85 {
-                        let excess = abs_s - 0.85;
-                        let compressed = 0.85 + (excess * 0.15).tanh() * 0.14;
+                    if abs_s > 0.95 {
+                        let excess = abs_s - 0.95;
+                        let compressed = 0.95 + (excess * 0.20).tanh() * 0.04;
                         frame[ch] = s.signum() * compressed;
                     }
                 }
@@ -1965,28 +2894,56 @@ impl BiquadState {
 pub struct DacMimickerEngine {
     pub active_flavor: DacHardwareFlavor,
     pub target_flavor: DacHardwareFlavor,
-    sample_rate: f32,
+    pub sample_rate: f32,
 
     // Smooth 15ms clickless crossfader
     crossfade_pos: usize,
     crossfade_len: usize,
 
-    // Filter coefficients
-    ifi_shelf_c: super::biquad::BiquadCoefficients,
-    ibasso_shelf_c: super::biquad::BiquadCoefficients,
-    schiit_low_c: super::biquad::BiquadCoefficients,
-    schiit_high_c: super::biquad::BiquadCoefficients,
-    chord_lpf_c: super::biquad::BiquadCoefficients,
+    // iFi Zen DAC V2 (Burr-Brown True Native) filters: TrueBass + Analog Mid Body + Silky Highs
+    ifi_bass_c: super::biquad::BiquadCoefficients,
+    ifi_mid_c: super::biquad::BiquadCoefficients,
+    ifi_high_c: super::biquad::BiquadCoefficients,
+    ifi_bass_l: BiquadState,
+    ifi_bass_r: BiquadState,
+    ifi_mid_l: BiquadState,
+    ifi_mid_r: BiquadState,
+    ifi_high_l: BiquadState,
+    ifi_high_r: BiquadState,
 
-    // Filter states
-    ifi_state_l: BiquadState,
-    ifi_state_r: BiquadState,
-    ibasso_state_l: BiquadState,
-    ibasso_state_r: BiquadState,
-    schiit_low_l: BiquadState,
-    schiit_low_r: BiquadState,
-    schiit_high_l: BiquadState,
-    schiit_high_r: BiquadState,
+    // iBasso DC03 Pro (Dual Cirrus CS43131) filters: Air/Sparkle + Crisp Vocal Presence + Snappy Bass
+    ibasso_treble_c: super::biquad::BiquadCoefficients,
+    ibasso_mid_c: super::biquad::BiquadCoefficients,
+    ibasso_bass_c: super::biquad::BiquadCoefficients,
+    ibasso_treble_l: BiquadState,
+    ibasso_treble_r: BiquadState,
+    ibasso_mid_l: BiquadState,
+    ibasso_mid_r: BiquadState,
+    ibasso_bass_l: BiquadState,
+    ibasso_bass_r: BiquadState,
+
+    // Schiit Multibit (True Multibit R2R Ladder) filters: Schiit Slam + Organic R2R Mids + De-Glare Rolloff
+    schiit_slam_c: super::biquad::BiquadCoefficients,
+    schiit_mid_c: super::biquad::BiquadCoefficients,
+    schiit_roll_c: super::biquad::BiquadCoefficients,
+    schiit_slam_l: BiquadState,
+    schiit_slam_r: BiquadState,
+    schiit_mid_l: BiquadState,
+    schiit_mid_r: BiquadState,
+    schiit_roll_l: BiquadState,
+    schiit_roll_r: BiquadState,
+
+    // Chord Mojo 2 (FPGA Pulse Array) filters: Subterranean Sub + WTA Transient Snap + Micro-Detail Air + LPF Crossfeed
+    chord_sub_c: super::biquad::BiquadCoefficients,
+    chord_pres_c: super::biquad::BiquadCoefficients,
+    chord_air_c: super::biquad::BiquadCoefficients,
+    chord_lpf_c: super::biquad::BiquadCoefficients,
+    chord_sub_l: BiquadState,
+    chord_sub_r: BiquadState,
+    chord_pres_l: BiquadState,
+    chord_pres_r: BiquadState,
+    chord_air_l: BiquadState,
+    chord_air_r: BiquadState,
     chord_lpf_l: BiquadState,
     chord_lpf_r: BiquadState,
 
@@ -2006,20 +2963,46 @@ impl DacMimickerEngine {
             crossfade_pos: 0,
             crossfade_len: (sample_rate * 0.015).round().max(64.0) as usize,
 
-            ifi_shelf_c: super::biquad::BiquadCoefficients::default(),
-            ibasso_shelf_c: super::biquad::BiquadCoefficients::default(),
-            schiit_low_c: super::biquad::BiquadCoefficients::default(),
-            schiit_high_c: super::biquad::BiquadCoefficients::default(),
-            chord_lpf_c: super::biquad::BiquadCoefficients::default(),
+            ifi_bass_c: super::biquad::BiquadCoefficients::default(),
+            ifi_mid_c: super::biquad::BiquadCoefficients::default(),
+            ifi_high_c: super::biquad::BiquadCoefficients::default(),
+            ifi_bass_l: BiquadState::default(),
+            ifi_bass_r: BiquadState::default(),
+            ifi_mid_l: BiquadState::default(),
+            ifi_mid_r: BiquadState::default(),
+            ifi_high_l: BiquadState::default(),
+            ifi_high_r: BiquadState::default(),
 
-            ifi_state_l: BiquadState::default(),
-            ifi_state_r: BiquadState::default(),
-            ibasso_state_l: BiquadState::default(),
-            ibasso_state_r: BiquadState::default(),
-            schiit_low_l: BiquadState::default(),
-            schiit_low_r: BiquadState::default(),
-            schiit_high_l: BiquadState::default(),
-            schiit_high_r: BiquadState::default(),
+            ibasso_treble_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_mid_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_bass_c: super::biquad::BiquadCoefficients::default(),
+            ibasso_treble_l: BiquadState::default(),
+            ibasso_treble_r: BiquadState::default(),
+            ibasso_mid_l: BiquadState::default(),
+            ibasso_mid_r: BiquadState::default(),
+            ibasso_bass_l: BiquadState::default(),
+            ibasso_bass_r: BiquadState::default(),
+
+            schiit_slam_c: super::biquad::BiquadCoefficients::default(),
+            schiit_mid_c: super::biquad::BiquadCoefficients::default(),
+            schiit_roll_c: super::biquad::BiquadCoefficients::default(),
+            schiit_slam_l: BiquadState::default(),
+            schiit_slam_r: BiquadState::default(),
+            schiit_mid_l: BiquadState::default(),
+            schiit_mid_r: BiquadState::default(),
+            schiit_roll_l: BiquadState::default(),
+            schiit_roll_r: BiquadState::default(),
+
+            chord_sub_c: super::biquad::BiquadCoefficients::default(),
+            chord_pres_c: super::biquad::BiquadCoefficients::default(),
+            chord_air_c: super::biquad::BiquadCoefficients::default(),
+            chord_lpf_c: super::biquad::BiquadCoefficients::default(),
+            chord_sub_l: BiquadState::default(),
+            chord_sub_r: BiquadState::default(),
+            chord_pres_l: BiquadState::default(),
+            chord_pres_r: BiquadState::default(),
+            chord_air_l: BiquadState::default(),
+            chord_air_r: BiquadState::default(),
             chord_lpf_l: BiquadState::default(),
             chord_lpf_r: BiquadState::default(),
 
@@ -2062,23 +3045,39 @@ impl DacMimickerEngine {
     fn recompute_filters(&mut self) {
         let sr = self.sample_rate;
 
-        // iFi TrueBass: 65 Hz analog low shelf, +2.2 dB, Q = 0.707
-        let ifi_biquad = BiquadFilter::new(BiquadFilterType::LowShelf, 65.0, 2.2, 0.707, sr);
-        self.ifi_shelf_c = ifi_biquad.compute_coefficients();
+        // 1. iFi Zen DAC V2 (Burr-Brown True Native)
+        // - TrueBass: 75 Hz analog low shelf, +4.2 dB, Q = 0.8
+        self.ifi_bass_c = BiquadFilter::new(BiquadFilterType::LowShelf, 75.0, 4.2, 0.8, sr).compute_coefficients();
+        // - Analog Mid Body: 500 Hz peaking, +2.0 dB, Q = 0.6
+        self.ifi_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 500.0, 2.0, 0.6, sr).compute_coefficients();
+        // - Silky High-End Smoothing: 13.0 kHz high shelf, -1.8 dB, Q = 0.707
+        self.ifi_high_c = BiquadFilter::new(BiquadFilterType::HighShelf, 13000.0, -1.8, 0.707, sr).compute_coefficients();
 
-        // iBasso DC03 Pro: 12.5 kHz air shelf, +0.8 dB, Q = 0.707
-        let ibasso_biquad = BiquadFilter::new(BiquadFilterType::HighShelf, 12500.0, 0.8, 0.707, sr);
-        self.ibasso_shelf_c = ibasso_biquad.compute_coefficients();
+        // 2. iBasso DC03 Pro (Dual Cirrus CS43131)
+        // - Treble Air & Sparkle: 8.5 kHz high shelf, +3.0 dB, Q = 0.75
+        self.ibasso_treble_c = BiquadFilter::new(BiquadFilterType::HighShelf, 8500.0, 3.0, 0.75, sr).compute_coefficients();
+        // - Forward Vocal & Snare Articulation: 2.8 kHz peaking, +1.6 dB, Q = 1.1
+        self.ibasso_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 2800.0, 1.6, 1.1, sr).compute_coefficients();
+        // - Fast Snappy Bass: 90 Hz peaking, +1.8 dB, Q = 1.2
+        self.ibasso_bass_c = BiquadFilter::new(BiquadFilterType::Peaking, 90.0, 1.8, 1.2, sr).compute_coefficients();
 
-        // Schiit Multibit: 45 Hz low punch (+1.5 dB, Q=0.8), 18.5 kHz gentle roll-off (-0.6 dB, Q=0.707)
-        let schiit_low = BiquadFilter::new(BiquadFilterType::LowShelf, 45.0, 1.5, 0.8, sr);
-        self.schiit_low_c = schiit_low.compute_coefficients();
-        let schiit_high = BiquadFilter::new(BiquadFilterType::HighShelf, 18500.0, -0.6, 0.707, sr);
-        self.schiit_high_c = schiit_high.compute_coefficients();
+        // 3. Schiit Multibit (True Multibit R2R Ladder)
+        // - "Schiit Slam": 80 Hz low shelf, +3.6 dB, Q = 0.75
+        self.schiit_slam_c = BiquadFilter::new(BiquadFilterType::LowShelf, 80.0, 3.6, 0.75, sr).compute_coefficients();
+        // - Organic R2R Vocal Midrange: 1.4 kHz peaking, +1.8 dB, Q = 0.85
+        self.schiit_mid_c = BiquadFilter::new(BiquadFilterType::Peaking, 1400.0, 1.8, 0.85, sr).compute_coefficients();
+        // - Supercomb De-Glare Rolloff: 12.5 kHz high shelf, -2.5 dB, Q = 0.707
+        self.schiit_roll_c = BiquadFilter::new(BiquadFilterType::HighShelf, 12500.0, -2.5, 0.707, sr).compute_coefficients();
 
-        // Chord Mojo 2: 700 Hz low-pass for crossfeed channel
-        let chord_lpf = BiquadFilter::new(BiquadFilterType::LowPass, 700.0, 0.0, 0.6, sr);
-        self.chord_lpf_c = chord_lpf.compute_coefficients();
+        // 4. Chord Mojo 2 (FPGA Pulse Array & WTA Timing)
+        // - Deep Subterranean Sub-Bass: 32 Hz peaking, +2.8 dB, Q = 1.0
+        self.chord_sub_c = BiquadFilter::new(BiquadFilterType::Peaking, 32.0, 2.8, 1.0, sr).compute_coefficients();
+        // - WTA Transient Pluck & Edge: 5.5 kHz peaking, +2.5 dB, Q = 1.2
+        self.chord_pres_c = BiquadFilter::new(BiquadFilterType::Peaking, 5500.0, 2.5, 1.2, sr).compute_coefficients();
+        // - Micro-Detail Air: 14.0 kHz high shelf, +2.0 dB, Q = 0.707
+        self.chord_air_c = BiquadFilter::new(BiquadFilterType::HighShelf, 14000.0, 2.0, 0.707, sr).compute_coefficients();
+        // - Crossfeed LPF: 650 Hz low-pass for acoustic ear-to-ear delay blending
+        self.chord_lpf_c = BiquadFilter::new(BiquadFilterType::LowPass, 650.0, 0.0, 0.65, sr).compute_coefficients();
 
         // 0.35ms delay line length (at 48 kHz = ~17 samples; clamped to ring buffer size)
         self.crossfeed_delay_samples = ((sr * 0.00035).round() as usize).clamp(1, 120);
@@ -2088,28 +3087,51 @@ impl DacMimickerEngine {
     fn process_single_flavor(&mut self, flavor: DacHardwareFlavor, frame: [f32; 2]) -> [f32; 2] {
         match flavor {
             DacHardwareFlavor::StockOemPlus => {
-                // Bit-perfect Apple Silicon CS42L84 calibrated reference with peak limiter protection
+                // 100% Bit-perfect Apple Silicon CS42L84 calibrated reference (untouched stock sound)
                 [frame[0].clamp(-1.0, 1.0), frame[1].clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::IfiZenDac => {
-                // Burr-Brown DSD1793 minimum phase + TrueBass 65Hz shelf + warm discrete 2nd harmonic
-                let l_eq = self.ifi_state_l.process(frame[0], &self.ifi_shelf_c);
-                let r_eq = self.ifi_state_r.process(frame[1], &self.ifi_shelf_c);
-                let l_warm = l_eq + 0.022 * l_eq * l_eq.abs();
-                let r_warm = r_eq + 0.022 * r_eq * r_eq.abs();
+                // Burr-Brown TrueBass low shelf + warm velvety mids + silky highs + rich 2nd harmonic
+                let l_b = self.ifi_bass_l.process(frame[0], &self.ifi_bass_c);
+                let r_b = self.ifi_bass_r.process(frame[1], &self.ifi_bass_c);
+                let l_m = self.ifi_mid_l.process(l_b, &self.ifi_mid_c);
+                let r_m = self.ifi_mid_r.process(r_b, &self.ifi_mid_c);
+                let l_h = self.ifi_high_l.process(l_m, &self.ifi_high_c);
+                let r_h = self.ifi_high_r.process(r_m, &self.ifi_high_c);
+
+                // Rich discrete 2nd-harmonic tube warmth
+                let l_warm = (l_h + 0.085 * l_h * l_h.abs()) * 0.90;
+                let r_warm = (r_h + 0.085 * r_h * r_h.abs()) * 0.90;
                 [l_warm.clamp(-1.0, 1.0), r_warm.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::IbassoDcPro => {
-                // Dual Cirrus CS43131 flagship linear phase + 12.5kHz air presence shelf + ultra-low THD
-                let l_air = self.ibasso_state_l.process(frame[0], &self.ibasso_shelf_c);
-                let r_air = self.ibasso_state_r.process(frame[1], &self.ibasso_shelf_c);
-                [l_air.clamp(-1.0, 1.0), r_air.clamp(-1.0, 1.0)]
+                // Dual Cirrus CS43131: sparkling treble air + articulate vocal presence + snappy bass + MS stereo expansion
+                let l_t = self.ibasso_treble_l.process(frame[0], &self.ibasso_treble_c);
+                let r_t = self.ibasso_treble_r.process(frame[1], &self.ibasso_treble_c);
+                let l_m = self.ibasso_mid_l.process(l_t, &self.ibasso_mid_c);
+                let r_m = self.ibasso_mid_r.process(r_t, &self.ibasso_mid_c);
+                let l_b = self.ibasso_bass_l.process(l_m, &self.ibasso_bass_c);
+                let r_b = self.ibasso_bass_r.process(r_m, &self.ibasso_bass_c);
+
+                // Mid-Side stage width widening (+10% side channel boost)
+                let mid = (l_b + r_b) * 0.5;
+                let side = (l_b - r_b) * 0.5 * 1.10;
+                let l_out = (mid + side) * 0.92;
+                let r_out = (mid - side) * 0.92;
+                [l_out.clamp(-1.0, 1.0), r_out.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::ChordMojo2 => {
-                // Rob Watts WTA sinc timing reconstruction emulation with 0.35ms spatial crossfeed
+                // Rob Watts WTA sinc timing: deep sub-bass + transient attack snap + micro-detail air + 35% 3D crossfeed
+                let l_s = self.chord_sub_l.process(frame[0], &self.chord_sub_c);
+                let r_s = self.chord_sub_r.process(frame[1], &self.chord_sub_c);
+                let l_p = self.chord_pres_l.process(l_s, &self.chord_pres_c);
+                let r_p = self.chord_pres_r.process(r_s, &self.chord_pres_c);
+                let l_a = self.chord_air_l.process(l_p, &self.chord_air_c);
+                let r_a = self.chord_air_r.process(r_p, &self.chord_air_c);
+
                 let cur_idx = self.crossfeed_idx;
-                self.crossfeed_delay_l[cur_idx] = frame[0];
-                self.crossfeed_delay_r[cur_idx] = frame[1];
+                self.crossfeed_delay_l[cur_idx] = l_a;
+                self.crossfeed_delay_r[cur_idx] = r_a;
 
                 let delay_offset = self.crossfeed_delay_samples;
                 let read_idx = if cur_idx >= delay_offset {
@@ -2120,27 +3142,28 @@ impl DacMimickerEngine {
 
                 let delayed_l = self.crossfeed_delay_l[read_idx];
                 let delayed_r = self.crossfeed_delay_r[read_idx];
-
                 self.crossfeed_idx = (cur_idx + 1) % 128;
 
-                let l_filtered_cross = self.chord_lpf_l.process(delayed_r, &self.chord_lpf_c);
-                let r_filtered_cross = self.chord_lpf_r.process(delayed_l, &self.chord_lpf_c);
+                let l_cross = self.chord_lpf_l.process(delayed_r, &self.chord_lpf_c);
+                let r_cross = self.chord_lpf_r.process(delayed_l, &self.chord_lpf_c);
 
-                // Blend crossfeed at -13.5 dB (~0.211) and apply slight unity-gain compensation (0.95x)
-                let l_out = (frame[0] + 0.211 * l_filtered_cross) * 0.95;
-                let r_out = (frame[1] + 0.211 * r_filtered_cross) * 0.95;
+                // Perceptible 35% crossfeed blend with headroom normalization (0.90x)
+                let l_out = (l_a + 0.35 * l_cross) * 0.90;
+                let r_out = (r_a + 0.35 * r_cross) * 0.90;
                 [l_out.clamp(-1.0, 1.0), r_out.clamp(-1.0, 1.0)]
             }
             DacHardwareFlavor::SchiitMultibit => {
-                // R2R ladder architectural slam: 45Hz low boost, gentle Nyquist roll-off, blended H2+H3 saturation
-                let l_punch = self.schiit_low_l.process(frame[0], &self.schiit_low_c);
-                let r_punch = self.schiit_low_r.process(frame[1], &self.schiit_low_c);
-                let l_roll = self.schiit_high_l.process(l_punch, &self.schiit_high_c);
-                let r_roll = self.schiit_high_r.process(r_punch, &self.schiit_high_c);
+                // True Multibit R2R: "Schiit Slam" dynamic low boost + organic vocal midrange + Supercomb de-glare + Class-A buffer
+                let l_slam = self.schiit_slam_l.process(frame[0], &self.schiit_slam_c);
+                let r_slam = self.schiit_slam_r.process(frame[1], &self.schiit_slam_c);
+                let l_mid = self.schiit_mid_l.process(l_slam, &self.schiit_mid_c);
+                let r_mid = self.schiit_mid_r.process(r_slam, &self.schiit_mid_c);
+                let l_roll = self.schiit_roll_l.process(l_mid, &self.schiit_roll_c);
+                let r_roll = self.schiit_roll_r.process(r_mid, &self.schiit_roll_c);
 
-                // Push-pull class-A buffer stage saturation (even + odd harmonic blend)
-                let l_sat = l_roll + 0.018 * l_roll.powi(2) * l_roll.signum() - 0.010 * l_roll.powi(3);
-                let r_sat = r_roll + 0.018 * r_roll.powi(2) * r_roll.signum() - 0.010 * r_roll.powi(3);
+                // Class-A push-pull discrete stage saturation (even-order dynamic warmth + subtle odd-order compression)
+                let l_sat = (l_roll + 0.080 * l_roll.powi(2) * l_roll.signum() - 0.035 * l_roll.powi(3)) * 0.90;
+                let r_sat = (r_roll + 0.080 * r_roll.powi(2) * r_roll.signum() - 0.035 * r_roll.powi(3)) * 0.90;
                 [l_sat.clamp(-1.0, 1.0), r_sat.clamp(-1.0, 1.0)]
             }
         }
@@ -2187,15 +3210,20 @@ mod tests {
     #[test]
     fn test_enhancer_presets_count_and_application() {
         let presets = MasteringPreset::all();
-        assert_eq!(presets.len(), 21, "Should provide 21 handcrafted presets");
+        assert_eq!(presets.len(), 35, "Should provide 35 handcrafted audiophile and genre presets");
 
         let mut enh = AudiophileEnhancer::new(48000.0);
         let gear = AcousticGearProfile::default();
-        for preset in presets {
-            enh.apply_preset_with_gear(&preset, &gear);
+        for preset in &presets {
+            enh.apply_preset_with_gear(preset, &gear);
             assert!(!enh.spatial_width.is_nan());
             assert!(!enh.tube_warmth.is_nan());
             assert_eq!(preset.eq_10_band.len(), 10);
+            assert!(!preset.name.is_empty());
+            assert!(!preset.description.is_empty());
+            assert!(!preset.target.is_empty());
+            assert!(preset.limiter_ceiling_dbfs <= -0.1, "Limiter ceiling must protect against inter-sample peaks");
+            assert!(preset.recommended_headroom_db() >= 0.0, "Headroom should always be non-negative");
         }
     }
 
@@ -2316,16 +3344,37 @@ mod tests {
             assert_eq!(frame[1], 0.0);
         }
 
-        // Process test signal with each flavor
+        // Verify Stock OEM+ is 100% bit-perfect pass-through
+        let mut oem_sig = vec![[0.42f32, -0.38f32]; 128];
+        engine.set_flavor(DacHardwareFlavor::StockOemPlus);
+        engine.process(&mut oem_sig);
+        for frame in &oem_sig {
+            assert!((frame[0] - 0.42).abs() < 1e-6, "Stock OEM+ must be bit-perfect pass-through: got {}", frame[0]);
+            assert!((frame[1] - (-0.38)).abs() < 1e-6, "Stock OEM+ must be bit-perfect pass-through: got {}", frame[1]);
+        }
+
+        // Process test signal with each flavor and assert audible variance and stability
         for flavor in DacHardwareFlavor::all() {
-            engine.set_flavor(*flavor);
+            let mut test_engine = DacMimickerEngine::new(48000.0);
+            test_engine.set_flavor(*flavor);
+            // Pre-warm filters so step response stabilizes
+            let mut prewarm = vec![[0.4f32, -0.4f32]; 512];
+            test_engine.process(&mut prewarm);
+
             let mut test_sig = vec![[0.5f32, -0.5f32]; 256];
-            engine.process(&mut test_sig);
+            test_engine.process(&mut test_sig);
             for frame in &test_sig {
                 assert!(!frame[0].is_nan());
                 assert!(!frame[1].is_nan());
                 assert!(frame[0].abs() <= 1.0);
                 assert!(frame[1].abs() <= 1.0);
+            }
+
+            // Assert that non-stock flavors produce noticeably altered output from the 0.5 flat input
+            if *flavor != DacHardwareFlavor::StockOemPlus {
+                let last = test_sig.last().unwrap();
+                let diff_l = (last[0] - 0.5).abs();
+                assert!(diff_l > 0.001, "Flavor {:?} must produce distinct audible modification: diff={}", flavor, diff_l);
             }
         }
 
@@ -2371,6 +3420,8 @@ mod tests {
             coupling: GearCoupling::Silicone,
             tonal_balance: GearTonalBalance::AnalyticalBright,
             source_amp: GearSourceAmp::DesktopSolidState,
+            speaker_placement: SpeakerPlacement::default(),
+            speaker_target: SpeakerCalibrationTarget::default(),
         };
         enh.apply_preset_with_gear(&preset, &iem_gear);
         assert!(enh.spatial_width <= 1.25, "IEM must cap spatial width <= 1.25: got {}", enh.spatial_width);
@@ -2378,5 +3429,47 @@ mod tests {
         assert!(enh.mono_bass_freq >= 85.0, "IEM mono bass frequency must be at least 85Hz");
         assert!(enh.deesser_enabled, "IEM should engage de-esser");
     }
+
+    #[test]
+    fn test_dynamic_speaker_placement_and_target_dsp_adaptations() {
+        let mut enh = AudiophileEnhancer::new(48000.0);
+        let preset = MasteringPreset::all()[0].clone();
+
+        // 1. Laptop on elevated stand with spatial expansion target
+        let mut laptop_gear = AcousticGearProfile::default_builtin_speakers("MacBook Pro");
+        laptop_gear.speaker_placement = SpeakerPlacement::ElevatedStand;
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::SpatialExpansion;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert!(enh.spatial_width >= 1.20, "Elevated stand + spatial expansion should widen stage: got {}", enh.spatial_width);
+        assert_eq!(enh.crossfeed, CrossfeedMode::Off);
+
+        // 2. Laptop on desk with vocal clarity target
+        laptop_gear.speaker_placement = SpeakerPlacement::DeskSurface;
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::VocalClarity;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert!(enh.deharsh_enabled, "Vocal clarity target should engage deharsh filter to tame boxiness");
+        assert!(enh.air_clarity_db >= 1.0, "Vocal clarity should lift upper speech presence");
+
+        // 3. Laptop with bass protection target
+        laptop_gear.speaker_target = SpeakerCalibrationTarget::BassProtection;
+        enh.apply_preset_with_gear(&preset, &laptop_gear);
+        assert_eq!(enh.subsonic_freq, 52.0, "Bass protection target must engage tighter 52Hz subsonic guard");
+
+        // 4. Bookshelf speakers: rear ported close to wall corner
+        let mut bookshelf = AcousticGearProfile::default_bookshelf_speakers();
+        bookshelf.enclosure = GearEnclosure::PortedRear;
+        bookshelf.speaker_placement = SpeakerPlacement::NearWallCorner;
+        enh.apply_preset_with_gear(&preset, &bookshelf);
+        assert_eq!(enh.crossfeed, CrossfeedMode::Off);
+
+        // 5. Over-Ear with Velour pads
+        let mut overear = AcousticGearProfile::default();
+        overear.form_factor = GearFormFactor::OverEar;
+        overear.coupling = GearCoupling::VelourPads;
+        let baseline_bass = preset.bass_punch_db;
+        enh.apply_preset_with_gear(&preset, &overear);
+        assert!(enh.bass_punch_db >= baseline_bass, "Velour pads should gently compensate for porous seal");
+    }
 }
+
 

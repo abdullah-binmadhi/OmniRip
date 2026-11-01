@@ -1,5 +1,7 @@
 //! OmniRip CoreAudio HAL Driver Management & System Loopback Binding.
 
+pub mod bundle;
+
 #[cfg(target_os = "macos")]
 mod macos_driver {
     use std::path::Path;
@@ -385,39 +387,38 @@ mod macos_driver {
     }
 
 
-    /// Compile and install OmniRipAudio.driver to /Library/Audio/Plug-Ins/HAL/
+    /// Installs OmniRipAudio.driver into /Library/Audio/Plug-Ins/HAL/. The bundle is looked up next to the
+    /// binary first (release archives), then in a source checkout, which is built with `make`.
     pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
-        let fallback_dir = "/Users/abdullahbinmadhi/Projects/OmniRip";
-        let bundle_path = if Path::new("drivers/omnirip_hal/OmniRipAudio.driver").exists() {
-            std::path::PathBuf::from("drivers/omnirip_hal/OmniRipAudio.driver")
-        } else if Path::new(&format!("{}/drivers/omnirip_hal/OmniRipAudio.driver", fallback_dir)).exists() {
-            std::path::PathBuf::from(format!("{}/drivers/omnirip_hal/OmniRipAudio.driver", fallback_dir))
-        } else {
-            println!("[OmniRip] Building OmniRipAudio.driver from source...");
-            let make_dir = if Path::new("drivers/omnirip_hal").exists() {
-                "drivers/omnirip_hal"
-            } else {
-                "/Users/abdullahbinmadhi/Projects/OmniRip/drivers/omnirip_hal"
-            };
-            let build_status = Command::new("make")
-                .arg("-C")
-                .arg(make_dir)
-                .status()?;
-
-            if !build_status.success() {
-                return Err("Failed to compile OmniRipAudio.driver bundle.".into());
+        let exe_dir = std::env::current_exe()?
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        let cwd = std::env::current_dir()?;
+        let bundle_path = match super::bundle::locate_driver_source(&exe_dir, &cwd) {
+            Some(super::bundle::DriverSource::Bundle(path)) => path,
+            Some(super::bundle::DriverSource::SourceTree(dir)) => {
+                println!("[OmniRip] Building OmniRipAudio.driver from source...");
+                let build_status = Command::new("make").arg("-C").arg(&dir).status()?;
+                if !build_status.success() {
+                    return Err("Failed to compile OmniRipAudio.driver bundle.".into());
+                }
+                dir.join("OmniRipAudio.driver")
             }
-            std::path::PathBuf::from(format!("{}/OmniRipAudio.driver", make_dir))
+            None => {
+                return Err(
+                    "OmniRipAudio.driver was not found next to omnirip or in a source checkout. Reinstall OmniRip."
+                        .into(),
+                );
+            }
         };
 
         println!("[OmniRip] Installing bundle to /Library/Audio/Plug-Ins/HAL/...");
+        let bundle = bundle_path
+            .to_str()
+            .ok_or("Driver bundle path is not valid UTF-8")?;
         let cp_status = Command::new("sudo")
-            .args([
-                "cp",
-                "-R",
-                bundle_path.to_str().unwrap_or("drivers/omnirip_hal/OmniRipAudio.driver"),
-                "/Library/Audio/Plug-Ins/HAL/",
-            ])
+            .args(["cp", "-R", bundle, "/Library/Audio/Plug-Ins/HAL/"])
             .status()?;
 
         if !cp_status.success() {
@@ -425,13 +426,7 @@ mod macos_driver {
         }
 
         println!("[OmniRip] Reloading CoreAudio daemon (coreaudiod)...");
-        let kill_status = Command::new("sudo")
-            .args(["killall", "-9", "coreaudiod"])
-            .status()?;
-
-        if !kill_status.success() {
-            eprintln!("[OmniRip] Warning: killall -9 coreaudiod returned non-zero.");
-        }
+        reload_coreaudio();
 
         println!("[OmniRip] Waiting for CoreAudio to register OmniRip Audio...");
         for _ in 0..10 {
@@ -443,6 +438,51 @@ mod macos_driver {
         }
 
         Err("Driver installed but OmniRip Audio was not detected within timeout.".into())
+    }
+
+    /// Restarts CoreAudio through launchd, the supported way to reload HAL plug-ins. Falls back to a plain
+    /// `killall` (SIGTERM rather than SIGKILL) if launchd refuses the request.
+    fn reload_coreaudio() {
+        let restarted = Command::new("sudo")
+            .args(["launchctl", "kickstart", "-k", "system/com.apple.audio.coreaudiod"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !restarted {
+            let _ = Command::new("sudo").args(["killall", "coreaudiod"]).status();
+        }
+    }
+
+    /// Install OmniRipAudio.driver via macOS graphical authorization dialog (Touch ID or Admin password).
+    #[cfg(target_os = "macos")]
+    pub fn install_driver_gui() -> Result<String, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("Cannot locate the omnirip binary: {}", e))?;
+        let command = format!(
+            "{} driver install",
+            super::bundle::shell_single_quote(&exe.to_string_lossy())
+        );
+        let script = format!(
+            "do shell script \"{}\" with administrator privileges",
+            super::bundle::applescript_escape(&command)
+        );
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("Failed to launch authorization dialog: {}", e))?;
+
+        if output.status.success() {
+            Ok("OmniRip Audio Driver installed and activated successfully.".to_string())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Authorization canceled or failed: {}", err.trim()))
+        }
+    }
+
+    /// On non-macOS platforms, native audio loopback is 100% driverless.
+    #[cfg(not(target_os = "macos"))]
+    pub fn install_driver_gui() -> Result<String, String> {
+        Ok("Native desktop audio loopback is supported driverless on this platform.".to_string())
     }
 
     /// Uninstall OmniRipAudio.driver from /Library/Audio/Plug-Ins/HAL/
@@ -463,9 +503,7 @@ mod macos_driver {
         }
 
         println!("[OmniRip] Reloading CoreAudio daemon...");
-        let _ = Command::new("sudo")
-            .args(["killall", "-9", "coreaudiod"])
-            .status();
+        reload_coreaudio();
 
         println!("[OmniRip] Driver uninstalled cleanly.");
         Ok(())

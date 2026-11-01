@@ -376,7 +376,7 @@ impl ArchiverState {
                     self.show_inspector_modal = true;
                 }
             }
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete | KeyCode::Backspace => {
+            KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
                 if !self.tracks.is_empty() && self.selected_track_idx < self.tracks.len() {
                     if self.previewing_idx == Some(self.selected_track_idx) {
                         self.stop_preview();
