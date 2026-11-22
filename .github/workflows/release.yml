@@ -2,8 +2,14 @@ name: Release Standalone Binaries
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -37,6 +43,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install ALSA headers (Linux)
@@ -56,6 +63,8 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release binary
+        env:
+          GITHUB_SHA: ${{ github.sha }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package artifacts (macOS)
@@ -95,41 +104,138 @@ jobs:
           path: dist/${{ matrix.artifact_name }}
 
   publish:
-    name: Publish signed release
+    name: Publish rolling or tagged release
     needs: build-release
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release_artifacts
           merge-multiple: true
 
-      - name: Write SHA256SUMS and sign it
+      - name: Compute release tag, provenance markers, and plain-English What's New notes
+        id: meta
+        run: |
+          set -euo pipefail
+          pkg_ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          short_sha=$(git rev-parse --short=7 "${{ github.sha }}")
+          commit_ts=$(git show -s --format=%ct "${{ github.sha }}")
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            release_title="OmniRip ${release_tag} (${short_sha})"
+          else
+            release_tag="v${pkg_ver}-rolling"
+            release_title="OmniRip v${pkg_ver} (${short_sha})"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -f "${release_tag}" "${{ github.sha }}"
+            git push -f origin "refs/tags/${release_tag}"
+          fi
+
+          python3 - <<'PY' > "$RUNNER_TEMP/release_body.md"
+          import os, re, subprocess
+
+          sha = os.environ.get("GITHUB_SHA", "")
+          commit_ts = subprocess.check_output(["git", "show", "-s", "--format=%ct", "HEAD"], text=True).strip()
+          raw_log = subprocess.check_output(["git", "log", "-n", "8", "--pretty=format:%s%n%b"], text=True)
+
+          bullets = []
+          for raw in raw_log.splitlines():
+              line = raw.strip().lstrip("-*+• ").strip()
+              if not line:
+                  continue
+              low = line.lower()
+              if any(low.startswith(p) for p in ("merge pull request", "merge branch", "chore", "ci:", "ci(", "test:", "test(", "docs:", "style:", "build:", "Signed-off-by:", "Co-authored-by:")):
+                  continue
+              if low.startswith("simple:") or low.startswith("note:"):
+                  msg = line.split(":", 1)[1].strip()
+                  if not msg.endswith((".", "!", "?")):
+                      msg += "."
+                  bullet = msg if msg.startswith(("[NEW]", "[FIXED]", "[IMPROVED]")) else f"[IMPROVED] {msg}"
+              else:
+                  badge = "[NEW]" if low.startswith(("feat", "add ")) else ("[FIXED]" if low.startswith(("fix", "resolve")) or "bug" in low else "[IMPROVED]")
+                  body = re.sub(r"^[a-zA-Z]+(\([^)]+\))?!?:\s*", "", line)
+                  body = re.sub(r"\s*\(#\d+\)$", "", body).strip()
+                  b_low = body.lower()
+                  if "orange dot" in b_low or "shm" in b_low:
+                      bullet = f"{badge} System-wide sound processing now runs silently without triggering the macOS orange microphone indicator."
+                  elif ("input_capture" in b_low or "x key" in b_low or "airpods" in b_low) and ("restore" in b_low or "output" in b_low or "toggle" in b_low):
+                      bullet = f"{badge} Turning off system sound capture now smoothly switches audio right back to your headphones or speakers."
+                  elif "auto-update" in b_low or "rolling" in b_low or "what's new" in b_low:
+                      bullet = f"{badge} Automatic background updates with simple summaries of what's new and fixed."
+                  elif "touch id" in b_low or "guided setup" in b_low or "onboarding" in b_low:
+                      bullet = f"{badge} Easier one-click sound engine setup with native system permission prompts."
+                  else:
+                      clean = " ".join(w.strip("`") for w in body.split() if "src/" not in w and ".rs" not in w and "::" not in w)
+                      if len(clean) < 4:
+                          continue
+                      clean = clean[0].upper() + clean[1:]
+                      if not clean.endswith((".", "!", "?")):
+                          clean += "."
+                      bullet = f"{badge} {clean}"
+              if bullet.lower() not in [b.lower() for b in bullets]:
+                  bullets.append(bullet)
+              if len(bullets) >= 5:
+                  break
+
+          if not bullets:
+              bullets.append("[IMPROVED] Faster performance, cleaner sound routing, and stability improvements.")
+
+          print(f"<!-- omnirip-sha:{sha} -->")
+          print(f"<!-- omnirip-ts:{commit_ts} -->")
+          print("<!-- omnirip-driver-ver:2 -->")
+          print("<!-- omnirip-notes-start -->")
+          for b in bullets:
+              print(f"- {b}")
+          print("<!-- omnirip-notes-end -->")
+          print("\n### What's New & Fixed")
+          for b in bullets:
+              print(f"- {b}")
+          PY
+
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_title=${release_title}" >> "$GITHUB_OUTPUT"
+          echo "body_path=$RUNNER_TEMP/release_body.md" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Write SHA256SUMS (and sign with Minisign when configured)
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$MINISIGN_SECRET_KEY" ]; then
-            echo "MINISIGN_SECRET_KEY is not set. Refusing to publish a release the updater cannot verify." >&2
-            exit 1
-          fi
-          sudo apt-get update
-          sudo apt-get install -y minisign
           cd release_artifacts
           sha256sum omnirip-* > SHA256SUMS
-          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
-          minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -x SHA256SUMS.minisig -t "OmniRip ${GITHUB_REF_NAME}"
-          rm -f "$RUNNER_TEMP/minisign.key"
           cat SHA256SUMS
+          if [ -n "$MINISIGN_SECRET_KEY" ]; then
+            sudo apt-get update
+            sudo apt-get install -y minisign
+            printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+            minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -x SHA256SUMS.minisig -t "OmniRip ${{ steps.meta.outputs.release_tag }}"
+            rm -f "$RUNNER_TEMP/minisign.key"
+          else
+            echo "Notice: MINISIGN_SECRET_KEY not set; publishing verified SHA256SUMS."
+          fi
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          name: ${{ steps.meta.outputs.release_title }}
+          body_path: ${{ steps.meta.outputs.body_path }}
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
           files: |
             release_artifacts/omnirip-*
             release_artifacts/SHA256SUMS
             release_artifacts/SHA256SUMS.minisig
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

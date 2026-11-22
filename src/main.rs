@@ -17,6 +17,7 @@ Usage:
   omnirip driver [status|install|install-gui|uninstall|uninstall-gui]
   omnirip feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
   omnirip stream <url>                 stream an http(s) URL through the engine
+  omnirip --rollback                   restore the previous OmniRip binary backup
   omnirip --help | --version";
 
 /// What the process was asked to do.
@@ -25,6 +26,7 @@ enum Command {
     Tui,
     Help,
     Version,
+    Rollback,
     Driver(Vec<String>),
     Feed(Vec<String>),
     Stream(Option<String>),
@@ -38,6 +40,7 @@ fn parse_command(args: &[String]) -> Command {
         None | Some("--no-mic") => Command::Tui,
         Some("-h") | Some("--help") | Some("help") => Command::Help,
         Some("-V") | Some("--version") => Command::Version,
+        Some("--rollback") | Some("rollback") => Command::Rollback,
         Some("driver") => Command::Driver(args[2..].to_vec()),
         Some("feed") => Command::Feed(args[2..].to_vec()),
         Some("stream") => Command::Stream(args.get(2).cloned()),
@@ -60,6 +63,7 @@ fn install_panic_hook() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     install_panic_hook();
+    harvest::updater::cleanup_legacy_update_files();
     harvest::bootstrap::ToolResolver::activate_user_tools_path();
     let args: Vec<String> = std::env::args().collect();
 
@@ -69,8 +73,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         Command::Version => {
-            println!("omnirip {}", env!("CARGO_PKG_VERSION"));
+            let sha = harvest::updater::current_build_sha();
+            if sha != "unknown" && !sha.is_empty() {
+                println!(
+                    "omnirip {} ({})",
+                    env!("CARGO_PKG_VERSION"),
+                    harvest::updater::short_sha(sha)
+                );
+            } else {
+                println!("omnirip {}", env!("CARGO_PKG_VERSION"));
+            }
             return Ok(());
+        }
+        Command::Rollback => {
+            match harvest::updater::apply_rollback() {
+                Ok(path) => {
+                    println!(
+                        "Restored previous OmniRip binary at {}. Launch `omnirip` to start.",
+                        path.display()
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("omnirip rollback failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Command::Driver(rest) => return driver::run_driver_cli(&rest),
         Command::Feed(rest) => return dsp::transport::run_feed_cli(&rest),
@@ -116,6 +144,8 @@ mod tests {
         assert_eq!(parse_command(&args(&["omnirip", "-h"])), Command::Help);
         assert_eq!(parse_command(&args(&["omnirip", "--version"])), Command::Version);
         assert_eq!(parse_command(&args(&["omnirip", "-V"])), Command::Version);
+        assert_eq!(parse_command(&args(&["omnirip", "--rollback"])), Command::Rollback);
+        assert_eq!(parse_command(&args(&["omnirip", "rollback"])), Command::Rollback);
     }
 
     #[test]

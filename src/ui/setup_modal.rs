@@ -649,9 +649,8 @@ impl SetupModalState {
                 let release_res = crate::harvest::updater::check_latest_release("abdullah-binmadhi/OmniRip").await;
                 match release_res {
                     Ok(Some(info)) => {
-                        let dl_url = info.download_url;
-                        let apply_res = crate::harvest::updater::apply_self_update(
-                            &dl_url,
+                        let apply_res = crate::harvest::updater::apply_self_update_with_info(
+                            &info,
                             |_dl, _tot| {},
                             cancel_signal,
                         )
