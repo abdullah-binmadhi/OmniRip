@@ -1,17 +1,17 @@
 # Orchestria
 
 ```text
- ██████╗ ███╗   ███╗███╗   ██╗██╗██████╗ ██╗██████╗ 
-██╔═══██╗████╗ ████║████╗  ██║██║██╔══██╗██║██╔══██╗
-██║   ██║██╔████╔██║██╔██╗ ██║██║██████╔╝██║██████╔╝
-██║   ██║██║╚██╔╝██║██║╚██╗██║██║██╔══██╗██║██╔═══╝ 
-╚██████╔╝██║ ╚═╝ ██║██║ ╚████║██║██║  ██║██║██║     
- ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝╚═╝╚═╝     
+ ██████╗ ██████╗  ██████╗██╗  ██╗███████╗███████╗████████╗██████╗ ██╗ █████╗ 
+██╔═══██╗██╔══██╗██╔════╝██║  ██║██╔════╝██╔════╝╚══██╔══╝██╔══██╗██║██╔══██╗
+██║   ██║██████╔╝██║     ███████║█████╗  ███████╗   ██║   ██████╔╝██║███████║
+██║   ██║██╔══██╗██║     ██╔══██║██╔══╝  ╚════██║   ██║   ██╔══██╗██║██╔══██║
+╚██████╔╝██║  ██║╚██████╗██║  ██║███████╗███████║   ██║   ██║  ██║██║██║  ██║
+ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝
 ```
 
-### The All-in-One Music Downloader, Streaming Player & Sound Enhancer
+### The All-in-One Music Downloader, Streaming Player & System-Wide Sound Enhancer
 
-Orchestria is a fast, lightweight music companion built for your terminal. Whether you want to download high-resolution albums, stream web playlists instantly, check if your music files are truly studio quality, or make your headphones and speakers sound their absolute best, Orchestria does it all with a clean, distraction-free interface.
+Orchestria is a fast, lightweight music companion and system-wide studio sound engine built in pure Rust for your terminal. Whether you want to download high-resolution albums, stream web playlists instantly, verify if your music files are truly studio quality, or route all desktop audio (Spotify, Apple Music, browsers, games) through a 10-band studio EQ and DAC mimicker, Orchestria does it all with a clean, distraction-free interface.
 
 ---
 
@@ -21,8 +21,13 @@ Orchestria organizes its features into four dedicated workstations. Press **`M`*
 
 ```mermaid
 flowchart TD
-    ROOT["Orchestria (Press 'M' to switch)"] --> W1["Workstation 1: Music Downloader & Harvester"]
-    ROOT --> W2["Workstation 2: System EQ & Sound Enhancer"]
+    BOOT["Launch 'orchestria' from any terminal"] --> GATE{"First-Run Sound Engine Gate"}
+    GATE -- "Needs Setup" --> SETUP["1-Click Guided Setup (Touch ID / UAC / PipeWire)"]
+    SETUP --> ROOT["Orchestria Workstations (Press 'M' to switch)"]
+    GATE -- "Already Ready" --> ROOT
+
+    ROOT --> W1["Workstation 1: Music Downloader & Harvester"]
+    ROOT --> W2["Workstation 2: System-Wide EQ & Mastering Suite"]
     ROOT --> W3["Workstation 3: Cloud Playlist Archiver"]
     ROOT --> W4["Workstation 4: Universal Streaming Hub"]
 
@@ -31,10 +36,10 @@ flowchart TD
     W1 --> W1_MODES["3 Download Policies (Lossless, Fallback, MP3)"]
     W1 --> W1_HEAL["One-Key Reconnect (Press 'F5' / 'W')"]
 
+    W2 --> W2_SHM["Zero-Dot System-Wide Audio Engine (Press 'X')"]
     W2 --> W2_GEAR["Gear Calibration Wizard (Press 'G')"]
     W2 --> W2_GAME["Esports Gaming Mode (Press 'Shift+G')"]
-    W2 --> W2_RACK["20-Processor Studio Mastering Rack"]
-    W2 --> W2_MIC["Microphone Privacy Toggle (Press 'X')"]
+    W2 --> W2_RACK["20-Processor Studio Mastering Rack & DAC Mimicker"]
 
     W3 --> W3_BATCH["Batch Playlist Ingest & M3U8 Export"]
     W3 --> W3_TAG["Automatic Metadata & Cover Art Tagging"]
@@ -44,6 +49,120 @@ flowchart TD
     W4 --> W4_SYNC["Browser Library Import (Press 'L')"]
     W4 --> W4_VOL["1:1 Hardware Volume Sync (+ / -)"]
 ```
+
+---
+
+## Quick Start Installation & Global Setup
+
+All installation methods place `orchestria` directly on your system `PATH` (`~/.local/bin`, `~/.cargo/bin`, or `/opt/homebrew/bin`) so you can run `orchestria` from your home directory (`~`) or anywhere else without ever needing to `cd` into a project folder.
+
+### Option 1: One-Line Universal Installer (macOS & Linux — Recommended)
+
+Installs the latest verified standalone binary and virtual sound engine bundle straight to `~/.local/bin/orchestria`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.sh | bash
+```
+
+### Option 2: Homebrew (macOS & Linux)
+
+Install and keep Orchestria updated via the official Homebrew Tap:
+
+```bash
+# Add the tap and install
+brew tap abdullah-binmadhi/tap
+brew install orchestria
+
+# Upgrade to future versions anytime
+brew upgrade orchestria
+```
+
+### Option 3: Windows One-Line PowerShell Installer
+
+Run in PowerShell to install `orchestria.exe`, add it to your user `PATH`, and launch the setup wizard:
+
+```powershell
+irm https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.ps1 | iex
+```
+
+### Option 4: Build & Install Globally from Source (Rust / Cargo)
+
+If you cloned the repository locally, install the binary globally to `~/.cargo/bin/orchestria` and `~/.local/bin/orchestria` so `orchestria` works from `~` or any directory:
+
+```bash
+# Build and install globally onto your PATH
+cargo install --path . --locked
+
+# Or on macOS, also build the Zero-Dot HAL v2 audio driver bundle:
+make -C drivers/orchestria_hal
+```
+
+### Launching Orchestria from Anywhere
+
+Once installed, open any terminal window at `~` and run:
+
+```bash
+orchestria
+```
+
+### CLI Commands Reference
+
+```text
+Usage:
+  orchestria                              start the TUI workstation
+  orchestria driver [status|install|install-gui|uninstall|uninstall-gui]
+  orchestria feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
+  orchestria stream <url>                 stream an http(s) URL through the engine
+  orchestria --rollback                   restore the previous Orchestria binary backup
+  orchestria --help | --version
+```
+
+---
+
+## Guided First-Run Sound Engine Setup & Zero-Dot Architecture
+
+When you launch `orchestria` for the first time, the **Guided Pre-Flight Setup Gate** verifies your audio driver and media tools (`yt-dlp`, `ffmpeg`) before entering the workstations:
+
+```mermaid
+flowchart LR
+    subgraph macOS["macOS (Zero-Dot HAL v2)"]
+        APPS["Spotify / Browser / Games"] --> HAL["OrchestriaAudio.driver v2<br/>(Output-Only CoreAudio HAL)"]
+        HAL -->|"POSIX Shared Memory<br/>/orchestria_audio_shm"| DSP["Orchestria 64-Bit DSP<br/>(O_RDONLY • Zero Mic Dot)"]
+        DSP --> HW["AirPods / Headphones / USB DAC / Speakers"]
+    end
+```
+
+- **macOS (Zero Orange Microphone Dot)**: `OrchestriaAudio.driver` v2 is a pure **Output-Only** CoreAudio HAL plug-in that writes desktop PCM into lock-free POSIX shared memory (`/orchestria_audio_shm`). Because Orchestria reads shared memory (`O_RDONLY`) and opens **zero** CoreAudio input streams, macOS **never** shows the orange microphone privacy dot in your menu bar. Installation uses a native macOS **Touch ID / Password** prompt.
+- **Windows (Guided UAC + Reboot Detection)**: Automatically configures the virtual audio endpoint via a single native Windows UAC prompt, detects if Windows requires a one-time driver restart (`exit code 3010`), and guides you cleanly.
+- **Linux (Zero-Prompt User-Space Sink)**: Automatically creates a user-space PipeWire / PulseAudio `Orchestria_Audio` null-sink (`pactl load-module module-null-sink`) with zero `sudo` prompts required.
+- **Clean Hardware Restoration (`[X]` & Quit)**: Pressing **`X`** (or quitting with **`Q`**) immediately restores your Mac/PC default audio output back to your physical headphones, AirPods, or speakers and syncs hardware volume.
+
+---
+
+## Automatic Rolling Updates & Plain-English "What's New" Popups
+
+Orchestria includes an automatic rolling self-updater modeled after **Phaenna**: every commit pushed to `main` that passes the macOS, Linux, and Windows CI test suite automatically publishes a verified rolling release.
+
+```mermaid
+sequenceDiagram
+    participant Dev as GitHub Push (main)
+    participant CI as CI Test Matrix (macOS/Linux/Win)
+    participant Rel as Rolling Release (SHA256SUMS)
+    participant App as Running Orchestria TUI
+
+    Dev->>CI: git push origin main
+    CI->>Rel: All 318 tests pass -> Build & Sign binaries
+    App->>Rel: Auto-check on launch (2s) & every 30 min
+    Rel-->>App: Newer Commit SHA or SemVer detected
+    App-->>App: Show Plain-English "Update Available" Popup
+    App->>Rel: [Enter] Download with HTTP Range Resume + Verify SHA-256 & Binary Magic
+    App-->>App: Save rollback backup -> Atomic binary swap -> In-place restart
+    App-->>App: Show one-time "What's New & Fixed" Welcome Popup
+```
+
+- **Plain-English Summaries**: Technical commit messages are automatically translated into simple, jargon-free `[NEW]`, `[FIXED]`, and `[IMPROVED]` bullet points so you immediately see what changed.
+- **Never Interrupts Your Typing**: If an update arrives while you are typing a search query, Orchestria waits quietly and displays `[⬆ UPDATE READY • Ctrl+U]` in the top header bar until you are idle or press **`Ctrl+U`**.
+- **Instant One-Command Rollback**: Before every update, Orchestria saves a backup of your previous working binary. If anything ever feels off, run `orchestria --rollback` in your terminal (or type `:rollback` inside the app) to restore the previous build in one second.
 
 ---
 
@@ -193,12 +312,12 @@ flowchart TD
 
 ---
 
-### 9. Privacy-First Microphone Controls (`[X]`)
+### 9. Zero-Dot System-Wide Audio Capture Toggle (`[X]`)
 
-Orchestria keeps microphone and audio input capture **completely turned off by default**. This protects your privacy and dismisses the macOS menu bar orange microphone dot during music listening.
+On macOS with `OrchestriaAudio.driver` v2 installed, system-wide audio capture runs through POSIX shared memory (`/orchestria_audio_shm`) with **zero orange microphone dot** in the menu bar.
 
-When you need audio input capture for loopback processing, toggle it easily:
-- Press **`X`** or **`Shift+M`** for an instant toggle.
+Whenever you want to switch between **System-Wide EQ** (processing all desktop audio) and **App-Only EQ** (sending audio straight to your physical headphones/speakers without system interception):
+- Press **`X`** or **`Shift+M`** for an instant toggle (automatically restoring your physical output device when turned off).
 - Type `:mic on` or `:mic off` in the interactive command bar (`:`).
 
 ---
@@ -254,7 +373,7 @@ flowchart LR
 
 ```text
 +-------------------------------------------------------------------------------------------------------+
-| ORCHESTRIA Universal Streaming Hub v0.2.0           [VOL: 65%] [DSP: HARMAN 2019] [NATIVE OPUS 256K]      |
+| ORCHESTRIA Universal Streaming Hub v0.2.0           [VOL: 65%] [DSP: HARMAN 2019] [NATIVE OPUS 256K]  |
 +-------------------------------------------------------------------------------------------------------+
 | Search / URL: [https://music.youtube.com/playlist?list=...                               ]            |
 +-------------------------------------------------------------------+-----------------------------------+
@@ -275,55 +394,6 @@ flowchart LR
 
 ---
 
-## Quick Start Installation & Updates
-
-### Option 1: Homebrew (macOS & Linux)
-
-Install and keep Orchestria updated via the official Homebrew Tap:
-
-```bash
-# Add the tap and install
-brew tap abdullah-binmadhi/tap
-brew install orchestria
-
-# Upgrade to future versions anytime
-brew upgrade orchestria
-```
-
-### Option 2: One-Line Universal Script (macOS & Linux)
-
-Install or update the latest pre-built standalone binary directly:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.sh | bash
-```
-
-### Option 3: Double-Click Desktop Installer (macOS & Windows)
-
-- **macOS**: Double-click [`scripts/install.command`](file:///Users/abdullahbinmadhi/Projects/Orchestria/scripts/install.command) in Finder to install and strip Gatekeeper quarantine in 5 seconds.
-- **Windows**: Right-click `scripts/install.ps1` and select **Run with PowerShell**, or execute:
-  ```powershell
-  irm https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.ps1 | iex
-  ```
-
-### Option 4: In-App Self-Updater & Setup Wizard (Zero Terminal)
-
-Orchestria checks for new releases on launch. Inside Orchestria:
-- Type **`:update`** to automatically download and atomically install the latest release.
-- Type **`:setup`** or press **`F12`** to open the **Setup & Dependency Health Wizard**, auto-download missing tools (`yt-dlp`), or install the macOS audio driver via Touch ID.
-
----
-
-### Launching Orchestria
-
-Start Orchestria from any terminal window:
-
-```bash
-orchestria
-```
-
----
-
 ## Keyboard Shortcuts Cheat Sheet
 
 ### Workstation Navigation & Global Controls
@@ -331,11 +401,12 @@ orchestria
 | Key | Action |
 | :--- | :--- |
 | `M` | Open Workstation Mode Switcher (`1` Downloader, `2` System EQ, `3` Archiver, `4` Streaming Hub) |
-| `X` or `Shift+M` | Toggle Microphone & Audio Input Capture on/off (dismisses macOS orange mic dot) |
+| `X` or `Shift+M` | Toggle System-Wide Audio Capture on/off (restores physical speaker/headphone output when off) |
+| `Ctrl+U` | Open Auto-Update & Plain-English "What's New" popup or check for rolling updates immediately |
 | `F12` | Open System Setup & Dependency Health Wizard (auto-download tools, Touch ID driver install) |
 | `Shift+D` / `F6` / `Ctrl+D` | Cycle Hardware DAC Profile forward (Schiit R2R, Mojo 2, iBasso DC, iFi Zen, OEM+) |
 | `Shift+F6` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile backward |
-| `:` | Open Interactive Command Bar (`:update`, `:setup`, `:dac schiit`, `:game on`, `:mic on`, `:q`) |
+| `:` | Open Interactive Command Bar (`:update`, `:rollback`, `:setup`, `:dac schiit`, `:game on`, `:mic on`, `:q`) |
 | `+` / `-` | Increase / decrease volume by 5% (synchronized 1:1 with hardware volume) |
 | `Q` | Cleanly exit Orchestria and restore default audio settings |
 
@@ -395,13 +466,13 @@ orchestria
 
 ## Automated Verification & Stability
 
-Orchestria contains a comprehensive automated test suite verifying audio engine stability, filter accuracy, authenticity detection, multi-disc grouping, and streaming synchronization:
+Orchestria contains a comprehensive automated test suite verifying audio engine stability, zero-dot shared memory capture, filter accuracy, authenticity detection, multi-disc grouping, rolling self-updates, and streaming synchronization:
 
 ```bash
-cargo test
+cargo test --locked -- --test-threads=1
 ```
 
-All 264 unit and integration tests run and pass cleanly.
+All **318 unit and integration tests** run and pass cleanly across macOS, Linux, and Windows.
 
 ---
 
