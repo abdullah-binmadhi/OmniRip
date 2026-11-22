@@ -2219,9 +2219,9 @@ impl App {
             Span::styled(" [0 CLIPS] ", Style::default().fg(Color::DarkGray))
         };
         let mic_badge = if self.streamer.is_input_capture_enabled() {
-            Span::styled(" [MIC: ON] ", Style::default().fg(Color::Black).bg(Color::LightRed).add_modifier(Modifier::BOLD))
+            Span::styled(" [ENGINE: SYS-EQ] ", Style::default().fg(Color::Black).bg(self.theme.success).add_modifier(Modifier::BOLD))
         } else {
-            Span::styled(" [MIC: OFF] ", Style::default().fg(Color::DarkGray))
+            Span::styled(" [ENGINE: DIRECT] ", Style::default().fg(Color::Cyan))
         };
         let cur_dac = self.streamer.current_dac_flavor();
         let dac_badge = match cur_dac {
@@ -2578,7 +2578,7 @@ impl App {
             (13, format!("14. Dynamic Loudness:  {}", if loudness_contour { "[ ON ISO226 ]" } else { "[ OFF ]" })),
             (14, format!("15. Mid/Side Matrix:   {}", if ms_matrix { "[ ON Split ]" } else { "[ OFF ]" })),
             (15, format!("16. Pultec Low Boost:  {} {:>+4.1}dB", make_slider(pultec_low, 0.0, 5.0, 7), pultec_low)),
-            (16, format!("17. Mic Isolation:    {}", if mic_enabled { "[ ACTIVE Private ]" } else { "[ OFF Standby ]" })),
+            (16, format!("17. System-Wide EQ:   {}", if mic_enabled { "[ ON Zero-Dot ]" } else { "[ OFF Direct DAC ]" })),
             (17, format!("18. Esports Game Mode: {}", if game_mode { "[ ACTIVE 10ms ]" } else { "[ OFF Studio ]" })),
             (18, format!("19. Radar Footstep EQ: {}", if radar_eq { "[ ON +4.5dB ]" } else { "[ OFF ]" })),
             (19, format!("20. Spike Ear Shield:  {}", if spike_shield { "[ ON -6dB ]" } else { "[ OFF ]" })),
@@ -2736,10 +2736,10 @@ impl App {
                 "Jazz Bass, Soul, Reggae, Organ & Double Bass",
             ),
             16 => (
-                "Microphone Hardware Isolation & Loopback Audio Feed",
-                "Zero microphone hardware recording; bit-perfect system loopback stream for DSP engine",
-                "Press [Enter] or [x] to toggle mic isolation status across all workstations",
-                "Private Bit-Perfect Playback, Pure Loopback Interception, Zero-Mic Privacy",
+                "Zero-Dot System-Wide Sound Engine vs Direct Hardware DAC",
+                "Routes all OS audio through Orchestria 64-bit DSP with zero microphone access",
+                "Press [Enter], [x], or [e] to switch between System-Wide Engine and Direct DAC",
+                "Spotify, Browser, Games, Desktop Audio, or Bit-Perfect Standalone Player",
             ),
             17 => (
                 "Hermite Cubic Direct Resampler & 10.6ms Real-Time Buffer",
@@ -4096,9 +4096,9 @@ impl App {
         }
 
         let mic_label = if self.streamer.is_input_capture_enabled() {
-            "[x] Mic: ON"
+            "[x] Engine: SYS-EQ"
         } else {
-            "[x] Mic: OFF"
+            "[x] Engine: DIRECT"
         };
         let dac_label = format!("[Ctrl+D] DAC: {}", self.streamer.current_dac_flavor().short_label());
         let game_label = if self.streamer.is_game_mode_enabled() {
