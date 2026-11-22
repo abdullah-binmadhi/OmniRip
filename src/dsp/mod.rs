@@ -7,6 +7,7 @@ pub mod limiter;
 pub mod player;
 pub mod restoration;
 pub mod servo;
+pub mod shm_capture;
 pub mod streamer;
 pub mod telemetry;
 pub mod transport;

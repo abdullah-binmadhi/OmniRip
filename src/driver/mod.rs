@@ -1,13 +1,60 @@
-//! OmniRip CoreAudio HAL Driver Management & System Loopback Binding.
+//! OmniRip Cross-Platform Audio Driver Management, System Loopback Binding & OS Elevation.
 
 pub mod bundle;
+pub mod linux;
+pub mod windows;
+
+/// Result of attempting to install or activate the OS System-Wide Sound Engine driver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriverInstallOutcome {
+    /// Driver installed and active immediately — no OS restart required.
+    ActivatedImmediate(String),
+    /// Driver installed, but the OS requires a one-time reboot (e.g. Windows 3010) before activation.
+    RebootRequired(String),
+}
+
+/// Complete cross-platform diagnostic health snapshot for System-Wide EQ & Setup Gate.
+#[derive(Debug, Clone)]
+pub struct SystemAudioHealth {
+    pub driver_installed: bool,
+    pub driver_loaded: bool,
+    pub driver_version: Option<u32>,
+    pub expected_version: u32,
+    pub needs_upgrade: bool,
+    pub zero_dot_shm_ready: bool,
+    pub physical_output_name: Option<String>,
+    pub default_output_name: Option<String>,
+}
+
+/// Identifies virtual loopback/cable endpoints so OmniRip never mistakes them for physical speakers/DACs.
+pub fn is_virtual_audio_device_name(name: &str) -> bool {
+    let low = name.to_lowercase();
+    low.contains("omnirip")
+        || low.contains("blackhole")
+        || low.contains("soundflower")
+        || low.contains("loopback")
+        || low.contains("vb-audio")
+        || low.contains("cable input")
+        || low.contains("cable output")
+        || low.contains("virtual")
+        || low.contains("background music")
+        || low.contains("zoomaudiodevice")
+        || low.contains("teams audio")
+}
 
 #[cfg(target_os = "macos")]
 mod macos_driver {
-    use std::path::Path;
+    use super::bundle::{
+        applescript_escape, locate_driver_source, read_bundle_version, shell_single_quote,
+        DriverSource, EXPECTED_DRIVER_BUNDLE_VERSION,
+    };
+    use super::{is_virtual_audio_device_name, DriverInstallOutcome, SystemAudioHealth};
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::thread;
     use std::time::Duration;
+
+    const INSTALLED_DRIVER_PATH: &str = "/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver";
 
     #[repr(C)]
     #[derive(Debug, Copy, Clone)]
@@ -24,6 +71,7 @@ mod macos_driver {
     pub const K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT: u32 = 0x6f757470; // 'outp'
     pub const K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN: u32 = 0;
     pub const K_AUDIO_OBJECT_PROPERTY_NAME: u32 = 0x6c6e616d; // 'lnam'
+    pub const K_AUDIO_DEVICE_PROPERTY_STREAMS: u32 = 0x73746d23; // 'stm#'
     pub const K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR: u32 = 0x766f6c6d; // 'volm'
     pub const K_AUDIO_DEVICE_PROPERTY_MUTE: u32 = 0x6d757465; // 'mute'
 
@@ -66,6 +114,11 @@ mod macos_driver {
         pub fn CFRelease(cf: *const std::ffi::c_void);
     }
 
+    extern "C" {
+        fn geteuid() -> u32;
+        fn isatty(fd: i32) -> i32;
+    }
+
     pub struct DriverStatus {
         pub installed: bool,
         pub loaded: bool,
@@ -74,9 +127,18 @@ mod macos_driver {
         pub current_default_device_name: Option<String>,
     }
 
-    /// Check the current status of OmniRipAudio.driver and CoreAudio routing
+    /// Returns the CFBundleVersion of `/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver`, if installed.
+    pub fn installed_driver_version() -> Option<u32> {
+        let p = Path::new(INSTALLED_DRIVER_PATH);
+        if !p.exists() {
+            return None;
+        }
+        read_bundle_version(p).or(Some(1))
+    }
+
+    /// Check the current status of OmniRipAudio.driver and CoreAudio routing.
     pub fn check_status() -> DriverStatus {
-        let installed = Path::new("/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver").exists();
+        let installed = Path::new(INSTALLED_DRIVER_PATH).exists();
         let omnirip_id = get_device_id_by_name("OmniRip Audio");
         let loaded = omnirip_id.is_some();
         let default_id = get_default_output_device_id();
@@ -91,7 +153,27 @@ mod macos_driver {
         }
     }
 
-    /// Retrieve the current macOS system default output device ID
+    /// Returns full macOS System Audio health (including HAL v2 upgrade check and Zero-Dot SHM readiness).
+    pub fn check_system_audio_health() -> SystemAudioHealth {
+        let st = check_status();
+        let ver = installed_driver_version();
+        let needs_upgrade = st.installed && ver.map(|v| v < EXPECTED_DRIVER_BUNDLE_VERSION).unwrap_or(true);
+        let shm_ready = crate::dsp::shm_capture::ShmRingReader::is_available();
+        let phys_name = first_physical_output_device_id().and_then(get_device_name);
+
+        SystemAudioHealth {
+            driver_installed: st.installed,
+            driver_loaded: st.loaded,
+            driver_version: ver,
+            expected_version: EXPECTED_DRIVER_BUNDLE_VERSION,
+            needs_upgrade,
+            zero_dot_shm_ready: shm_ready,
+            physical_output_name: phys_name,
+            default_output_name: st.current_default_device_name,
+        }
+    }
+
+    /// Retrieve the current macOS system default output device ID.
     pub fn get_default_output_device_id() -> Option<u32> {
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_HARDWARE_PROPERTY_DEFAULT_OUTPUT_DEVICE,
@@ -119,7 +201,7 @@ mod macos_driver {
         }
     }
 
-    /// Set the macOS system default output device
+    /// Set the macOS system default output device.
     pub fn set_default_output_device_id(device_id: u32) -> Result<(), String> {
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_HARDWARE_PROPERTY_DEFAULT_OUTPUT_DEVICE,
@@ -146,7 +228,7 @@ mod macos_driver {
         }
     }
 
-    /// Get device name by device ID
+    /// Get device name by device ID.
     pub fn get_device_name(device_id: u32) -> Option<String> {
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_OBJECT_PROPERTY_NAME,
@@ -179,8 +261,26 @@ mod macos_driver {
         None
     }
 
-    /// Find device ID matching a substring
-    pub fn get_device_id_by_name(name_substr: &str) -> Option<u32> {
+    fn device_has_output_streams(device_id: u32) -> bool {
+        let address = AudioObjectPropertyAddress {
+            m_selector: K_AUDIO_DEVICE_PROPERTY_STREAMS,
+            m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
+            m_element: K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
+        };
+        let mut size: u32 = 0;
+        let status = unsafe {
+            AudioObjectGetPropertyDataSize(
+                device_id,
+                &address,
+                0,
+                std::ptr::null(),
+                &mut size,
+            )
+        };
+        status == 0 && size > 0
+    }
+
+    fn all_device_ids() -> Vec<u32> {
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_HARDWARE_PROPERTY_DEVICES,
             m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
@@ -199,7 +299,7 @@ mod macos_driver {
         };
 
         if status != 0 || size == 0 {
-            return None;
+            return Vec::new();
         }
 
         let count = size as usize / std::mem::size_of::<u32>();
@@ -217,12 +317,54 @@ mod macos_driver {
         };
 
         if status != 0 {
-            return None;
+            return Vec::new();
         }
+        devices
+    }
 
-        for id in devices {
+    /// Enumerates all real physical output devices (Speakers, Headphones, AirPods, Bluetooth, USB DAC, HDMI/Display)
+    /// while excluding virtual loopback drivers.
+    pub fn list_physical_output_devices() -> Vec<(u32, String)> {
+        let mut list = Vec::new();
+        for id in all_device_ids() {
+            if !device_has_output_streams(id) {
+                continue;
+            }
             if let Some(name) = get_device_name(id) {
-                if name.to_lowercase().contains(&name_substr.to_lowercase()) {
+                let low = name.to_lowercase();
+                if !is_virtual_audio_device_name(&name) && !low.contains("mic") {
+                    list.push((id, name));
+                }
+            }
+        }
+        list.sort_by_key(|(_, name)| {
+            let n = name.to_lowercase();
+            if n.contains("ibasso") || n.contains("dac") || n.contains("fiio") || n.contains("chord") || n.contains("schiit") {
+                0
+            } else if n.contains("headphone") {
+                1
+            } else if n.contains("airpods") || n.contains("bluetooth") || n.contains("beats") {
+                2
+            } else if n.contains("speaker") || n.contains("built-in") || n.contains("macbook") {
+                3
+            } else {
+                4
+            }
+        });
+        list
+    }
+
+    /// Picks the highest-priority physical output device ID available on this Mac.
+    pub fn first_physical_output_device_id() -> Option<u32> {
+        list_physical_output_devices().into_iter().next().map(|(id, _)| id)
+    }
+
+    /// Find device ID matching a substring.
+    pub fn get_device_id_by_name(name_substr: &str) -> Option<u32> {
+        let needle = name_substr.to_lowercase();
+        for id in all_device_ids() {
+            if let Some(name) = get_device_name(id) {
+                if name.to_lowercase().contains(&needle) {
                     return Some(id);
                 }
             }
@@ -231,7 +373,6 @@ mod macos_driver {
     }
 
     /// Query volume scalar from an output device (0.0 to 1.0).
-    /// Checks master element 0 first, falling back to channel 1.
     pub fn get_device_volume(device_id: u32) -> Option<f32> {
         let mut volume: f32 = 0.0;
         let mut size = std::mem::size_of::<f32>() as u32;
@@ -255,7 +396,6 @@ mod macos_driver {
             return Some(volume.clamp(0.0, 1.0));
         }
 
-        // Fallback to channel 1 for devices without master element
         let ch_addr = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
             m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
@@ -279,13 +419,11 @@ mod macos_driver {
     }
 
     /// Set hardware volume scalar on an output device (0.0 to 1.0).
-    /// Supports master element 0 as well as individual stereo channel elements 1 and 2.
     pub fn set_device_volume(device_id: u32, volume: f32) -> Result<(), String> {
         let clamped = volume.clamp(0.0, 1.0);
         let size = std::mem::size_of::<f32>() as u32;
         let mut any_success = false;
 
-        // Try main element first (element 0)
         let address = AudioObjectPropertyAddress {
             m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
             m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_OUTPUT,
@@ -305,7 +443,6 @@ mod macos_driver {
             any_success = true;
         }
 
-        // Also attempt channel elements 1 and 2 (left / right) for devices lacking a master scalar
         for elem in [1u32, 2u32] {
             let ch_addr = AudioObjectPropertyAddress {
                 m_selector: K_AUDIO_DEVICE_PROPERTY_VOLUME_SCALAR,
@@ -334,7 +471,7 @@ mod macos_driver {
         }
     }
 
-    /// Unmute an output device across main and stereo elements
+    /// Unmute an output device across main and stereo elements.
     pub fn unmute_device(device_id: u32) -> Result<(), String> {
         let mute_val: u32 = 0;
         let size = std::mem::size_of::<u32>() as u32;
@@ -368,10 +505,9 @@ mod macos_driver {
         }
     }
 
-    /// Automatically ensure device is unmuted and at a calibrated safe listening volume
+    /// Automatically ensure device is unmuted and at a calibrated safe listening volume.
     pub fn auto_heal_device_volume_and_mute(device_id: u32) {
         let _ = unmute_device(device_id);
-        // Never blast physical volume to 1.0! Preserve current user volume or restore calibrated saved level.
         let current_vol = get_device_volume(device_id).unwrap_or(0.0);
         if current_vol < 0.05 {
             let (_, saved_scalar) = crate::dsp::volume_storage::load_volume_settings();
@@ -379,91 +515,150 @@ mod macos_driver {
         }
     }
 
-    /// Auto-heal volume and mute for any device matching keyword
+    /// Auto-heal volume and mute for any device matching keyword.
     pub fn auto_heal_physical_output(keyword: &str) {
         if let Some(id) = get_device_id_by_name(keyword) {
             auto_heal_device_volume_and_mute(id);
         }
     }
 
-
-    /// Installs OmniRipAudio.driver into /Library/Audio/Plug-Ins/HAL/. The bundle is looked up next to the
-    /// binary first (release archives), then in a source checkout, which is built with `make`.
-    pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
-        let exe_dir = std::env::current_exe()?
-            .parent()
-            .map(Path::to_path_buf)
+    /// Locates or compiles `OmniRipAudio.driver` cleanly as the current user BEFORE any elevation.
+    fn prepare_driver_bundle() -> Result<PathBuf, String> {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .unwrap_or_default();
-        let cwd = std::env::current_dir()?;
-        let bundle_path = match super::bundle::locate_driver_source(&exe_dir, &cwd) {
-            Some(super::bundle::DriverSource::Bundle(path)) => path,
-            Some(super::bundle::DriverSource::SourceTree(dir)) => {
-                println!("[OmniRip] Building OmniRipAudio.driver from source...");
-                let build_status = Command::new("make").arg("-C").arg(&dir).status()?;
-                if !build_status.success() {
-                    return Err("Failed to compile OmniRipAudio.driver bundle.".into());
+        let cwd = std::env::current_dir().unwrap_or_default();
+
+        match locate_driver_source(&exe_dir, &cwd) {
+            Some(DriverSource::Bundle(path)) => Ok(path),
+            Some(DriverSource::SourceTree(dir)) => {
+                let status = Command::new("make")
+                    .arg("-C")
+                    .arg(&dir)
+                    .status()
+                    .map_err(|e| format!("Failed to run make for OmniRipAudio.driver: {}", e))?;
+                if !status.success() {
+                    return Err("Failed to compile OmniRipAudio.driver bundle.".to_string());
                 }
-                dir.join("OmniRipAudio.driver")
+                Ok(dir.join("OmniRipAudio.driver"))
             }
-            None => {
-                return Err(
-                    "OmniRipAudio.driver was not found next to omnirip or in a source checkout. Reinstall OmniRip."
-                        .into(),
+            None => Err(
+                "OmniRipAudio.driver was not found next to omnirip, in Homebrew pkgshare, or in a source checkout."
+                    .to_string(),
+            ),
+        }
+    }
+
+    fn build_elevated_install_shell_cmd(bundle_path: &Path) -> String {
+        let quoted_src = shell_single_quote(&bundle_path.to_string_lossy());
+        let quoted_dst = shell_single_quote(INSTALLED_DRIVER_PATH);
+        format!(
+            "rm -rf {dst} && cp -R {src} {dst} && chown -R root:wheel {dst} && (xattr -dr com.apple.quarantine {dst} 2>/dev/null || true) && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
+            src = quoted_src,
+            dst = quoted_dst
+        )
+    }
+
+    fn wait_for_driver_registration() -> DriverInstallOutcome {
+        for _ in 0..12 {
+            thread::sleep(Duration::from_millis(500));
+            let loaded = get_device_id_by_name("OmniRip Audio").is_some();
+            let ver = installed_driver_version().unwrap_or(1);
+            if loaded && ver >= EXPECTED_DRIVER_BUNDLE_VERSION {
+                return DriverInstallOutcome::ActivatedImmediate(
+                    "OmniRip Audio v2 (Zero-Dot HAL) installed and active.".to_string(),
                 );
             }
-        };
-
-        println!("[OmniRip] Installing bundle to /Library/Audio/Plug-Ins/HAL/...");
-        let bundle = bundle_path
-            .to_str()
-            .ok_or("Driver bundle path is not valid UTF-8")?;
-        let cp_status = Command::new("sudo")
-            .args(["cp", "-R", bundle, "/Library/Audio/Plug-Ins/HAL/"])
-            .status()?;
-
-        if !cp_status.success() {
-            return Err("Failed to copy driver to /Library/Audio/Plug-Ins/HAL/ (sudo failed).".into());
         }
+        DriverInstallOutcome::RebootRequired(
+            "Driver files installed, but macOS CoreAudio has not switched to the new bundle yet. Please restart once to finish activating."
+                .to_string(),
+        )
+    }
 
-        println!("[OmniRip] Reloading CoreAudio daemon (coreaudiod)...");
-        reload_coreaudio();
+    /// Installs OmniRipAudio.driver into `/Library/Audio/Plug-Ins/HAL/`.
+    /// Automatically uses Touch ID / Admin GUI dialog if invoked without a TTY (e.g. `curl | bash`).
+    pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
+        let is_root = unsafe { geteuid() == 0 };
+        let has_tty = unsafe { isatty(0) == 1 };
 
-        println!("[OmniRip] Waiting for CoreAudio to register OmniRip Audio...");
-        for _ in 0..10 {
-            thread::sleep(Duration::from_millis(500));
-            if let Some(id) = get_device_id_by_name("OmniRip Audio") {
-                println!("[OmniRip] Driver successfully loaded! Device ID: {}", id);
-                return Ok(());
+        if !is_root && !has_tty {
+            match install_driver_gui() {
+                Ok(DriverInstallOutcome::ActivatedImmediate(msg))
+                | Ok(DriverInstallOutcome::RebootRequired(msg)) => {
+                    println!("[OmniRip] {}", msg);
+                    return Ok(());
+                }
+                Err(e) => return Err(e.into()),
             }
         }
 
-        Err("Driver installed but OmniRip Audio was not detected within timeout.".into())
-    }
+        let bundle_path = prepare_driver_bundle()?;
+        let shell_cmd = build_elevated_install_shell_cmd(&bundle_path);
+        println!("[OmniRip] Installing OmniRipAudio.driver v{} to /Library/Audio/Plug-Ins/HAL/...", EXPECTED_DRIVER_BUNDLE_VERSION);
 
-    /// Restarts CoreAudio through launchd, the supported way to reload HAL plug-ins. Falls back to a plain
-    /// `killall` (SIGTERM rather than SIGKILL) if launchd refuses the request.
-    fn reload_coreaudio() {
-        let restarted = Command::new("sudo")
-            .args(["launchctl", "kickstart", "-k", "system/com.apple.audio.coreaudiod"])
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
-        if !restarted {
-            let _ = Command::new("sudo").args(["killall", "coreaudiod"]).status();
+        let status = if is_root {
+            Command::new("sh").args(["-c", &shell_cmd]).status()?
+        } else {
+            Command::new("sudo").args(["sh", "-c", &shell_cmd]).status()?
+        };
+
+        if !status.success() {
+            return Err("Failed to install OmniRipAudio.driver to /Library/Audio/Plug-Ins/HAL/.".into());
+        }
+
+        match wait_for_driver_registration() {
+            DriverInstallOutcome::ActivatedImmediate(msg)
+            | DriverInstallOutcome::RebootRequired(msg) => {
+                println!("[OmniRip] {}", msg);
+                Ok(())
+            }
         }
     }
 
-    /// Install OmniRipAudio.driver via macOS graphical authorization dialog (Touch ID or Admin password).
-    #[cfg(target_os = "macos")]
-    pub fn install_driver_gui() -> Result<String, String> {
-        let exe = std::env::current_exe().map_err(|e| format!("Cannot locate the omnirip binary: {}", e))?;
-        let command = format!(
-            "{} driver install",
-            super::bundle::shell_single_quote(&exe.to_string_lossy())
-        );
+    /// Install OmniRipAudio.driver via macOS graphical authorization dialog (Touch ID / Apple Watch / Password).
+    pub fn install_driver_gui() -> Result<DriverInstallOutcome, String> {
+        let bundle_path = prepare_driver_bundle()?;
+        let shell_cmd = build_elevated_install_shell_cmd(&bundle_path);
+        let prompt = "OmniRip needs administrator permission to install the OmniRip Sound Engine driver into macOS Audio (/Library/Audio/Plug-Ins/HAL) for zero-dot system-wide EQ.";
         let script = format!(
-            "do shell script \"{}\" with administrator privileges",
-            super::bundle::applescript_escape(&command)
+            "do shell script \"{}\" with prompt \"{}\" with administrator privileges",
+            applescript_escape(&shell_cmd),
+            applescript_escape(prompt)
+        );
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("Failed to launch macOS authorization dialog: {}", e))?;
+
+        if output.status.success() {
+            Ok(wait_for_driver_registration())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Authorization canceled or failed: {}", err.trim()))
+        }
+    }
+
+    /// Uninstall OmniRipAudio.driver via macOS graphical authorization dialog (restores physical output first).
+    pub fn uninstall_driver_gui() -> Result<String, String> {
+        if let Some(phys_id) = first_physical_output_device_id() {
+            let _ = set_default_output_device_id(phys_id);
+        }
+        if !Path::new(INSTALLED_DRIVER_PATH).exists() {
+            return Ok("OmniRip Audio driver is already uninstalled.".to_string());
+        }
+        let quoted_dst = shell_single_quote(INSTALLED_DRIVER_PATH);
+        let shell_cmd = format!(
+            "rm -rf {} && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
+            quoted_dst
+        );
+        let prompt = "OmniRip needs administrator permission to remove the OmniRip Sound Engine driver from macOS Audio.";
+        let script = format!(
+            "do shell script \"{}\" with prompt \"{}\" with administrator privileges",
+            applescript_escape(&shell_cmd),
+            applescript_escape(prompt)
         );
         let output = Command::new("osascript")
             .arg("-e")
@@ -472,41 +667,58 @@ mod macos_driver {
             .map_err(|e| format!("Failed to launch authorization dialog: {}", e))?;
 
         if output.status.success() {
-            Ok("OmniRip Audio Driver installed and activated successfully.".to_string())
+            Ok("OmniRip Audio driver removed cleanly.".to_string())
         } else {
             let err = String::from_utf8_lossy(&output.stderr);
-            Err(format!("Authorization canceled or failed: {}", err.trim()))
+            Err(format!("Uninstall authorization canceled or failed: {}", err.trim()))
         }
     }
 
-    /// On non-macOS platforms, native audio loopback is 100% driverless.
-    #[cfg(not(target_os = "macos"))]
-    pub fn install_driver_gui() -> Result<String, String> {
-        Ok("Native desktop audio loopback is supported driverless on this platform.".to_string())
-    }
-
-    /// Uninstall OmniRipAudio.driver from /Library/Audio/Plug-Ins/HAL/
+    /// Uninstall OmniRipAudio.driver from `/Library/Audio/Plug-Ins/HAL/`.
     pub fn uninstall_driver() -> Result<(), Box<dyn std::error::Error>> {
-        let driver_path = "/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver";
-        if !Path::new(driver_path).exists() {
+        if let Some(phys_id) = first_physical_output_device_id() {
+            let _ = set_default_output_device_id(phys_id);
+        }
+        if !Path::new(INSTALLED_DRIVER_PATH).exists() {
             println!("[OmniRip] Driver is not installed.");
             return Ok(());
         }
 
-        println!("[OmniRip] Removing /Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver...");
-        let rm_status = Command::new("sudo")
-            .args(["rm", "-rf", driver_path])
-            .status()?;
-
-        if !rm_status.success() {
-            return Err("Failed to remove driver bundle (sudo failed).".into());
+        let is_root = unsafe { geteuid() == 0 };
+        let has_tty = unsafe { isatty(0) == 1 };
+        if !is_root && !has_tty {
+            let msg = uninstall_driver_gui()?;
+            println!("[OmniRip] {}", msg);
+            return Ok(());
         }
 
-        println!("[OmniRip] Reloading CoreAudio daemon...");
-        reload_coreaudio();
-
+        let quoted_dst = shell_single_quote(INSTALLED_DRIVER_PATH);
+        let shell_cmd = format!(
+            "rm -rf {} && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
+            quoted_dst
+        );
+        let status = if is_root {
+            Command::new("sh").args(["-c", &shell_cmd]).status()?
+        } else {
+            Command::new("sudo").args(["sh", "-c", &shell_cmd]).status()?
+        };
+        if !status.success() {
+            return Err("Failed to remove OmniRipAudio.driver.".into());
+        }
         println!("[OmniRip] Driver uninstalled cleanly.");
         Ok(())
+    }
+
+    pub fn trigger_system_reboot() -> Result<(), String> {
+        let out = Command::new("osascript")
+            .args(["-e", "tell application \"System Events\" to restart"])
+            .output()
+            .map_err(|e| format!("Failed to trigger macOS restart: {}", e))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err("macOS restart was canceled or declined.".to_string())
+        }
     }
 }
 
@@ -515,6 +727,9 @@ pub use macos_driver::*;
 
 #[cfg(not(target_os = "macos"))]
 mod fallback_driver {
+    use super::bundle::EXPECTED_DRIVER_BUNDLE_VERSION;
+    use super::{DriverInstallOutcome, SystemAudioHealth};
+
     pub struct DriverStatus {
         pub installed: bool,
         pub loaded: bool,
@@ -524,13 +739,95 @@ mod fallback_driver {
     }
 
     pub fn check_status() -> DriverStatus {
+        #[cfg(target_os = "linux")]
+        {
+            let loaded = super::linux::is_virtual_sink_ready();
+            let default_name = super::linux::get_default_sink();
+            return DriverStatus {
+                installed: true,
+                loaded,
+                omnirip_device_id: None,
+                current_default_device_id: None,
+                current_default_device_name: default_name,
+            };
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let present = super::windows::detect_virtual_sink_present();
+            let default_name = super::windows::get_default_playback_device_name();
+            return DriverStatus {
+                installed: present,
+                loaded: present,
+                omnirip_device_id: None,
+                current_default_device_id: None,
+                current_default_device_name: default_name,
+            };
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         DriverStatus {
             installed: false,
             loaded: false,
             omnirip_device_id: None,
             current_default_device_id: None,
-            current_default_device_name: Some("Native System Audio (WASAPI / ALSA)".to_string()),
+            current_default_device_name: None,
         }
+    }
+
+    pub fn check_system_audio_health() -> SystemAudioHealth {
+        #[cfg(target_os = "linux")]
+        {
+            let loaded = super::linux::is_virtual_sink_ready();
+            let phys = super::linux::list_physical_sinks().into_iter().next();
+            let def = super::linux::get_default_sink();
+            return SystemAudioHealth {
+                driver_installed: true,
+                driver_loaded: loaded,
+                driver_version: Some(EXPECTED_DRIVER_BUNDLE_VERSION),
+                expected_version: EXPECTED_DRIVER_BUNDLE_VERSION,
+                needs_upgrade: false,
+                zero_dot_shm_ready: true,
+                physical_output_name: phys,
+                default_output_name: def,
+            };
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let present = super::windows::detect_virtual_sink_present();
+            let def = super::windows::get_default_playback_device_name();
+            return SystemAudioHealth {
+                driver_installed: present,
+                driver_loaded: present,
+                driver_version: if present { Some(EXPECTED_DRIVER_BUNDLE_VERSION) } else { None },
+                expected_version: EXPECTED_DRIVER_BUNDLE_VERSION,
+                needs_upgrade: false,
+                zero_dot_shm_ready: present,
+                physical_output_name: def.clone(),
+                default_output_name: def,
+            };
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        SystemAudioHealth {
+            driver_installed: false,
+            driver_loaded: false,
+            driver_version: None,
+            expected_version: EXPECTED_DRIVER_BUNDLE_VERSION,
+            needs_upgrade: false,
+            zero_dot_shm_ready: false,
+            physical_output_name: None,
+            default_output_name: None,
+        }
+    }
+
+    pub fn installed_driver_version() -> Option<u32> {
+        Some(EXPECTED_DRIVER_BUNDLE_VERSION)
+    }
+
+    pub fn list_physical_output_devices() -> Vec<(u32, String)> {
+        Vec::new()
+    }
+
+    pub fn first_physical_output_device_id() -> Option<u32> {
+        None
     }
 
     pub fn get_default_output_device_id() -> Option<u32> {
@@ -565,16 +862,55 @@ mod fallback_driver {
 
     pub fn auto_heal_physical_output(_keyword: &str) {}
 
+    pub fn install_driver_gui() -> Result<DriverInstallOutcome, String> {
+        #[cfg(target_os = "linux")]
+        {
+            return super::linux::install_driver_gui();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            return super::windows::install_driver_gui();
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        Ok(DriverInstallOutcome::ActivatedImmediate(
+            "Native system audio routing ready.".to_string(),
+        ))
+    }
+
+    pub fn uninstall_driver_gui() -> Result<String, String> {
+        #[cfg(target_os = "linux")]
+        {
+            super::linux::teardown_virtual_sink(None, None);
+            return Ok("Removed Linux user-space virtual sink.".to_string());
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok("No virtual driver removed.".to_string())
+    }
 
     pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
-        println!("[OmniRip] Driver installation is only required on macOS CoreAudio.");
-        println!("[OmniRip] On Windows, OmniRip natively captures audio via WASAPI Loopback without any virtual driver.");
-        Ok(())
+        match install_driver_gui() {
+            Ok(DriverInstallOutcome::ActivatedImmediate(m))
+            | Ok(DriverInstallOutcome::RebootRequired(m)) => {
+                println!("[OmniRip] {}", m);
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn uninstall_driver() -> Result<(), Box<dyn std::error::Error>> {
-        println!("[OmniRip] No virtual driver installed on this platform.");
+        let msg = uninstall_driver_gui()?;
+        println!("[OmniRip] {}", msg);
         Ok(())
+    }
+
+    pub fn trigger_system_reboot() -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            return super::windows::trigger_system_reboot();
+        }
+        #[cfg(not(target_os = "windows"))]
+        Err("System reboot is not required on this platform.".to_string())
     }
 }
 
@@ -595,6 +931,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn virtual_device_filter_rejects_loopbacks_and_keeps_bluetooth_dacs() {
+        assert!(is_virtual_audio_device_name("OmniRip Audio"));
+        assert!(is_virtual_audio_device_name("BlackHole 2ch"));
+        assert!(is_virtual_audio_device_name("CABLE Input (VB-Audio Virtual)"));
+        assert!(!is_virtual_audio_device_name("AirPods Pro"));
+        assert!(!is_virtual_audio_device_name("LG ULTRAGEAR (DisplayPort)"));
+        assert!(!is_virtual_audio_device_name("iBasso DC03 Pro"));
+        assert!(!is_virtual_audio_device_name("MacBook Pro Speakers"));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn test_get_default_output_device_id() {
@@ -609,7 +956,6 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_auto_heal_physical_output_and_volume() {
-        // Read-only inspection in unit tests: DO NOT mutate or crank up user physical hardware volume!
         if let Some(id) = get_default_output_device_id() {
             let cur_vol = get_device_volume(id);
             println!("Current physical volume on default device {}: {:?}", id, cur_vol);
@@ -619,7 +965,6 @@ mod tests {
 
     #[test]
     fn test_volume_cubic_curve_calibration() {
-        // Verify Apple stock perceptual cubic curve values across all 16 volume ticks
         for tick in 0..=16 {
             let v = tick as f32 / 16.0f32;
             let stock_gain = v * v * v;
@@ -629,15 +974,12 @@ mod tests {
                 -96.0
             };
             if tick == 1 {
-                // 1 tick (6.25%): stock gain ~0.000244 (-72.2 dB)
                 assert!((stock_gain - 0.00024414).abs() < 1e-6);
                 assert!((db - (-72.24)).abs() < 0.1);
             } else if tick == 8 {
-                // 8 ticks (50%): stock gain 0.125 (-18.06 dB)
                 assert!((stock_gain - 0.125).abs() < 1e-6);
                 assert!((db - (-18.06)).abs() < 0.1);
             } else if tick == 16 {
-                // 16 ticks (100%): full unity gain (0 dB)
                 assert!((stock_gain - 1.0).abs() < 1e-6);
                 assert!(db.abs() < 1e-4);
             }
@@ -645,31 +987,48 @@ mod tests {
     }
 }
 
-
-/// CLI runner for driver commands
+/// CLI runner for driver commands.
 pub fn run_driver_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let sub = args.first().map(|s| s.as_str()).unwrap_or("status");
     match sub {
         "status" => {
-            let status = check_status();
+            let health = check_system_audio_health();
             println!("--- OmniRip Audio Driver Status ---");
-            println!("Installed on disk: {}", if status.installed { "Yes" } else { "No" });
-            println!("Loaded in Audio Engine: {}", if status.loaded { "Yes" } else { "No" });
-            if let Some(id) = status.omnirip_device_id {
-                println!("OmniRip Device ID: {}", id);
+            println!("Installed: {}", if health.driver_installed { "Yes" } else { "No" });
+            println!("Loaded in OS Audio: {}", if health.driver_loaded { "Yes" } else { "No" });
+            if let Some(v) = health.driver_version {
+                println!("Driver Version: v{} (expected v{})", v, health.expected_version);
             }
-            if let Some(name) = status.current_default_device_name {
+            println!(
+                "Zero-Dot / Zero-Echo Ready: {}",
+                if health.zero_dot_shm_ready { "Yes" } else { "No" }
+            );
+            if let Some(name) = health.default_output_name {
                 println!("Current Default Output: {}", name);
+            }
+            if let Some(phys) = health.physical_output_name {
+                println!("Detected Physical Output: {}", phys);
             }
         }
         "install" => {
             install_driver()?;
         }
+        "install-gui" => {
+            match install_driver_gui() {
+                Ok(DriverInstallOutcome::ActivatedImmediate(msg))
+                | Ok(DriverInstallOutcome::RebootRequired(msg)) => println!("[OmniRip] {}", msg),
+                Err(e) => return Err(e.into()),
+            }
+        }
         "uninstall" => {
             uninstall_driver()?;
         }
+        "uninstall-gui" => {
+            let msg = uninstall_driver_gui()?;
+            println!("[OmniRip] {}", msg);
+        }
         _ => {
-            eprintln!("Usage: omnirip driver [status | install | uninstall]");
+            eprintln!("Usage: omnirip driver [status | install | install-gui | uninstall | uninstall-gui]");
             std::process::exit(1);
         }
     }

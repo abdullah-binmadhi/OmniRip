@@ -283,10 +283,44 @@ where
     // 5. Perform atomic swap over current_exe
     atomic_replace_binary(&new_bin_path, &current_exe)?;
 
+    // 5b. Stage updated HAL driver bundle if present in the archive so next launch offers v2 upgrade.
+    let extracted_driver = extract_dir.join("OmniRipAudio.driver");
+    if extracted_driver.is_dir() {
+        let sibling_dest = current_exe
+            .parent()
+            .map(|p| p.join("OmniRipAudio.driver"));
+        let copied_sibling = sibling_dest
+            .as_ref()
+            .map(|dst| copy_dir_recursive(&extracted_driver, dst).is_ok())
+            .unwrap_or(false);
+        if !copied_sibling {
+            let cache_dest = crate::driver::bundle::user_driver_cache_dir().join("OmniRipAudio.driver");
+            let _ = copy_dir_recursive(&extracted_driver, &cache_dest);
+        }
+    }
+
     // 6. Cleanup temp archive
     let _ = std::fs::remove_dir_all(&temp_dir);
 
     Ok(current_exe)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if dst.exists() {
+        let _ = std::fs::remove_dir_all(dst);
+    }
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Atomically replaces target binary file with source binary.

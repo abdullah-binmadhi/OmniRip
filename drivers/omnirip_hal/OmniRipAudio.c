@@ -1,7 +1,11 @@
 #include "OmniRipAudio.h"
+#include <fcntl.h>
 #include <mach/mach_time.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/syslog.h>
+#include <unistd.h>
 
 // Driver Singleton State
 static OmniRipDriverState gDriverState = {
@@ -16,7 +20,8 @@ static OmniRipDriverState gDriverState = {
     .anchor_host_time = 0,
     .previous_ticks = 0.0,
     .io_mutex = PTHREAD_MUTEX_INITIALIZER,
-    .ring_buffer = {0}
+    .shm_fd = -1,
+    .shm_ring = NULL
 };
 
 static mach_timebase_info_data_t gTimebaseInfo = {0, 0};
@@ -77,6 +82,77 @@ static AudioServerPlugInDriverInterface gDriverInterface = {
 static AudioServerPlugInDriverInterface* gDriverInterfacePtr = &gDriverInterface;
 static AudioServerPlugInDriverRef gDriverRef = &gDriverInterfacePtr;
 
+static uint32_t FloatToU32Bits(Float32 value) {
+    uint32_t bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static uint64_t MonotonicNowNs(void) {
+    if (gTimebaseInfo.denom == 0) {
+        mach_timebase_info(&gTimebaseInfo);
+    }
+    uint64_t ticks = mach_absolute_time();
+    return (uint64_t)(((__uint128_t)ticks * gTimebaseInfo.numer) / gTimebaseInfo.denom);
+}
+
+static void SyncShmHeaderMetadata(void) {
+    OmniRipShmRing* shm = gDriverState.shm_ring;
+    if (!shm) return;
+    atomic_store_explicit(&shm->sample_rate_hz, (uint32_t)gDriverState.sample_rate, memory_order_relaxed);
+    atomic_store_explicit(&shm->volume_bits, FloatToU32Bits(gDriverState.volume_scalar), memory_order_relaxed);
+    atomic_store_explicit(&shm->is_muted, (uint32_t)gDriverState.is_muted, memory_order_relaxed);
+}
+
+static void EnsureShmInitialized(void) {
+    if (gDriverState.shm_ring != NULL) {
+        SyncShmHeaderMetadata();
+        return;
+    }
+
+    int fd = shm_open(kOmniRip_ShmName, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+        syslog(LOG_ERR, "OmniRip: shm_open(%s) failed", kOmniRip_ShmName);
+        return;
+    }
+
+    // Override coreaudiod process umask so user-space OmniRip can open O_RDONLY safely.
+    (void)fchmod(fd, 0644);
+    if (ftruncate(fd, (off_t)sizeof(OmniRipShmRing)) != 0) {
+        // Ignore EINVAL if shared memory segment already exists with exact target size.
+        struct stat st;
+        if (fstat(fd, &st) != 0 || (size_t)st.st_size < sizeof(OmniRipShmRing)) {
+            syslog(LOG_ERR, "OmniRip: ftruncate(%s) failed", kOmniRip_ShmName);
+            close(fd);
+            return;
+        }
+    }
+
+    void* ptr = mmap(NULL, sizeof(OmniRipShmRing), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED || ptr == NULL) {
+        syslog(LOG_ERR, "OmniRip: mmap(%s) failed", kOmniRip_ShmName);
+        close(fd);
+        return;
+    }
+
+    OmniRipShmRing* shm = (OmniRipShmRing*)ptr;
+    if (shm->magic != kOmniRip_ShmMagic || shm->version != kOmniRip_ShmVersion ||
+        shm->channels != kOmniRip_Channels || shm->capacity_frames != kOmniRip_RingBufferFrames) {
+        memset(shm, 0, sizeof(OmniRipShmRing));
+        shm->magic = kOmniRip_ShmMagic;
+        shm->version = kOmniRip_ShmVersion;
+        shm->channels = kOmniRip_Channels;
+        shm->capacity_frames = kOmniRip_RingBufferFrames;
+        atomic_store_explicit(&shm->write_cursor, 0, memory_order_relaxed);
+    }
+
+    gDriverState.shm_fd = fd;
+    gDriverState.shm_ring = shm;
+    SyncShmHeaderMetadata();
+    atomic_store_explicit(&shm->io_running, gDriverState.io_is_running > 0 ? 1u : 0u, memory_order_release);
+    atomic_store_explicit(&shm->heartbeat_ns, MonotonicNowNs(), memory_order_release);
+}
+
 // Helper: Standard Audio Stream Description
 static void GetStreamFormat(Float64 sampleRate, AudioStreamBasicDescription* outDesc) {
     outDesc->mSampleRate = sampleRate;
@@ -97,7 +173,7 @@ void* OmniRipAudio_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequestedTypeU
     CFUUIDRef factoryUUID = CFUUIDGetConstantUUIDWithBytes(NULL,
         0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x4a, 0x5b,
         0x8c, 0x9d, 0x0e, 0x1f, 0x2a, 0x3b, 0x4c, 0x5d);
-    
+
     if (CFEqual(inRequestedTypeUUID, factoryUUID) || CFEqual(inRequestedTypeUUID, kAudioServerPlugInTypeUUID)) {
         mach_timebase_info(&gTimebaseInfo);
         return gDriverRef;
@@ -141,6 +217,7 @@ static OSStatus Driver_Initialize(AudioServerPlugInDriverRef inDriver, AudioServ
     (void)inDriver;
     gDriverState.host = inHost;
     mach_timebase_info(&gTimebaseInfo);
+    EnsureShmInitialized();
     return kAudioHardwareNoError;
 }
 
@@ -249,7 +326,7 @@ static Boolean Driver_HasProperty(AudioServerPlugInDriverRef inDriver, AudioObje
             default:
                 return false;
         }
-    } else if (inObjectID == kObjectID_Stream_Output || inObjectID == kObjectID_Stream_Input) {
+    } else if (inObjectID == kObjectID_Stream_Output) {
         switch (inAddress->mSelector) {
             case kAudioObjectPropertyBaseClass:
             case kAudioObjectPropertyClass:
@@ -415,8 +492,9 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
                 *outDataSize = sizeof(AudioValueRange) * 3;
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyStreams:
-                if (inAddress->mScope == kAudioObjectPropertyScopeGlobal) {
-                    *outDataSize = sizeof(AudioObjectID) * 2;
+                // Strictly Output-Only: zero input streams so macOS never flags a microphone.
+                if (inAddress->mScope == kAudioObjectPropertyScopeInput) {
+                    *outDataSize = 0;
                 } else {
                     *outDataSize = sizeof(AudioObjectID);
                 }
@@ -425,7 +503,11 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
                 *outDataSize = sizeof(AudioObjectID) * 2;
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyOwnedObjects:
-                *outDataSize = sizeof(AudioObjectID) * 4;
+                if (inAddress->mScope == kAudioObjectPropertyScopeInput) {
+                    *outDataSize = 0;
+                } else {
+                    *outDataSize = sizeof(AudioObjectID) * 3;
+                }
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyZeroTimeStampPeriod:
                 *outDataSize = sizeof(UInt32);
@@ -434,7 +516,7 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
                 *outDataSize = offsetof(AudioChannelLayout, mChannelDescriptions) + (kOmniRip_Channels * sizeof(AudioChannelDescription));
                 return kAudioHardwareNoError;
         }
-    } else if (inObjectID == kObjectID_Stream_Output || inObjectID == kObjectID_Stream_Input) {
+    } else if (inObjectID == kObjectID_Stream_Output) {
         switch (inAddress->mSelector) {
             case kAudioObjectPropertyBaseClass:
             case kAudioObjectPropertyClass:
@@ -507,7 +589,7 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
 }
 
 static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, UInt32* outDataSize, void* outData) {
-    (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData; (void)inDataSize;
+    (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
     if (!inAddress || !outDataSize || !outData) return kAudioHardwareIllegalOperationError;
 
     if (inObjectID == kObjectID_PlugIn) {
@@ -676,10 +758,16 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyDeviceIsAlive:
+                *((UInt32*)outData) = 1;
+                *outDataSize = sizeof(UInt32);
+                return kAudioHardwareNoError;
             case kAudioDevicePropertyDeviceIsRunning:
+                *((UInt32*)outData) = (gDriverState.io_is_running > 0) ? 1 : 0;
+                *outDataSize = sizeof(UInt32);
+                return kAudioHardwareNoError;
             case kAudioDevicePropertyDeviceCanBeDefaultDevice:
             case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
-                *((UInt32*)outData) = 1;
+                *((UInt32*)outData) = (inAddress->mScope == kAudioObjectPropertyScopeInput) ? 0 : 1;
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyLatency:
@@ -711,35 +799,36 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 return kAudioHardwareNoError;
             }
             case kAudioDevicePropertyStreams: {
-                AudioObjectID* streamList = (AudioObjectID*)outData;
-                if (inAddress->mScope == kAudioObjectPropertyScopeOutput) {
-                    streamList[0] = kObjectID_Stream_Output;
-                    *outDataSize = sizeof(AudioObjectID);
-                } else if (inAddress->mScope == kAudioObjectPropertyScopeInput) {
-                    streamList[0] = kObjectID_Stream_Input;
+                if (inAddress->mScope == kAudioObjectPropertyScopeInput) {
+                    *outDataSize = 0;
+                } else if (inDataSize >= sizeof(AudioObjectID)) {
+                    *((AudioObjectID*)outData) = kObjectID_Stream_Output;
                     *outDataSize = sizeof(AudioObjectID);
                 } else {
-                    streamList[0] = kObjectID_Stream_Output;
-                    streamList[1] = kObjectID_Stream_Input;
-                    *outDataSize = sizeof(AudioObjectID) * 2;
+                    *outDataSize = 0;
                 }
                 return kAudioHardwareNoError;
             }
             case kAudioObjectPropertyControlList: {
+                UInt32 count = inDataSize / sizeof(AudioObjectID);
+                if (count > 2) count = 2;
                 AudioObjectID* controlList = (AudioObjectID*)outData;
-                controlList[0] = kObjectID_Volume_Output_Master;
-                controlList[1] = kObjectID_Mute_Output_Master;
-                *outDataSize = sizeof(AudioObjectID) * 2;
+                if (count > 0) controlList[0] = kObjectID_Volume_Output_Master;
+                if (count > 1) controlList[1] = kObjectID_Mute_Output_Master;
+                *outDataSize = count * sizeof(AudioObjectID);
                 return kAudioHardwareNoError;
             }
             case kAudioObjectPropertyOwnedObjects: {
+                if (inAddress->mScope == kAudioObjectPropertyScopeInput) {
+                    *outDataSize = 0;
+                    return kAudioHardwareNoError;
+                }
                 UInt32 count = inDataSize / sizeof(AudioObjectID);
-                if (count > 4) count = 4;
+                if (count > 3) count = 3;
                 AudioObjectID* list = (AudioObjectID*)outData;
                 if (count > 0) list[0] = kObjectID_Stream_Output;
-                if (count > 1) list[1] = kObjectID_Stream_Input;
-                if (count > 2) list[2] = kObjectID_Volume_Output_Master;
-                if (count > 3) list[3] = kObjectID_Mute_Output_Master;
+                if (count > 1) list[1] = kObjectID_Volume_Output_Master;
+                if (count > 2) list[2] = kObjectID_Mute_Output_Master;
                 *outDataSize = count * sizeof(AudioObjectID);
                 return kAudioHardwareNoError;
             }
@@ -790,7 +879,7 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 return kAudioHardwareNoError;
             }
         }
-    } else if (inObjectID == kObjectID_Stream_Output || inObjectID == kObjectID_Stream_Input) {
+    } else if (inObjectID == kObjectID_Stream_Output) {
         switch (inAddress->mSelector) {
             case kAudioObjectPropertyBaseClass:
                 *((AudioClassID*)outData) = kAudioObjectClassID;
@@ -808,11 +897,11 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 *outDataSize = 0;
                 return kAudioHardwareNoError;
             case kAudioStreamPropertyDirection:
-                *((UInt32*)outData) = (inObjectID == kObjectID_Stream_Input) ? 1 : 0;
+                *((UInt32*)outData) = 0; // 0 = output stream
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioStreamPropertyTerminalType:
-                *((UInt32*)outData) = kAudioStreamTerminalTypeLine;
+                *((UInt32*)outData) = kAudioStreamTerminalTypeSpeaker;
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioStreamPropertyStartingChannel:
@@ -920,6 +1009,7 @@ static OSStatus Driver_SetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
             Float64 newRate = *((const Float64*)inData);
             if (newRate == 48000.0 || newRate == 96000.0 || newRate == 192000.0) {
                 gDriverState.sample_rate = newRate;
+                SyncShmHeaderMetadata();
                 if (gDriverState.host && gDriverState.host->PropertiesChanged) {
                     AudioObjectPropertyAddress addr = { kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
                     gDriverState.host->PropertiesChanged(gDriverState.host, kObjectID_Device, 1, &addr);
@@ -936,6 +1026,7 @@ static OSStatus Driver_SetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
             if (vol < 0.0f) vol = 0.0f;
             if (vol > 1.0f) vol = 1.0f;
             gDriverState.volume_scalar = vol;
+            SyncShmHeaderMetadata();
             if (gDriverState.host && gDriverState.host->PropertiesChanged) {
                 AudioObjectPropertyAddress addr = { kAudioLevelControlPropertyScalarValue, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain };
                 gDriverState.host->PropertiesChanged(gDriverState.host, kObjectID_Volume_Output_Master, 1, &addr);
@@ -945,6 +1036,7 @@ static OSStatus Driver_SetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
     } else if (inObjectID == kObjectID_Mute_Output_Master) {
         if (inAddress->mSelector == kAudioBooleanControlPropertyValue) {
             gDriverState.is_muted = *((const UInt32*)inData) != 0 ? 1 : 0;
+            SyncShmHeaderMetadata();
             if (gDriverState.host && gDriverState.host->PropertiesChanged) {
                 AudioObjectPropertyAddress addr = { kAudioBooleanControlPropertyValue, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain };
                 gDriverState.host->PropertiesChanged(gDriverState.host, kObjectID_Mute_Output_Master, 1, &addr);
@@ -955,10 +1047,11 @@ static OSStatus Driver_SetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
     return kAudioHardwareUnknownPropertyError;
 }
 
-// Real-Time IO Engine
+// Real-Time IO Engine (Output-Only WriteMix -> POSIX Shared Memory)
 static OSStatus Driver_StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
     (void)inDriver; (void)inDeviceObjectID; (void)inClientID;
     pthread_mutex_lock(&gDriverState.io_mutex);
+    EnsureShmInitialized();
     if (gDriverState.io_is_running == 0) {
         mach_timebase_info_data_t tb;
         mach_timebase_info(&tb);
@@ -967,7 +1060,10 @@ static OSStatus Driver_StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectI
         gDriverState.number_timestamps = 0;
         gDriverState.anchor_host_time = mach_absolute_time();
         gDriverState.previous_ticks = 0.0;
-        memset(gDriverState.ring_buffer, 0, sizeof(gDriverState.ring_buffer));
+        if (gDriverState.shm_ring) {
+            atomic_store_explicit(&gDriverState.shm_ring->io_running, 1u, memory_order_release);
+            atomic_store_explicit(&gDriverState.shm_ring->heartbeat_ns, MonotonicNowNs(), memory_order_release);
+        }
     }
     gDriverState.io_is_running++;
     pthread_mutex_unlock(&gDriverState.io_mutex);
@@ -979,6 +1075,10 @@ static OSStatus Driver_StopIO(AudioServerPlugInDriverRef inDriver, AudioObjectID
     pthread_mutex_lock(&gDriverState.io_mutex);
     if (gDriverState.io_is_running > 0) {
         gDriverState.io_is_running--;
+    }
+    if (gDriverState.io_is_running == 0 && gDriverState.shm_ring) {
+        atomic_store_explicit(&gDriverState.shm_ring->io_running, 0u, memory_order_release);
+        atomic_store_explicit(&gDriverState.shm_ring->heartbeat_ns, MonotonicNowNs(), memory_order_release);
     }
     pthread_mutex_unlock(&gDriverState.io_mutex);
     return kAudioHardwareNoError;
@@ -1010,8 +1110,7 @@ static OSStatus Driver_WillDoIOOperation(AudioServerPlugInDriverRef inDriver, Au
     (void)inDriver; (void)inDeviceObjectID; (void)inClientID;
     if (!outWillDo || !outWillDoInPlace) return kAudioHardwareIllegalOperationError;
 
-    if (inOperationID == kAudioServerPlugInIOOperationWriteMix ||
-        inOperationID == kAudioServerPlugInIOOperationReadInput) {
+    if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
         *outWillDo = true;
         *outWillDoInPlace = true;
         return kAudioHardwareNoError;
@@ -1028,47 +1127,47 @@ static OSStatus Driver_BeginIOOperation(AudioServerPlugInDriverRef inDriver, Aud
 }
 
 static OSStatus Driver_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, AudioObjectID inStreamObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo* inIOCycleInfo, void* ioMainBuffer, void* ioSecondaryBuffer) {
-    (void)inDriver; (void)inDeviceObjectID; (void)inStreamObjectID; (void)inClientID; (void)ioSecondaryBuffer;
-    if (!ioMainBuffer || !inIOCycleInfo) return kAudioHardwareNoError;
+    (void)inDriver; (void)inDeviceObjectID; (void)inStreamObjectID; (void)inClientID; (void)inIOCycleInfo; (void)ioSecondaryBuffer;
+    if (inOperationID != kAudioServerPlugInIOOperationWriteMix || !ioMainBuffer || inIOBufferFrameSize == 0) {
+        return kAudioHardwareNoError;
+    }
 
-    Float32* buffer = (Float32*)ioMainBuffer;
-    UInt64 mSampleTime = (inOperationID == kAudioServerPlugInIOOperationReadInput)
-        ? (UInt64)inIOCycleInfo->mInputTime.mSampleTime
-        : (UInt64)inIOCycleInfo->mOutputTime.mSampleTime;
+    OmniRipShmRing* shm = gDriverState.shm_ring;
+    if (!shm) {
+        return kAudioHardwareNoError;
+    }
 
-    UInt32 ringBufferFrameStart = (UInt32)(mSampleTime % kOmniRip_RingBufferFrames);
-    UInt32 firstPartFrames = kOmniRip_RingBufferFrames - ringBufferFrameStart;
-    UInt32 secondPartFrames = 0;
+    UInt32 framesToWrite = inIOBufferFrameSize;
+    if (framesToWrite > kOmniRip_RingBufferFrames) {
+        framesToWrite = kOmniRip_RingBufferFrames;
+    }
 
-    if (firstPartFrames >= inIOBufferFrameSize) {
-        firstPartFrames = inIOBufferFrameSize;
+    uint64_t cursor = atomic_load_explicit(&shm->write_cursor, memory_order_relaxed);
+    UInt32 startFrame = (UInt32)(cursor % kOmniRip_RingBufferFrames);
+    UInt32 firstPart = kOmniRip_RingBufferFrames - startFrame;
+    UInt32 secondPart = 0;
+    if (firstPart >= framesToWrite) {
+        firstPart = framesToWrite;
     } else {
-        secondPartFrames = inIOBufferFrameSize - firstPartFrames;
+        secondPart = framesToWrite - firstPart;
     }
 
-    if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
-        memcpy(gDriverState.ring_buffer + (ringBufferFrameStart * kOmniRip_Channels), buffer, firstPartFrames * kOmniRip_Channels * sizeof(Float32));
-        if (secondPartFrames > 0) {
-            memcpy(gDriverState.ring_buffer, buffer + (firstPartFrames * kOmniRip_Channels), secondPartFrames * kOmniRip_Channels * sizeof(Float32));
+    const Float32* src = (const Float32*)ioMainBuffer;
+    if (gDriverState.is_muted) {
+        memset(shm->frames + (startFrame * kOmniRip_Channels), 0, firstPart * kOmniRip_Channels * sizeof(Float32));
+        if (secondPart > 0) {
+            memset(shm->frames, 0, secondPart * kOmniRip_Channels * sizeof(Float32));
         }
-        return kAudioHardwareNoError;
-    } else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
-        if (gDriverState.is_muted) {
-            memset(buffer, 0, inIOBufferFrameSize * kOmniRip_Channels * sizeof(Float32));
-        } else {
-            memcpy(buffer, gDriverState.ring_buffer + (ringBufferFrameStart * kOmniRip_Channels), firstPartFrames * kOmniRip_Channels * sizeof(Float32));
-            if (secondPartFrames > 0) {
-                memcpy(buffer + (firstPartFrames * kOmniRip_Channels), gDriverState.ring_buffer, secondPartFrames * kOmniRip_Channels * sizeof(Float32));
-            }
-            if (gDriverState.volume_scalar < 0.999f) {
-                for (UInt32 i = 0; i < inIOBufferFrameSize * kOmniRip_Channels; i++) {
-                    buffer[i] *= gDriverState.volume_scalar;
-                }
-            }
+    } else {
+        // Write raw unity-gain PCM; user-space OmniRip reads atomic volume_bits separately for clean SNR.
+        memcpy(shm->frames + (startFrame * kOmniRip_Channels), src, firstPart * kOmniRip_Channels * sizeof(Float32));
+        if (secondPart > 0) {
+            memcpy(shm->frames, src + (firstPart * kOmniRip_Channels), secondPart * kOmniRip_Channels * sizeof(Float32));
         }
-        return kAudioHardwareNoError;
     }
 
+    atomic_store_explicit(&shm->heartbeat_ns, MonotonicNowNs(), memory_order_relaxed);
+    atomic_store_explicit(&shm->write_cursor, cursor + framesToWrite, memory_order_release);
     return kAudioHardwareNoError;
 }
 

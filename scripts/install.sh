@@ -101,6 +101,13 @@ if [ -d "$BIN_DIR/OmniRipAudio.driver" ]; then
     cp -R "$BIN_DIR/OmniRipAudio.driver" "$INSTALL_DIR/"
 fi
 
+if [ "$PLATFORM" = "macos" ]; then
+    xattr -dr com.apple.quarantine "$INSTALL_DIR/omnirip" 2>/dev/null || true
+    if [ -d "$INSTALL_DIR/OmniRipAudio.driver" ]; then
+        xattr -dr com.apple.quarantine "$INSTALL_DIR/OmniRipAudio.driver" 2>/dev/null || true
+    fi
+fi
+
 echo "Installed omnirip to $INSTALL_DIR/omnirip"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
@@ -108,10 +115,14 @@ case ":$PATH:" in
 esac
 
 if [ "$PLATFORM" = "macos" ]; then
-    echo "Installing the CoreAudio driver. You will be asked for your administrator password."
-    if ! "$INSTALL_DIR/omnirip" driver install; then
-        echo "The driver did not install. Run 'omnirip driver install' later." >&2
+    if pgrep -qx WindowServer >/dev/null 2>&1; then
+        echo "Launching macOS Touch ID / Administrator dialog to enable the Zero-Dot Sound Engine..."
+        if ! "$INSTALL_DIR/omnirip" driver install-gui; then
+            echo "Driver setup skipped for now. Launch 'omnirip' to finish 1-click guided setup anytime." >&2
+        fi
+    else
+        echo "Run 'omnirip' to finish the guided Sound Engine setup."
     fi
 else
-    echo "Linux needs no driver: system audio uses PipeWire or PulseAudio monitor sources."
+    echo "Linux needs no driver: PipeWire/PulseAudio user-space virtual sink activates automatically on launch."
 fi

@@ -22,14 +22,17 @@ class Omnirip < Formula
 
   def install
     bin.install "omnirip"
+    pkgshare.install "OmniRipAudio.driver" if File.exist?("OmniRipAudio.driver")
   end
 
   def caveats
     <<~EOS
-      To enable system-wide audio equalization and mastering on macOS,
-      install the lightweight CoreAudio HAL driver by opening OmniRip
-      and typing :setup (or pressing F12) or executing:
-        sudo omnirip driver install
+      Launch OmniRip by running:
+        omnirip
+
+      On macOS, the First-Run Setup Wizard will automatically guide you through
+      enabling the zero-dot System-Wide Sound Engine via Touch ID / Password
+      with no manual terminal sudo required.
     EOS
   end
 

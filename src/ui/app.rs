@@ -189,13 +189,27 @@ impl App {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
+        let mut setup_modal = crate::ui::setup_modal::SetupModalState::new();
         let mut streamer = AudioStreamer::new(pipeline);
+        let should_auto_capture = if !cfg!(test) && std::env::var_os("CI").is_none() {
+            setup_modal.prepare_on_launch()
+        } else {
+            false
+        };
+        if should_auto_capture {
+            let _ = streamer.set_input_capture(true);
+        }
+
         // Start Pure Rust Audio Engine automatically on launch
         let status = match streamer.start() {
             Ok(()) => {
                 let in_name = streamer.active_input_name();
                 let out_name = streamer.active_output_name();
-                format!("OmniRip Sound Engine ACTIVE: [{}] -> DSP -> [{}]", in_name, out_name)
+                if streamer.is_input_capture_enabled() {
+                    format!("OmniRip Sound Engine ACTIVE ({}): [{}] -> DSP -> [{}]", streamer.active_capture_backend().label(), in_name, out_name)
+                } else {
+                    format!("OmniRip App-Only EQ ACTIVE: DSP -> [{}] (Press F12 for System-Wide EQ setup)", out_name)
+                }
             }
             Err(e) => format!("Engine notice: {}", e),
         };
@@ -256,7 +270,7 @@ impl App {
             gear_profile,
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
-            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
+            setup_modal,
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -362,7 +376,7 @@ impl App {
         }
         let command = parts[0].to_lowercase();
         match command.as_str() {
-            "mic" => {
+            "mic" | "syseq" | "soundengine" => {
                 let sub = parts.get(1).map(|s| *s).unwrap_or("toggle");
                 match sub {
                     "on" | "enable" | "1" => {
@@ -1084,6 +1098,37 @@ impl App {
             // Poll background streaming hub worker updates
             self.streaming_hub.poll_stream_worker();
 
+            // Poll guided Setup & Sound Engine background worker
+            match self.setup_modal.poll_worker() {
+                crate::ui::setup_modal::SetupModalAction::None
+                | crate::ui::setup_modal::SetupModalAction::Close => {}
+                crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
+                    self.set_status(&msg);
+                }
+                crate::ui::setup_modal::SetupModalAction::HotActivateSoundEngine => {
+                    match self.streamer.hot_activate_system_capture() {
+                        Ok(msg) => {
+                            self.setup_modal.mark_ready(msg.clone());
+                            self.set_status(&msg);
+                        }
+                        Err(e) => {
+                            self.set_status(&format!("Sound Engine installed (activation notice: {})", e));
+                        }
+                    }
+                }
+                crate::ui::setup_modal::SetupModalAction::RequestAppQuit => {
+                    self.streamer.terminate();
+                    break;
+                }
+                crate::ui::setup_modal::SetupModalAction::TriggerOsReboot => {
+                    if crate::driver::trigger_system_reboot().is_ok() {
+                        self.streamer.terminate();
+                        break;
+                    }
+                    self.set_status("OS restart canceled or unavailable; restart manually when ready.");
+                }
+            }
+
             terminal.draw(|f| self.render(f))?;
 
             let timeout = tick_rate.saturating_sub(last_tick.elapsed());
@@ -1158,10 +1203,27 @@ impl App {
                         // 1c. If Setup & Dependency Health Wizard is open, intercept wizard keys
                         if self.setup_modal.is_open {
                             match self.setup_modal.handle_key(key.code) {
-                                crate::ui::setup_modal::SetupModalAction::None => {}
-                                crate::ui::setup_modal::SetupModalAction::Close => {}
+                                crate::ui::setup_modal::SetupModalAction::None
+                                | crate::ui::setup_modal::SetupModalAction::Close => {}
                                 crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
                                     self.set_status(&msg);
+                                }
+                                crate::ui::setup_modal::SetupModalAction::HotActivateSoundEngine => {
+                                    if let Ok(msg) = self.streamer.hot_activate_system_capture() {
+                                        self.setup_modal.mark_ready(msg.clone());
+                                        self.set_status(&msg);
+                                    }
+                                }
+                                crate::ui::setup_modal::SetupModalAction::RequestAppQuit => {
+                                    self.streamer.terminate();
+                                    break;
+                                }
+                                crate::ui::setup_modal::SetupModalAction::TriggerOsReboot => {
+                                    if crate::driver::trigger_system_reboot().is_ok() {
+                                        self.streamer.terminate();
+                                        break;
+                                    }
+                                    self.set_status("OS restart canceled or unavailable; restart manually when ready.");
                                 }
                             }
                             continue;

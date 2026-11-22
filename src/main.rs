@@ -14,7 +14,7 @@ pub mod ui;
 const USAGE: &str = "\
 Usage:
   omnirip                              start the TUI
-  omnirip driver [status|install|uninstall]
+  omnirip driver [status|install|install-gui|uninstall|uninstall-gui]
   omnirip feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
   omnirip stream <url>                 stream an http(s) URL through the engine
   omnirip --help | --version";

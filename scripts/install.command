@@ -7,6 +7,7 @@ echo "======================================================="
 echo " OmniRip: One-Click macOS Installer                    "
 echo "======================================================="
 
+xattr -dr com.apple.quarantine "$DIR" >/dev/null 2>&1 || true
 chmod +x "$DIR/install.sh"
 "$DIR/install.sh"
 
