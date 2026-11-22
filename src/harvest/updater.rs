@@ -357,11 +357,17 @@ fn translate_single_note_line(raw_line: &str) -> Option<String> {
             badge
         ));
     }
-    if (s_lower.contains("input_capture") || s_lower.contains("x key") || s_lower.contains("airpods"))
-        && (s_lower.contains("restore") || s_lower.contains("output") || s_lower.contains("switch") || s_lower.contains("toggle"))
+    if (s_lower.contains("input_capture") || s_lower.contains("x key") || s_lower.contains("airpods") || s_lower.contains("cycle_engine") || s_lower.contains("audio engine"))
+        && (s_lower.contains("restore") || s_lower.contains("output") || s_lower.contains("switch") || s_lower.contains("toggle") || s_lower.contains("dac"))
     {
         return Some(format!(
-            "{} Turning off system sound capture now smoothly switches audio right back to your headphones or speakers.",
+            "{} Switching between the Orchestria Sound Engine and your external DAC or headphones now works smoothly in both directions.",
+            badge
+        ));
+    }
+    if s_lower.contains("routing") && (s_lower.contains("redesign") || s_lower.contains("layout") || s_lower.contains("audition")) {
+        return Some(format!(
+            "{} Cleaner, easier-to-read Audio Routing screen with live device detection.",
             badge
         ));
     }

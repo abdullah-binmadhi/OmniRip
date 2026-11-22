@@ -276,6 +276,7 @@ impl ShmCaptureHandle {
         out_sample_rate: u32,
         system_volume_bits: Arc<AtomicU32>,
         is_paused: Arc<AtomicBool>,
+        captured_frames_counter: Arc<AtomicU64>,
         wait_for_shm: bool,
     ) -> Result<Self, String> {
         let initial_shm = match ShmRingReader::open_default() {
@@ -327,6 +328,7 @@ impl ShmCaptureHandle {
 
                     let n = shm.read_available(&mut scratch);
                     if n > 0 {
+                        captured_frames_counter.fetch_add(n as u64, Ordering::Relaxed);
                         if let Ok(mut w) = writer.lock() {
                             w.write(&scratch[..n]);
                         }

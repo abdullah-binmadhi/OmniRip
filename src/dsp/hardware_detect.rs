@@ -190,6 +190,38 @@ impl HardwareChipProfile {
                     recommended_flavor: DacHardwareFlavor::SchiitMultibit,
                 };
             }
+            if matches!(transducer, TransducerType::UsbDacLineOut) {
+                return Self {
+                    chip_name: format!("{} (USB Audio Class 2.0 DAC)", dev_name.trim()),
+                    vendor: dev_name.trim().to_string(),
+                    hardware_model: machine_model,
+                    chassis_tier: ChassisAcousticTier::ExternalDacDongle,
+                    architecture: SoundChipArchitecture::CirrusLogicDongle,
+                    transducer: TransducerType::UsbDacLineOut,
+                    max_sample_rate_khz: 384,
+                    bit_depth: 32,
+                    high_impedance_amp_sensing: true,
+                    smart_amp_excursion_protection: false,
+                    optimal_buffer_frames: 256,
+                    recommended_flavor: DacHardwareFlavor::StockOemPlus,
+                };
+            }
+            if matches!(transducer, TransducerType::BluetoothA2dp) {
+                return Self {
+                    chip_name: format!("{} (Bluetooth Wireless DSP Transceiver)", dev_name.trim()),
+                    vendor: dev_name.trim().to_string(),
+                    hardware_model: machine_model,
+                    chassis_tier: ChassisAcousticTier::Ultraportable,
+                    architecture: SoundChipArchitecture::GenericReference,
+                    transducer: TransducerType::BluetoothA2dp,
+                    max_sample_rate_khz: 48,
+                    bit_depth: 24,
+                    high_impedance_amp_sensing: false,
+                    smart_amp_excursion_protection: false,
+                    optimal_buffer_frames: 1024,
+                    recommended_flavor: DacHardwareFlavor::StockOemPlus,
+                };
+            }
         }
 
         // 2. Classify Apple Silicon & Mac Hardware
@@ -226,22 +258,64 @@ impl HardwareChipProfile {
                     }
                 }
             }
+            return "Mac".to_string();
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            for sys_path in [
+                "/sys/devices/virtual/dmi/id/product_name",
+                "/sys/devices/virtual/dmi/id/board_name",
+                "/sys/firmware/devicetree/base/model",
+            ] {
+                if let Ok(raw) = std::fs::read_to_string(sys_path) {
+                    let clean = raw.trim_matches(char::from(0)).trim().to_string();
+                    if !clean.is_empty() && clean != "System Product Name" {
+                        return clean;
+                    }
+                }
+            }
+            if let Ok(output) = Command::new("uname").args(["-s", "-m"]).output() {
+                if output.status.success() {
+                    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !s.is_empty() {
+                        return s;
+                    }
+                }
+            }
+            return "Linux Workstation".to_string();
         }
 
         #[cfg(target_os = "windows")]
         {
-            if let Ok(output) = Command::new("wmic").args(["computersystem", "get", "model"]).output() {
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-CimInstance -ClassName Win32_ComputerSystem).Model",
+                ])
+                .output()
+            {
                 if output.status.success() {
-                    let s = String::from_utf8_lossy(&output.stdout);
-                    let lines: Vec<&str> = s.lines().map(|l| l.trim()).filter(|l| !l.is_empty() && *l != "Model").collect();
-                    if let Some(first) = lines.first() {
-                        return first.to_string();
+                    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !s.is_empty() {
+                        return s;
                     }
                 }
             }
+            if let Ok(name) = std::env::var("COMPUTERNAME") {
+                if !name.trim().is_empty() {
+                    return format!("Windows PC ({})", name.trim());
+                }
+            }
+            return "Windows Workstation".to_string();
         }
 
-        "Mac14,2".to_string() // Calibrated fallback to primary target MacBook Air M2
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            "Reference Workstation".to_string()
+        }
     }
 
     /// Categorizes active transducer from CoreAudio / CPAL device name.

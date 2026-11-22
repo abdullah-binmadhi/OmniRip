@@ -1614,29 +1614,10 @@ impl App {
                                 }
                                 continue;
                             }
-                            KeyCode::Char('p') | KeyCode::Char('P') if self.active_mode == WorkstationMode::SystemEq => {
-                                if !self.streamer.is_running.load(Ordering::SeqCst) {
-                                    if let Err(e) = self.streamer.start() {
-                                        self.set_status(&format!("Auto-start streamer error: {}", e));
-                                    }
-                                }
-                                let active = self.streamer.toggle_test_tone();
-                                let mode = self.streamer.current_test_tone_mode();
-                                let state_str = if active { "ENABLED" } else { "DISABLED" };
-                                self.set_status(&format!("Test Audio Auditioning {}: [{}]", state_str, mode.label()));
-                                continue;
-                            }
-                            KeyCode::Char('o') | KeyCode::Char('O') if self.active_mode == WorkstationMode::SystemEq => {
-                                let new_mode = self.streamer.cycle_test_tone_mode();
-                                self.set_status(&format!("Test Audio Mode: [{}] - {}", new_mode.label(), new_mode.description()));
-                                continue;
-                            }
                             KeyCode::Char('e') | KeyCode::Char('E') if self.active_mode == WorkstationMode::SystemEq => {
-                                self.streamer.engine_type = self.streamer.engine_type.next();
-                                self.set_status(&format!("Audio Engine switched to: [{}]", self.streamer.engine_type.label()));
-                                if self.streamer.is_running.load(Ordering::SeqCst) {
-                                    let _ = self.streamer.restart();
-                                }
+                                let (_, msg) = self.streamer.cycle_engine_mode();
+                                self.sync_active_transducer_gear();
+                                self.set_status(&msg);
                                 continue;
                             }
                             KeyCode::Char('i') if self.active_mode == WorkstationMode::SystemEq && !key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -2223,14 +2204,6 @@ impl App {
             Span::styled(format!(" [THEME: {}] ", self.theme.name), Style::default().fg(self.theme.accent))
         };
         let sync_badge = Span::styled(format!(" [{:?}] ", self.streamer.sync_mode), Style::default().fg(Color::White));
-        let test_tone_badge = if self.streamer.is_test_tone_active() {
-            let mode = self.streamer.current_test_tone_mode();
-            Span::styled(format!(" [TEST: {}] ", mode.label()), Style::default().fg(Color::Black).bg(Color::LightMagenta).add_modifier(Modifier::BOLD))
-        } else if is_compact {
-            Span::styled(" [AUD: OFF] ", Style::default().fg(Color::DarkGray))
-        } else {
-            Span::styled(" [AUDITION: OFF] ", Style::default().fg(Color::DarkGray))
-        };
         let bypass_badge = if bypass {
             Span::styled(" [BYPASS] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
         } else if is_compact {
@@ -2289,7 +2262,6 @@ impl App {
             theme_badge,
             dac_badge,
             sync_badge,
-            test_tone_badge,
             bypass_badge,
             clip_badge,
             mic_badge,
@@ -3125,7 +3097,7 @@ impl App {
 
     fn render_routing(&self, f: &mut ratatui::Frame, area: Rect) {
         let block = Block::default()
-            .title(" AUDIO ROUTING & COREAUDIO LOW-LATENCY STREAM ENGINE ")
+            .title(" AUDIO ROUTING & LOW-LATENCY STREAM ENGINE ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
@@ -3134,14 +3106,13 @@ impl App {
         let v_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // Interactive Sync Mode Button Rack
-                Constraint::Percentage(52), // Signal Flow & Telemetry
-                Constraint::Min(7),    // Test Audio Audition & macOS Routing Setup
-                Constraint::Length(1), // Footer hotkeys
+                Constraint::Length(4), // Top: Interactive Sync Mode Latency Preset Rack
+                Constraint::Min(14),   // Main: Two Balanced Studio Cards (Engine & Routing | Clock & Telemetry)
+                Constraint::Length(1), // Footer: Routing hotkeys
             ])
             .split(inner);
 
-        // TOP: Interactive Sync Mode Button Rack
+        // 1. TOP: Interactive Sync Mode Latency Preset Rack
         let rack_block = Block::default()
             .title(" SYNC ENGINE LATENCY PRESET (Press [S] or [Left/Right] to Change) ")
             .borders(Borders::ALL)
@@ -3170,8 +3141,13 @@ impl App {
             let is_active = self.streamer.sync_mode == *m;
             let (title_style, sub_style) = if is_active {
                 (
-                    Style::default().fg(Color::Black).bg(self.theme.primary).add_modifier(Modifier::BOLD),
-                    Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD),
                 )
             } else {
                 (
@@ -3189,105 +3165,316 @@ impl App {
             f.render_widget(p_btn, btn_chunks[idx]);
         }
 
-        // MIDDLE: Split into Signal Flow Topology (Left) and Audio Telemetry (Right)
-        let mid_chunks = Layout::default()
+        // 2. MAIN STUDIO WORKSPACE: Two Balanced Columns (52% Left / 48% Right)
+        let main_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
             .split(v_chunks[1]);
 
-        // Left Pane: Hardware Signal Flow Topology
+        // LEFT CARD: Audio Engine & Hardware Routing
         let topo_block = Block::default()
-            .title(" HARDWARE SIGNAL FLOW TOPOLOGY ")
+            .title(" AUDIO ENGINE & HARDWARE ROUTING ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
-        let topo_inner = topo_block.inner(mid_chunks[0]);
-        f.render_widget(topo_block, mid_chunks[0]);
+        let topo_inner = topo_block.inner(main_chunks[0]);
+        f.render_widget(topo_block, main_chunks[0]);
 
+        let system_wide_active = self.streamer.is_input_capture_enabled();
         let is_running = self.streamer.is_running.load(Ordering::SeqCst);
-        let status_color = if is_running { self.theme.success } else { self.theme.warning };
-        let status_text = if is_running {
-            "ACTIVE (Streaming Real-Time Loopback)"
+        let is_paused = self.streamer.is_paused();
+        let out_name = self.streamer.active_output_name();
+        let os_default_out = self.streamer.live_os_default_output_name();
+        let chip_prof = self.streamer.hardware_chip_profile();
+        let capture_backend = self.streamer.active_capture_backend();
+        let avail_outputs = AudioStreamer::available_output_names();
+
+        let (sys_pill_style, direct_pill_style) = if system_wide_active {
+            (
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(self.theme.success)
+                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(self.theme.text_dim),
+            )
         } else {
-            "STOPPED (Press Space to Start Engine)"
+            (
+                Style::default().fg(self.theme.text_dim),
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
         };
 
-        let _in_name = self.streamer.active_input_name();
-        let out_name = self.streamer.active_output_name();
-        let avail_outputs = AudioStreamer::available_output_names().join(" | ");
+        let sys_pill_text = if system_wide_active {
+            " [ ● ORCHESTRIA SYSTEM-WIDE ENGINE ] "
+        } else {
+            " [ ○ ORCHESTRIA SYSTEM-WIDE ENGINE ] "
+        };
+        let direct_pill_text = if !system_wide_active {
+            " [ ● DIRECT HARDWARE DAC ] "
+        } else {
+            " [ ○ DIRECT HARDWARE DAC ] "
+        };
 
-        let engine_label = self.streamer.engine_type.label();
-        let topo_lines = vec![
+        let privacy_or_mode_line = match capture_backend {
+            crate::dsp::streamer::CaptureBackendKind::MacOsShmV2 => {
+                "Zero-Dot POSIX Shared Memory (Zero Mic Access • No macOS Orange Dot)".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::WindowsVirtualWasapi => {
+                "Isolated Windows Virtual Endpoint (Zero-Echo WASAPI Loopback)".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::LinuxPipeWireMonitor => {
+                "User-Space PipeWire/PulseAudio Null-Sink Monitor (Zero Sudo)".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::LegacyCoreAudioLoopback => {
+                format!("Virtual CoreAudio Loopback ({})", self.streamer.active_input_name())
+            }
+            crate::dsp::streamer::CaptureBackendKind::None => {
+                format!(
+                    "OS audio plays straight to [{}]; Orchestria Player streams bit-perfect",
+                    out_name
+                )
+            }
+        };
+
+        let mut output_pills: Vec<Span> = vec![Span::styled(
+            "  Available Outputs: ",
+            Style::default().fg(self.theme.text_dim),
+        )];
+        if avail_outputs.is_empty() {
+            output_pills.push(Span::styled(
+                out_name.clone(),
+                Style::default().fg(self.theme.text),
+            ));
+        } else {
+            for (i, dev) in avail_outputs.iter().enumerate() {
+                if i > 0 {
+                    output_pills.push(Span::raw("  "));
+                }
+                if dev == &out_name {
+                    output_pills.push(Span::styled(
+                        format!("● {}", dev),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    output_pills.push(Span::styled(
+                        format!("○ {}", dev),
+                        Style::default().fg(self.theme.text_dim),
+                    ));
+                }
+            }
+        }
+
+        let (bypass_active, active_dac_label, game_mode_active) =
+            if let Ok(pipe) = self.streamer.pipeline.lock() {
+                (
+                    pipe.bypass,
+                    pipe.current_dac_flavor().short_label().to_string(),
+                    pipe.enhancer.game_mode,
+                )
+            } else {
+                (false, "OEM+".to_string(), false)
+            };
+
+        let dsp_stage_label = if bypass_active {
+            "BYPASS (Bit-Perfect Pass-Through)".to_string()
+        } else {
+            format!("64-Bit EQ + {} + {}", active_dac_label, self.gear_profile.name)
+        };
+
+        let signal_chain_spans = if system_wide_active {
+            vec![
+                Span::raw("  "),
+                Span::styled(
+                    "[OS Desktop Audio]",
+                    Style::default()
+                        .fg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    format!("[{}]", capture_backend.label()),
+                    Style::default()
+                        .fg(self.theme.success)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    "[64-Bit DSP]",
+                    Style::default()
+                        .fg(self.theme.secondary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    format!("[{}]", out_name),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]
+        } else {
+            vec![
+                Span::raw("  "),
+                Span::styled(
+                    "[Orchestria Player & IPC]",
+                    Style::default()
+                        .fg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    "[64-Bit Studio DSP]",
+                    Style::default()
+                        .fg(self.theme.secondary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    format!("[{}]", out_name),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]
+        };
+
+        let left_lines = vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled(" [1] Active Audio Engine: ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("[ {} ]", engine_label), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled("  ([E] Cycle Engine)", Style::default().fg(self.theme.accent)),
+                Span::styled(
+                    "  ACTIVE ENGINE MODE ",
+                    Style::default()
+                        .fg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "([E] or [X] to Switch Engine)",
+                    Style::default().fg(self.theme.accent),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("        |", Style::default().fg(self.theme.text_dim)),
+                Span::raw("  "),
+                Span::styled(sys_pill_text, sys_pill_style),
+                Span::styled("  ⇄  ", Style::default().fg(self.theme.accent)),
+                Span::styled(direct_pill_text, direct_pill_style),
             ]),
             Line::from(vec![
-                Span::styled("        v  (Direct Hardware Stream - Zero Loopback Driver)", Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    "  OS Default Output: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    os_default_out,
+                    Style::default()
+                        .fg(if system_wide_active {
+                            self.theme.success
+                        } else {
+                            Color::Cyan
+                        })
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
-                Span::styled(" [2] Capture Mode: ", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
-                Span::styled(match self.streamer.engine_type {
-                    crate::dsp::streamer::AudioEngineType::PureRustIpc => "Pure Rust Zero-Driver IPC Transport (/tmp/orchestria_audio.sock)",
-                    crate::dsp::streamer::AudioEngineType::DirectHardware => "Driverless Bit-Perfect DAC Render",
-                }, Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("        |", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        v  (Lock-Free Ring Buffer Transport)", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [3] Orchestria Real-Time DSP Engine", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
-                Span::styled(" (48.0 kHz 32-bit Float)", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        +-- 10-Band ISO Graphic Equalizer Rails", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        +-- Studio Mastering (Tube Warmth, Spatial Width)", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        \\-- AutoEQ Acoustic Headphone Profiles", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        |", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled("        v  (Hardware DAC / Transducer Playback)", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [4] Output Playback Device: ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("[ {} ]", out_name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("  ([D] Cycle)", Style::default().fg(self.theme.accent)),
-            ]),
-            Line::from(vec![
-                Span::styled("        Outputs: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(avail_outputs, Style::default().fg(self.theme.text_dim)),
+                Span::styled(
+                    "  Capture Architecture: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    privacy_or_mode_line,
+                    Style::default().fg(self.theme.text),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled(" Engine State: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  PHYSICAL OUTPUT TRANSDUCER ",
+                    Style::default()
+                        .fg(self.theme.secondary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "([D] Cycle Output • [A] Auto-Select Best DAC)",
+                    Style::default().fg(self.theme.accent),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Active Output DAC: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!("[ {} ]", out_name),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  ({})", chip_prof.transducer.label()),
+                    Style::default().fg(self.theme.text_dim),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Detected Hardware: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!("{} • {}", chip_prof.vendor, chip_prof.chip_name),
+                    Style::default().fg(self.theme.text),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Host Workstation:  ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!(
+                        "{} ({} • up to {} kHz / {}-bit)",
+                        chip_prof.hardware_model,
+                        chip_prof.chassis_tier.label(),
+                        chip_prof.max_sample_rate_khz,
+                        chip_prof.bit_depth
+                    ),
+                    Style::default().fg(self.theme.text_dim),
+                ),
+            ]),
+            Line::from(output_pills),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  LIVE SIGNAL CHAIN",
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(signal_chain_spans),
+            Line::from(vec![
+                Span::styled(
+                    "  Active DSP Stage:  ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(dsp_stage_label, Style::default().fg(self.theme.secondary)),
             ]),
         ];
-        let p_topo = Paragraph::new(topo_lines);
-        f.render_widget(p_topo, topo_inner);
+        f.render_widget(
+            Paragraph::new(left_lines).wrap(ratatui::widgets::Wrap { trim: false }),
+            topo_inner,
+        );
 
-        // Right Pane: Buffer Cushion & Servo Clock Telemetry
+        // RIGHT CARD: Real-Time Buffer, Clock & DSP Telemetry
         let telem_block = Block::default()
-            .title(" REAL-TIME AUDIO BUFFER & CLOCK TELEMETRY ")
+            .title(" REAL-TIME BUFFER, CLOCK & DSP TELEMETRY ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
-        let telem_inner = telem_block.inner(mid_chunks[1]);
-        f.render_widget(telem_block, mid_chunks[1]);
+        let telem_inner = telem_block.inner(main_chunks[1]);
+        f.render_widget(telem_block, main_chunks[1]);
 
         let (ipc_telem, pll_opt) = self.streamer.telemetry();
+        let sample_rate_hz = self.streamer.active_sample_rate().max(8000.0);
         let target_frames = self.streamer.sync_mode.target_frames();
         let (avail_frames, target_pll, drift_ppm) = pll_opt.unwrap_or((0, target_frames, 0.0));
         let cushion_percent = if target_pll > 0 {
@@ -3295,154 +3482,215 @@ impl App {
         } else {
             0.0
         };
-        let cushion_ms = avail_frames as f32 / 48.0;
+        let cushion_ms = (avail_frames as f32 * 1000.0) / sample_rate_hz;
+        let target_ms = (target_pll as f32 * 1000.0) / sample_rate_hz;
 
         let num_bars = (cushion_percent / 5.0).min(20.0) as usize;
-        let tank_bar = format!("[{}{}] {:.0}% Cushion", "=".repeat(num_bars), ".".repeat(20 - num_bars), cushion_percent);
+        let tank_bar = format!(
+            "[{}{}] {:>3.0}% Cushion",
+            "█".repeat(num_bars),
+            "░".repeat(20 - num_bars),
+            cushion_percent
+        );
 
-        let ipc_status_str = if ipc_telem.active_clients > 0 {
-            format!("ACTIVE ({} client, {} packets)", ipc_telem.active_clients, ipc_telem.total_packets)
+        let stream_state_str = if !is_running {
+            "STOPPED (Press [Space] to Start Engine)"
+        } else if is_paused {
+            "PAUSED (Press [Space] to Resume Stream)"
+        } else if avail_frames > 64 || self.streamer.player.is_playing() {
+            "ACTIVE • Phase-Locked Streaming (0 Dropouts)"
+        } else if system_wide_active {
+            "ACTIVE • Listening for Desktop Audio"
         } else {
-            "LISTENING (0 clients on /tmp/orchestria_audio.sock)".to_string()
+            "ACTIVE • Direct Hardware Ready"
         };
-        let ipc_status_color = if ipc_telem.active_clients > 0 { self.theme.success } else { Color::Yellow };
-
-        let telem_lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("--- BUFFER CUSHION TANK GAUGE ---", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Tank Level:      ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(tank_bar, Style::default().fg(if cushion_percent > 30.0 { self.theme.success } else { Color::Yellow })),
-            ]),
-            Line::from(vec![
-                Span::styled("  Current Cushion: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(format!("{} / {} frames (~{:.1} ms latency)", avail_frames, target_pll, cushion_ms), Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Health Status:   ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(if avail_frames > 128 { "HEALTHY (Phase-Locked Headroom, 0 Drop)" } else { "PRIMING / STANDBY (Awaiting Audio)" }, Style::default().fg(self.theme.success)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("--- PURE RUST PID PLL & SINC MONITOR ---", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("  IPC Transport:   ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(ipc_status_str, Style::default().fg(ipc_status_color).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Total Streamed:  ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(format!("{} frames (~{:.2} MB PCM)", ipc_telem.total_frames, (ipc_telem.total_frames * 8) as f64 / 1_048_576.0), Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Master Clock PLL:", Style::default().fg(self.theme.text_dim)),
-                Span::styled(format!("{:+6.2} PPM (PID Phase-Locked)", drift_ppm), Style::default().fg(if drift_ppm.abs() < 50.0 { self.theme.success } else { Color::Yellow })),
-                Span::styled("  ([R] Re-sync)", Style::default().fg(self.theme.accent)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Sinc Resampler:  ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("16-Point Blackman-Harris (-100 dB Sidelobes)", Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("--- AUDIO WORKER THREAD HEADROOM ---", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("  DSP Thread Load: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("[||||                ] 2.1% / 100%", Style::default().fg(self.theme.accent)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Native Format:   ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("48,000 Hz / 32-bit Float Native DSP", Style::default().fg(self.theme.text)),
-            ]),
-        ];
-        let p_telem = Paragraph::new(telem_lines);
-        f.render_widget(p_telem, telem_inner);
-
-        // BOTTOM: Split into Built-in Acoustic Audition Engine (Left) and macOS Audio MIDI Loopback Setup (Right)
-        let bottom_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(v_chunks[2]);
-
-        // Left Pane: Built-in Acoustic Audition Engine
-        let test_active = self.streamer.is_test_tone_active();
-        let test_mode = self.streamer.current_test_tone_mode();
-        let test_block = Block::default()
-            .title(" BUILT-IN ACOUSTIC AUDITION ENGINE ([P] Toggle, [O] Cycle Mode) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if test_active { Color::LightMagenta } else { self.theme.border }));
-        let test_inner = test_block.inner(bottom_chunks[0]);
-        f.render_widget(test_block, bottom_chunks[0]);
-
-        let test_status_badge = if test_active {
-            Span::styled(" [ACTIVE - STREAMING] ", Style::default().fg(Color::Black).bg(Color::LightMagenta).add_modifier(Modifier::BOLD))
+        let stream_state_color = if !is_running || is_paused {
+            Color::Yellow
         } else {
-            Span::styled(" [MUTED / STANDBY] ", Style::default().fg(self.theme.text_dim))
+            self.theme.success
         };
 
-        let test_lines = vec![
+        let capture_transport_str = match capture_backend {
+            crate::dsp::streamer::CaptureBackendKind::MacOsShmV2 => {
+                "Zero-Dot POSIX SHM (/orchestria_audio_shm)".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::WindowsVirtualWasapi => {
+                "Windows WASAPI Virtual Endpoint".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::LinuxPipeWireMonitor => {
+                "PipeWire/PulseAudio Monitor (Orchestria_Audio.monitor)".to_string()
+            }
+            crate::dsp::streamer::CaptureBackendKind::LegacyCoreAudioLoopback => {
+                format!("CoreAudio Loopback ({})", self.streamer.active_input_name())
+            }
+            crate::dsp::streamer::CaptureBackendKind::None => {
+                if ipc_telem.active_clients > 0 {
+                    format!(
+                        "Direct DAC + IPC ({} client, {} pkts)",
+                        ipc_telem.active_clients, ipc_telem.total_packets
+                    )
+                } else {
+                    format!("Direct Hardware DAC -> [{}]", out_name)
+                }
+            }
+        };
+
+        let total_frames = self.streamer.total_streamed_frames();
+        let total_mb = (total_frames * 8) as f64 / 1_048_576.0;
+        let resampler_label = if game_mode_active {
+            "4-Point Fast Hermite (Esports Low-Latency Mode)"
+        } else {
+            "16-Point Blackman-Harris Sinc (-100 dB Sidelobes)"
+        };
+
+        let dsp_load_pct = self.streamer.dsp_load_percent();
+        let load_bars = ((dsp_load_pct / 5.0).round() as usize).clamp(usize::from(is_running && !is_paused), 20);
+        let load_bar_str = format!(
+            "[{}{}] {:>4.1}% / 100%",
+            "█".repeat(load_bars),
+            "░".repeat(20 - load_bars),
+            dsp_load_pct
+        );
+
+        let right_lines = vec![
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  BUFFER CUSHION & STREAM HEALTH",
+                Style::default()
+                    .fg(self.theme.primary)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![
-                Span::styled(" Status:   ", Style::default().fg(self.theme.text_dim)),
-                test_status_badge,
-                Span::raw("   Mode: "),
-                Span::styled(format!("[{}]", test_mode.label()), Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  Tank Level:      ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    tank_bar,
+                    Style::default().fg(if cushion_percent > 25.0 {
+                        self.theme.success
+                    } else {
+                        Color::Cyan
+                    }),
+                ),
             ]),
             Line::from(vec![
-                Span::styled(" Profile:  ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(test_mode.description(), Style::default().fg(self.theme.text)),
+                Span::styled(
+                    "  Buffer Latency:  ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!(
+                        "{} / {} frames ({:.1} / {:.1} ms)",
+                        avail_frames, target_pll, cushion_ms, target_ms
+                    ),
+                    Style::default().fg(self.theme.text),
+                ),
             ]),
             Line::from(vec![
-                Span::styled(" Pipeline: ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("Synthesized directly through active 10-Band EQ & Mastering DSP", Style::default().fg(self.theme.secondary)),
+                Span::styled(
+                    "  Engine State:    ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    stream_state_str,
+                    Style::default()
+                        .fg(stream_state_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "  MASTER CLOCK PLL & RESAMPLER ",
+                    Style::default()
+                        .fg(self.theme.secondary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("([R] Force Re-Sync)", Style::default().fg(self.theme.accent)),
             ]),
             Line::from(vec![
-                Span::styled(" Control:  ", Style::default().fg(self.theme.text_dim)),
-                Span::styled("[P] Toggle Audition Tone   [O] Cycle Mode", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  Capture Link:    ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    capture_transport_str,
+                    Style::default()
+                        .fg(self.theme.success)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Master Clock PLL:",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!(" {:+6.2} PPM (PID Servo Phase-Locked)", drift_ppm),
+                    Style::default().fg(if drift_ppm.abs() < 50.0 {
+                        self.theme.success
+                    } else {
+                        Color::Yellow
+                    }),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Sinc Resampler:  ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(resampler_label, Style::default().fg(self.theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  PCM Streamed:    ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!("{:.2} MB ({} stereo frames)", total_mb, total_frames),
+                    Style::default().fg(self.theme.text),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  DSP WORKER THREAD HEADROOM",
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![
+                Span::styled(
+                    "  DSP Thread Load: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(load_bar_str, Style::default().fg(self.theme.accent)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  Native Pipeline: ",
+                    Style::default().fg(self.theme.text_dim),
+                ),
+                Span::styled(
+                    format!(
+                        "{:.0} Hz • 64-Bit Internal Accumulator / 32-Bit Float I/O",
+                        sample_rate_hz
+                    ),
+                    Style::default().fg(self.theme.text),
+                ),
             ]),
         ];
-        let p_test = Paragraph::new(test_lines).wrap(ratatui::widgets::Wrap { trim: true });
-        f.render_widget(p_test, test_inner);
+        f.render_widget(
+            Paragraph::new(right_lines).wrap(ratatui::widgets::Wrap { trim: false }),
+            telem_inner,
+        );
 
-        // Right Pane: macOS Audio MIDI Setup & System Loopback Guide
-        let guide_block = Block::default()
-            .title(" MACOS SYSTEM-WIDE SOUND LOOPBACK SETUP GUIDE ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let guide_inner = guide_block.inner(bottom_chunks[1]);
-        f.render_widget(guide_block, bottom_chunks[1]);
-
-        let guide_lines = vec![
-            Line::from(vec![
-                Span::styled(" [A] ROUTE PRIORITY:  ", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
-                Span::styled("Auto-resolve: USB DAC -> Headphones -> Speakers", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("     ZERO DRIVER:     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("Pure Rust IPC engine. Zero kernel drivers, zero lag.", Style::default().fg(self.theme.text_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [1] Output [D]:      ", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("Active Output: [{}] (Press [D] to cycle)", out_name), Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [2] Stream [Space]:  ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled("Routes: Pure Rust IPC -> 64-bit EQ Engine -> Transducer", Style::default().fg(self.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" [3] Test Tone [P]:   ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled("Play built-in acoustic test tone through active EQ.", Style::default().fg(self.theme.text_dim)),
-            ]),
-        ];
-        let p_guide = Paragraph::new(guide_lines).wrap(ratatui::widgets::Wrap { trim: true });
-        f.render_widget(p_guide, guide_inner);
-
-        // Footer hotkeys
-        let help = Paragraph::new(" [A] Auto IEM Exclusive  [D] Cycle Output  [I] Cycle Input  [Space] Stream  [P] Test Audio  [O] Tone Mode  [S] Sync Mode  [B] Bypass")
-            .style(Style::default().fg(self.theme.accent));
-        f.render_widget(help, v_chunks[3]);
+        // 3. FOOTER HOTKEYS
+        let help = Paragraph::new(
+            " [E] Switch Engine (Orchestria ⇄ Direct DAC)  [D] Cycle Output DAC  [A] Auto-Select Best DAC  [S] Latency Mode  [R] Re-Sync Clock  [Space] Pause/Play  [B] Bypass",
+        )
+        .style(Style::default().fg(self.theme.accent));
+        f.render_widget(help, v_chunks[2]);
     }
 
     fn render_autoeq_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {
@@ -4761,6 +5009,32 @@ mod tests {
         wizard.selected_option = 6;
         let _ = wizard.handle_key(ratatui::crossterm::event::KeyCode::Enter);
         assert_eq!(wizard.form_factor, crate::dsp::enhancer::GearFormFactor::DesktopBookshelfSpeakers);
+    }
+
+    #[test]
+    fn test_routing_tab_redesign_rendering_and_engine_switch() {
+        let mut app = App::new_test();
+        app.active_mode = WorkstationMode::SystemEq;
+        app.active_tab = 2; // [3] Routing tab
+
+        for (w, h) in [(140, 36), (100, 24), (180, 50)] {
+            let backend = ratatui::backend::TestBackend::new(w, h);
+            let mut terminal = ratatui::Terminal::new(backend).unwrap();
+
+            for system_wide in [false, true] {
+                let _ = app.streamer.set_input_capture(system_wide);
+                let draw_res = terminal.draw(|f| {
+                    app.render(f);
+                });
+                assert!(
+                    draw_res.is_ok(),
+                    "Routing tab render failed for system_wide={} at {}x{}",
+                    system_wide,
+                    w,
+                    h
+                );
+            }
+        }
     }
 }
 

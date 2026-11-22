@@ -166,8 +166,10 @@ jobs:
                   b_low = body.lower()
                   if "orange dot" in b_low or "shm" in b_low:
                       bullet = f"{badge} System-wide sound processing now runs silently without triggering the macOS orange microphone indicator."
-                  elif ("input_capture" in b_low or "x key" in b_low or "airpods" in b_low) and ("restore" in b_low or "output" in b_low or "toggle" in b_low):
-                      bullet = f"{badge} Turning off system sound capture now smoothly switches audio right back to your headphones or speakers."
+                  elif ("input_capture" in b_low or "x key" in b_low or "airpods" in b_low or "cycle_engine" in b_low or "audio engine" in b_low) and ("restore" in b_low or "output" in b_low or "toggle" in b_low or "switch" in b_low or "dac" in b_low):
+                      bullet = f"{badge} Switching between the Orchestria Sound Engine and your external DAC or headphones now works smoothly in both directions."
+                  elif "routing" in b_low and ("redesign" in b_low or "layout" in b_low or "audition" in b_low):
+                      bullet = f"{badge} Cleaner, easier-to-read Audio Routing screen with live device detection."
                   elif "auto-update" in b_low or "rolling" in b_low or "what's new" in b_low:
                       bullet = f"{badge} Automatic background updates with simple summaries of what's new and fixed."
                   elif "touch id" in b_low or "guided setup" in b_low or "onboarding" in b_low:

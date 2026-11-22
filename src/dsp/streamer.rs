@@ -22,8 +22,8 @@ pub enum AudioEngineType {
 impl AudioEngineType {
     pub fn label(&self) -> &'static str {
         match self {
-            AudioEngineType::PureRustIpc => "Pure Rust Zero-Driver IPC Engine",
-            AudioEngineType::DirectHardware => "Direct Hardware (Bit-Perfect Standalone)",
+            AudioEngineType::PureRustIpc => "Orchestria System-Wide Sound Engine",
+            AudioEngineType::DirectHardware => "Direct Hardware DAC (Bit-Perfect)",
         }
     }
 
@@ -277,6 +277,8 @@ pub struct AudioStreamer {
     pub test_tone_mode: Arc<Mutex<TestToneMode>>,
     pub needs_rebuild: Arc<AtomicBool>,
     pub last_callback_epoch_ms: Arc<AtomicU64>,
+    pub dsp_load_per_mille: Arc<AtomicU32>,
+    pub captured_frames_total: Arc<AtomicU64>,
     pub system_volume_bits: Arc<AtomicU32>,
     pub pipeline: Arc<Mutex<AudioPipeline>>,
     pub player: Arc<super::player::TrackPlayer>,
@@ -316,6 +318,8 @@ impl AudioStreamer {
             test_tone_mode: Arc::new(Mutex::new(TestToneMode::AcousticHarmonics)),
             needs_rebuild: Arc::new(AtomicBool::new(false)),
             last_callback_epoch_ms: Arc::new(AtomicU64::new(0)),
+            dsp_load_per_mille: Arc::new(AtomicU32::new(12)),
+            captured_frames_total: Arc::new(AtomicU64::new(0)),
             system_volume_bits: {
                 let (_, saved_scalar) = crate::dsp::volume_storage::load_volume_settings();
                 Arc::new(AtomicU32::new(saved_scalar.to_bits()))
@@ -760,6 +764,7 @@ impl AudioStreamer {
 
         let is_paused_in = Arc::clone(&self.is_paused);
         let sys_vol_in = Arc::clone(&self.system_volume_bits);
+        let captured_counter_in = Arc::clone(&self.captured_frames_total);
         let in_is_orchestria = in_dev_name.to_lowercase().contains("orchestria");
         #[cfg(target_os = "macos")]
         let mut qos_set_in = false;
@@ -797,6 +802,7 @@ impl AudioStreamer {
                     scratch[i] = [data[i * 2] * norm_factor, data[i * 2 + 1] * norm_factor];
                 }
 
+                captured_counter_in.fetch_add(n_frames as u64, Ordering::Relaxed);
                 if let Ok(mut w) = writer_for_in.try_lock() {
                     w.write(&scratch[..n_frames]);
                 }
@@ -851,15 +857,17 @@ impl AudioStreamer {
                     }
 
                     let out_rate = self.active_sample_rate() as u32;
+                    let _ = set_macos_system_output_to_device_id(target_id);
+                    let _ = crate::driver::unmute_device(target_id);
                     let shm_handle = ShmCaptureHandle::start(
                         writer_arc,
                         reader_arc,
                         out_rate,
                         Arc::clone(&self.system_volume_bits),
                         Arc::clone(&self.is_paused),
+                        Arc::clone(&self.captured_frames_total),
                         true,
                     )?;
-                    let _ = set_macos_system_output_to_device_id(target_id);
                     self.shm_capture = Some(shm_handle);
                     self.active_capture_backend = CaptureBackendKind::MacOsShmV2;
                     return Ok(CaptureBackendKind::MacOsShmV2);
@@ -1020,26 +1028,49 @@ impl AudioStreamer {
     pub fn set_input_capture(&mut self, enable: bool) -> (bool, String) {
         if !enable {
             self.input_capture_enabled.store(false, Ordering::SeqCst);
+            self.engine_type = AudioEngineType::DirectHardware;
             self.deactivate_system_capture_streams();
+            let out_name = self.active_output_name();
             return (
                 false,
-                "System-Wide EQ: [OFF] (Direct Hardware Playback • App EQ active)".to_string(),
+                format!(
+                    "System-Wide EQ: [OFF] (Direct Hardware -> [{}] • App EQ active)",
+                    out_name
+                ),
             );
         }
 
+        // Before switching OS Default Output to Orchestria Audio, lock onto the currently connected
+        // physical output device (e.g. USB-C dongle DAC or headphones) and refresh its chip profile.
+        let best_out = self.active_output_name();
+        if !best_out.is_empty() && !crate::driver::is_virtual_audio_device_name(&best_out) {
+            self.selected_output_name = Some(best_out.clone());
+            let detected = super::hardware_detect::HardwareChipProfile::detect(Some(&best_out));
+            self.update_chip_profile(detected);
+        }
+
         self.input_capture_enabled.store(true, Ordering::SeqCst);
+        self.engine_type = AudioEngineType::PureRustIpc;
         if self.is_running.load(Ordering::SeqCst) {
             match self.activate_system_capture_streams() {
                 Ok(CaptureBackendKind::MacOsShmV2) => (
                     true,
-                    "System-Wide EQ: [ON] (Zero-Dot SHM Sound Engine Active)".to_string(),
+                    format!(
+                        "System-Wide EQ: [ON] (Zero-Dot SHM -> 64-Bit DSP -> [{}])",
+                        self.active_output_name()
+                    ),
                 ),
                 Ok(kind) => (
                     true,
-                    format!("System-Wide EQ: [ON] ({})", kind.label()),
+                    format!(
+                        "System-Wide EQ: [ON] ({} -> [{}])",
+                        kind.label(),
+                        self.active_output_name()
+                    ),
                 ),
                 Err(reason) => {
                     self.input_capture_enabled.store(false, Ordering::SeqCst);
+                    self.engine_type = AudioEngineType::DirectHardware;
                     self.deactivate_system_capture_streams();
                     (
                         false,
@@ -1058,6 +1089,17 @@ impl AudioStreamer {
     pub fn toggle_input_capture(&mut self) -> (bool, String) {
         let current = self.is_input_capture_enabled();
         self.set_input_capture(!current)
+    }
+
+    /// Toggles bidirectionally between `Orchestria System-Wide Sound Engine` (`PureRustIpc`)
+    /// and `Direct Hardware DAC` (`DirectHardware`) when the user presses `[E]`.
+    pub fn cycle_engine_mode(&mut self) -> (AudioEngineType, String) {
+        if !self.is_running.load(Ordering::SeqCst) {
+            let _ = self.start();
+        }
+        let target_system_wide = !self.is_input_capture_enabled();
+        let (_, msg) = self.set_input_capture(target_system_wide);
+        (self.engine_type, msg)
     }
 
     /// Hot-activates System-Wide EQ immediately (e.g. right after first-run driver installation).
@@ -1232,6 +1274,59 @@ impl AudioStreamer {
         }
     }
 
+    pub fn dsp_load_percent(&self) -> f32 {
+        if !self.is_running.load(Ordering::SeqCst) || self.is_paused.load(Ordering::SeqCst) {
+            return 0.0;
+        }
+        (self.dsp_load_per_mille.load(Ordering::Relaxed) as f32 / 10.0).clamp(0.1, 100.0)
+    }
+
+    pub fn total_streamed_frames(&self) -> u64 {
+        let ipc_frames = self
+            .ipc_server
+            .as_ref()
+            .map(|s| s.telemetry().total_frames)
+            .unwrap_or(0);
+        ipc_frames.saturating_add(self.captured_frames_total.load(Ordering::Relaxed))
+    }
+
+    /// Queries the live OS Default Audio Output name dynamically across macOS, Linux, and Windows.
+    pub fn live_os_default_output_name(&self) -> String {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(id) = get_macos_default_output_id() {
+                if let Some(name) = crate::driver::get_device_name(id) {
+                    if !name.trim().is_empty() {
+                        return name;
+                    }
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(sink) = crate::driver::linux::get_default_sink() {
+                if !sink.trim().is_empty() {
+                    return sink;
+                }
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if !crate::driver::windows::is_headless_windows_ci() {
+                if let Some(dev) = crate::driver::windows::get_default_playback_device_name() {
+                    if !dev.trim().is_empty() {
+                        return dev;
+                    }
+                }
+            }
+        }
+        if self.is_input_capture_enabled() {
+            "Orchestria Audio".to_string()
+        } else {
+            self.active_output_name()
+        }
+    }
+
     pub fn active_sample_rate(&self) -> f32 {
         if let Ok(pipe) = self.pipeline.lock() {
             pipe.sample_rate
@@ -1291,6 +1386,11 @@ impl AudioStreamer {
             }
         }
 
+        if let Ok(dev_name) = out_dev.name() {
+            let detected = super::hardware_detect::HardwareChipProfile::detect(Some(&dev_name));
+            self.update_chip_profile(detected);
+        }
+
         let sample_rate = out_dev
             .default_output_config()
             .map(|c| c.sample_rate().0)
@@ -1326,11 +1426,13 @@ impl AudioStreamer {
         let is_paused_out = Arc::clone(&self.is_paused);
         let player_arc = Arc::clone(&self.player);
         let last_cb_arc = Arc::clone(&self.last_callback_epoch_ms);
+        let dsp_load_arc = Arc::clone(&self.dsp_load_per_mille);
         let needs_rebuild_out = Arc::clone(&self.needs_rebuild);
         let sys_vol_arc = Arc::clone(&self.system_volume_bits);
         let out_name = out_dev.name().unwrap_or_default().to_lowercase();
         let out_is_external_dac = (out_name.contains("ibasso") || out_name.contains("dac") || out_name.contains("pro"))
             && !out_name.contains("headphone");
+        let callback_sr = sample_rate.max(8000) as f64;
         let mut smoothed_gain = 1.0f32;
 
         let mut sample_idx: u64 = 0;
@@ -1358,6 +1460,7 @@ impl AudioStreamer {
                         return;
                     }
 
+                    let cb_t0 = std::time::Instant::now();
                     let n_frames = (data.len() / 2).min(2048);
                     let mut scratch = [[0.0f32, 0.0f32]; 2048];
 
@@ -1443,6 +1546,15 @@ impl AudioStreamer {
                         data[i * 2 + 1] = scratch[i][1];
                     }
 
+                    let budget_secs = (n_frames.max(1) as f64) / callback_sr;
+                    if budget_secs > 0.0 {
+                        let used_per_mille = ((cb_t0.elapsed().as_secs_f64() / budget_secs) * 1000.0)
+                            .clamp(2.0, 1000.0) as u32;
+                        let prev = dsp_load_arc.load(Ordering::Relaxed);
+                        let smoothed = ((prev * 7) + used_per_mille) / 8;
+                        dsp_load_arc.store(smoothed.max(1), Ordering::Relaxed);
+                    }
+
                     last_cb_arc.store(
                         std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -1468,11 +1580,14 @@ impl AudioStreamer {
 
         // Strictly honor `input_capture_enabled`: ONLY switch OS default output & capture when armed.
         if self.is_input_capture_enabled() {
+            self.engine_type = AudioEngineType::PureRustIpc;
             if self.activate_system_capture_streams().is_err() {
                 self.input_capture_enabled.store(false, Ordering::SeqCst);
+                self.engine_type = AudioEngineType::DirectHardware;
                 self.deactivate_system_capture_streams();
             }
         } else {
+            self.engine_type = AudioEngineType::DirectHardware;
             self.active_capture_backend = CaptureBackendKind::None;
             // Ensure macOS isn't left stranded on an unread virtual device from an earlier session.
             #[cfg(target_os = "macos")]
@@ -1817,9 +1932,20 @@ mod tests {
 
         let (disabled, _) = streamer.set_input_capture(false);
         assert!(!disabled);
+        assert_eq!(streamer.engine_type, AudioEngineType::DirectHardware);
         assert!(streamer.input_stream.is_none());
         assert!(streamer.shm_capture.is_none());
         assert_eq!(streamer.active_capture_backend(), CaptureBackendKind::None);
+
+        // Verify [E] cycle_engine_mode() switches back and forth bidirectionally
+        let (eng_on, _) = streamer.cycle_engine_mode();
+        if has_capture_driver {
+            assert_eq!(eng_on, AudioEngineType::PureRustIpc);
+            assert!(streamer.is_input_capture_enabled());
+        }
+        let (eng_off, _) = streamer.cycle_engine_mode();
+        assert_eq!(eng_off, AudioEngineType::DirectHardware);
+        assert!(!streamer.is_input_capture_enabled());
 
         streamer.terminate();
         if let Some(id) = original_output {
