@@ -1,5 +1,5 @@
-#ifndef OMNIRIP_AUDIO_H
-#define OMNIRIP_AUDIO_H
+#ifndef ORCHESTRIA_AUDIO_H
+#define ORCHESTRIA_AUDIO_H
 
 #include <CoreAudio/AudioHardware.h>
 #include <CoreAudio/AudioServerPlugIn.h>
@@ -9,20 +9,20 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
-// OmniRip Audio Constants (v2 Output-Only Zero-Dot HAL)
-#define kOmniRip_Device_UID "com.omnirip.driver.audio"
-#define kOmniRip_Device_Model_UID "com.omnirip.driver.audio.model"
-#define kOmniRip_Box_UID "com.omnirip.driver.audio.box"
-#define kOmniRip_Device_Name "OmniRip Audio"
-#define kOmniRip_Manufacturer "OmniRip Audio Technologies"
+// Orchestria Audio Constants (v2 Output-Only Zero-Dot HAL)
+#define kOrchestria_Device_UID "com.orchestria.driver.audio"
+#define kOrchestria_Device_Model_UID "com.orchestria.driver.audio.model"
+#define kOrchestria_Box_UID "com.orchestria.driver.audio.box"
+#define kOrchestria_Device_Name "Orchestria Audio"
+#define kOrchestria_Manufacturer "Orchestria Audio Technologies"
 
-#define kOmniRip_RingBufferFrames 32768u
-#define kOmniRip_Channels 2u
+#define kOrchestria_RingBufferFrames 32768u
+#define kOrchestria_Channels 2u
 
 // POSIX Shared Memory Ring Contract (must match src/dsp/shm_capture.rs)
-#define kOmniRip_ShmName "/omnirip_audio_shm"
-#define kOmniRip_ShmMagic 0x4F4D5348u // "OMSH"
-#define kOmniRip_ShmVersion 2u
+#define kOrchestria_ShmName "/orchestria_audio_shm"
+#define kOrchestria_ShmMagic 0x4F4D5348u // "OMSH"
+#define kOrchestria_ShmVersion 2u
 
 // Object IDs (strictly Output-Only: zero Input stream objects so macOS never flags a mic)
 enum {
@@ -34,8 +34,8 @@ enum {
     kObjectID_Box = 7
 };
 
-// Cacheline-aligned shared memory ring buffer between coreaudiod (sole writer) and omnirip (O_RDONLY consumer).
-typedef struct __attribute__((aligned(64))) OmniRipShmRing {
+// Cacheline-aligned shared memory ring buffer between coreaudiod (sole writer) and orchestria (O_RDONLY consumer).
+typedef struct __attribute__((aligned(64))) OrchestriaShmRing {
     uint32_t         magic;
     uint32_t         version;
     uint32_t         channels;
@@ -47,14 +47,14 @@ typedef struct __attribute__((aligned(64))) OmniRipShmRing {
     _Atomic uint64_t write_cursor;
     _Atomic uint64_t heartbeat_ns;
     uint8_t          _pad[16];
-    float            frames[kOmniRip_RingBufferFrames * kOmniRip_Channels];
-} OmniRipShmRing;
+    float            frames[kOrchestria_RingBufferFrames * kOrchestria_Channels];
+} OrchestriaShmRing;
 
-_Static_assert(sizeof(OmniRipShmRing) == 64 + (kOmniRip_RingBufferFrames * kOmniRip_Channels * sizeof(float)),
-               "OmniRipShmRing header must be exactly 64 bytes followed by interleaved f32 stereo frames");
+_Static_assert(sizeof(OrchestriaShmRing) == 64 + (kOrchestria_RingBufferFrames * kOrchestria_Channels * sizeof(float)),
+               "OrchestriaShmRing header must be exactly 64 bytes followed by interleaved f32 stereo frames");
 
 // Global Driver State
-typedef struct OmniRipDriverState {
+typedef struct OrchestriaDriverState {
     AudioServerPlugInHostRef host;
     UInt32 ref_count;
 
@@ -75,7 +75,7 @@ typedef struct OmniRipDriverState {
 
     // Shared memory ring mapped inside coreaudiod
     int shm_fd;
-    OmniRipShmRing* shm_ring;
-} OmniRipDriverState;
+    OrchestriaShmRing* shm_ring;
+} OrchestriaDriverState;
 
-#endif // OMNIRIP_AUDIO_H
+#endif // ORCHESTRIA_AUDIO_H

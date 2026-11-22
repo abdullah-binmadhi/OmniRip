@@ -35,7 +35,7 @@ form: client=<APP_KEY>&format=json&meta=recordings&meta=releases
   block (silent metadata loss — verified against the live API).
 - **API key:** free registration at `acoustid.org/new-application`; supplied via env
   `ACOUSTID_API_KEY` (config stores only the env-var name — NFR-6). A gitignored `.env`
-  (`ACOUSTID_API_KEY=…`, path override `OMNIRIP_ENV_FILE`) is loaded at startup for GUI
+  (`ACOUSTID_API_KEY=…`, path override `ORCHESTRIA_ENV_FILE`) is loaded at startup for GUI
   launches that do not inherit shell exports; real environment variables always win (docs/01 D20).
 - **Rate limit:** ≤ 3 requests/s (AC-9). Enforced by a token-bucket in `services/acoustid.py`
   plus the single `q_identify` worker (docs/02 §5.1). On HTTP 429 or `error` response about

@@ -1,4 +1,4 @@
-//! OmniRip Cross-Platform Audio Driver Management, System Loopback Binding & OS Elevation.
+//! Orchestria Cross-Platform Audio Driver Management, System Loopback Binding & OS Elevation.
 
 pub mod bundle;
 pub mod linux;
@@ -26,10 +26,11 @@ pub struct SystemAudioHealth {
     pub default_output_name: Option<String>,
 }
 
-/// Identifies virtual loopback/cable endpoints so OmniRip never mistakes them for physical speakers/DACs.
+/// Identifies virtual loopback/cable endpoints so Orchestria never mistakes them for physical speakers/DACs.
 pub fn is_virtual_audio_device_name(name: &str) -> bool {
     let low = name.to_lowercase();
-    low.contains("omnirip")
+    low.contains("orchestria")
+        || low.contains("omnirip")
         || low.contains("blackhole")
         || low.contains("soundflower")
         || low.contains("loopback")
@@ -54,7 +55,7 @@ mod macos_driver {
     use std::thread;
     use std::time::Duration;
 
-    const INSTALLED_DRIVER_PATH: &str = "/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver";
+    const INSTALLED_DRIVER_PATH: &str = "/Library/Audio/Plug-Ins/HAL/OrchestriaAudio.driver";
 
     #[repr(C)]
     #[derive(Debug, Copy, Clone)]
@@ -122,12 +123,12 @@ mod macos_driver {
     pub struct DriverStatus {
         pub installed: bool,
         pub loaded: bool,
-        pub omnirip_device_id: Option<u32>,
+        pub orchestria_device_id: Option<u32>,
         pub current_default_device_id: Option<u32>,
         pub current_default_device_name: Option<String>,
     }
 
-    /// Returns the CFBundleVersion of `/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver`, if installed.
+    /// Returns the CFBundleVersion of `/Library/Audio/Plug-Ins/HAL/OrchestriaAudio.driver`, if installed.
     pub fn installed_driver_version() -> Option<u32> {
         let p = Path::new(INSTALLED_DRIVER_PATH);
         if !p.exists() {
@@ -136,18 +137,18 @@ mod macos_driver {
         read_bundle_version(p).or(Some(1))
     }
 
-    /// Check the current status of OmniRipAudio.driver and CoreAudio routing.
+    /// Check the current status of OrchestriaAudio.driver and CoreAudio routing.
     pub fn check_status() -> DriverStatus {
         let installed = Path::new(INSTALLED_DRIVER_PATH).exists();
-        let omnirip_id = get_device_id_by_name("OmniRip Audio");
-        let loaded = omnirip_id.is_some();
+        let orchestria_id = get_device_id_by_name("Orchestria Audio");
+        let loaded = orchestria_id.is_some();
         let default_id = get_default_output_device_id();
         let default_name = default_id.and_then(get_device_name);
 
         DriverStatus {
             installed,
             loaded,
-            omnirip_device_id: omnirip_id,
+            orchestria_device_id: orchestria_id,
             current_default_device_id: default_id,
             current_default_device_name: default_name,
         }
@@ -522,7 +523,7 @@ mod macos_driver {
         }
     }
 
-    /// Locates or compiles `OmniRipAudio.driver` cleanly as the current user BEFORE any elevation.
+    /// Locates or compiles `OrchestriaAudio.driver` cleanly as the current user BEFORE any elevation.
     fn prepare_driver_bundle() -> Result<PathBuf, String> {
         let exe_dir = std::env::current_exe()
             .ok()
@@ -537,14 +538,14 @@ mod macos_driver {
                     .arg("-C")
                     .arg(&dir)
                     .status()
-                    .map_err(|e| format!("Failed to run make for OmniRipAudio.driver: {}", e))?;
+                    .map_err(|e| format!("Failed to run make for OrchestriaAudio.driver: {}", e))?;
                 if !status.success() {
-                    return Err("Failed to compile OmniRipAudio.driver bundle.".to_string());
+                    return Err("Failed to compile OrchestriaAudio.driver bundle.".to_string());
                 }
-                Ok(dir.join("OmniRipAudio.driver"))
+                Ok(dir.join("OrchestriaAudio.driver"))
             }
             None => Err(
-                "OmniRipAudio.driver was not found next to omnirip, in Homebrew pkgshare, or in a source checkout."
+                "OrchestriaAudio.driver was not found next to orchestria, in Homebrew pkgshare, or in a source checkout."
                     .to_string(),
             ),
         }
@@ -553,21 +554,23 @@ mod macos_driver {
     fn build_elevated_install_shell_cmd(bundle_path: &Path) -> String {
         let quoted_src = shell_single_quote(&bundle_path.to_string_lossy());
         let quoted_dst = shell_single_quote(INSTALLED_DRIVER_PATH);
+        let legacy_dst = shell_single_quote("/Library/Audio/Plug-Ins/HAL/OmniRipAudio.driver");
         format!(
-            "rm -rf {dst} && cp -R {src} {dst} && chown -R root:wheel {dst} && (xattr -dr com.apple.quarantine {dst} 2>/dev/null || true) && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
+            "rm -rf {dst} {legacy} && cp -R {src} {dst} && chown -R root:wheel {dst} && (xattr -dr com.apple.quarantine {dst} 2>/dev/null || true) && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
             src = quoted_src,
-            dst = quoted_dst
+            dst = quoted_dst,
+            legacy = legacy_dst
         )
     }
 
     fn wait_for_driver_registration() -> DriverInstallOutcome {
         for _ in 0..12 {
             thread::sleep(Duration::from_millis(500));
-            let loaded = get_device_id_by_name("OmniRip Audio").is_some();
+            let loaded = get_device_id_by_name("Orchestria Audio").is_some();
             let ver = installed_driver_version().unwrap_or(1);
             if loaded && ver >= EXPECTED_DRIVER_BUNDLE_VERSION {
                 return DriverInstallOutcome::ActivatedImmediate(
-                    "OmniRip Audio v2 (Zero-Dot HAL) installed and active.".to_string(),
+                    "Orchestria Audio v2 (Zero-Dot HAL) installed and active.".to_string(),
                 );
             }
         }
@@ -577,7 +580,7 @@ mod macos_driver {
         )
     }
 
-    /// Installs OmniRipAudio.driver into `/Library/Audio/Plug-Ins/HAL/`.
+    /// Installs OrchestriaAudio.driver into `/Library/Audio/Plug-Ins/HAL/`.
     /// Automatically uses Touch ID / Admin GUI dialog if invoked without a TTY (e.g. `curl | bash`).
     pub fn install_driver() -> Result<(), Box<dyn std::error::Error>> {
         let is_root = unsafe { geteuid() == 0 };
@@ -587,7 +590,7 @@ mod macos_driver {
             match install_driver_gui() {
                 Ok(DriverInstallOutcome::ActivatedImmediate(msg))
                 | Ok(DriverInstallOutcome::RebootRequired(msg)) => {
-                    println!("[OmniRip] {}", msg);
+                    println!("[Orchestria] {}", msg);
                     return Ok(());
                 }
                 Err(e) => return Err(e.into()),
@@ -596,7 +599,7 @@ mod macos_driver {
 
         let bundle_path = prepare_driver_bundle()?;
         let shell_cmd = build_elevated_install_shell_cmd(&bundle_path);
-        println!("[OmniRip] Installing OmniRipAudio.driver v{} to /Library/Audio/Plug-Ins/HAL/...", EXPECTED_DRIVER_BUNDLE_VERSION);
+        println!("[Orchestria] Installing OrchestriaAudio.driver v{} to /Library/Audio/Plug-Ins/HAL/...", EXPECTED_DRIVER_BUNDLE_VERSION);
 
         let status = if is_root {
             Command::new("sh").args(["-c", &shell_cmd]).status()?
@@ -605,23 +608,23 @@ mod macos_driver {
         };
 
         if !status.success() {
-            return Err("Failed to install OmniRipAudio.driver to /Library/Audio/Plug-Ins/HAL/.".into());
+            return Err("Failed to install OrchestriaAudio.driver to /Library/Audio/Plug-Ins/HAL/.".into());
         }
 
         match wait_for_driver_registration() {
             DriverInstallOutcome::ActivatedImmediate(msg)
             | DriverInstallOutcome::RebootRequired(msg) => {
-                println!("[OmniRip] {}", msg);
+                println!("[Orchestria] {}", msg);
                 Ok(())
             }
         }
     }
 
-    /// Install OmniRipAudio.driver via macOS graphical authorization dialog (Touch ID / Apple Watch / Password).
+    /// Install OrchestriaAudio.driver via macOS graphical authorization dialog (Touch ID / Apple Watch / Password).
     pub fn install_driver_gui() -> Result<DriverInstallOutcome, String> {
         let bundle_path = prepare_driver_bundle()?;
         let shell_cmd = build_elevated_install_shell_cmd(&bundle_path);
-        let prompt = "OmniRip needs administrator permission to install the OmniRip Sound Engine driver into macOS Audio (/Library/Audio/Plug-Ins/HAL) for zero-dot system-wide EQ.";
+        let prompt = "Orchestria needs administrator permission to install the Orchestria Sound Engine driver into macOS Audio (/Library/Audio/Plug-Ins/HAL) for zero-dot system-wide EQ.";
         let script = format!(
             "do shell script \"{}\" with prompt \"{}\" with administrator privileges",
             applescript_escape(&shell_cmd),
@@ -641,20 +644,20 @@ mod macos_driver {
         }
     }
 
-    /// Uninstall OmniRipAudio.driver via macOS graphical authorization dialog (restores physical output first).
+    /// Uninstall OrchestriaAudio.driver via macOS graphical authorization dialog (restores physical output first).
     pub fn uninstall_driver_gui() -> Result<String, String> {
         if let Some(phys_id) = first_physical_output_device_id() {
             let _ = set_default_output_device_id(phys_id);
         }
         if !Path::new(INSTALLED_DRIVER_PATH).exists() {
-            return Ok("OmniRip Audio driver is already uninstalled.".to_string());
+            return Ok("Orchestria Audio driver is already uninstalled.".to_string());
         }
         let quoted_dst = shell_single_quote(INSTALLED_DRIVER_PATH);
         let shell_cmd = format!(
             "rm -rf {} && (launchctl kickstart -k system/com.apple.audio.coreaudiod || killall coreaudiod)",
             quoted_dst
         );
-        let prompt = "OmniRip needs administrator permission to remove the OmniRip Sound Engine driver from macOS Audio.";
+        let prompt = "Orchestria needs administrator permission to remove the Orchestria Sound Engine driver from macOS Audio.";
         let script = format!(
             "do shell script \"{}\" with prompt \"{}\" with administrator privileges",
             applescript_escape(&shell_cmd),
@@ -667,20 +670,20 @@ mod macos_driver {
             .map_err(|e| format!("Failed to launch authorization dialog: {}", e))?;
 
         if output.status.success() {
-            Ok("OmniRip Audio driver removed cleanly.".to_string())
+            Ok("Orchestria Audio driver removed cleanly.".to_string())
         } else {
             let err = String::from_utf8_lossy(&output.stderr);
             Err(format!("Uninstall authorization canceled or failed: {}", err.trim()))
         }
     }
 
-    /// Uninstall OmniRipAudio.driver from `/Library/Audio/Plug-Ins/HAL/`.
+    /// Uninstall OrchestriaAudio.driver from `/Library/Audio/Plug-Ins/HAL/`.
     pub fn uninstall_driver() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(phys_id) = first_physical_output_device_id() {
             let _ = set_default_output_device_id(phys_id);
         }
         if !Path::new(INSTALLED_DRIVER_PATH).exists() {
-            println!("[OmniRip] Driver is not installed.");
+            println!("[Orchestria] Driver is not installed.");
             return Ok(());
         }
 
@@ -688,7 +691,7 @@ mod macos_driver {
         let has_tty = unsafe { isatty(0) == 1 };
         if !is_root && !has_tty {
             let msg = uninstall_driver_gui()?;
-            println!("[OmniRip] {}", msg);
+            println!("[Orchestria] {}", msg);
             return Ok(());
         }
 
@@ -703,9 +706,9 @@ mod macos_driver {
             Command::new("sudo").args(["sh", "-c", &shell_cmd]).status()?
         };
         if !status.success() {
-            return Err("Failed to remove OmniRipAudio.driver.".into());
+            return Err("Failed to remove OrchestriaAudio.driver.".into());
         }
-        println!("[OmniRip] Driver uninstalled cleanly.");
+        println!("[Orchestria] Driver uninstalled cleanly.");
         Ok(())
     }
 
@@ -733,7 +736,7 @@ mod fallback_driver {
     pub struct DriverStatus {
         pub installed: bool,
         pub loaded: bool,
-        pub omnirip_device_id: Option<u32>,
+        pub orchestria_device_id: Option<u32>,
         pub current_default_device_id: Option<u32>,
         pub current_default_device_name: Option<String>,
     }
@@ -746,7 +749,7 @@ mod fallback_driver {
             return DriverStatus {
                 installed: true,
                 loaded,
-                omnirip_device_id: None,
+                orchestria_device_id: None,
                 current_default_device_id: None,
                 current_default_device_name: default_name,
             };
@@ -758,7 +761,7 @@ mod fallback_driver {
             return DriverStatus {
                 installed: present,
                 loaded: present,
-                omnirip_device_id: None,
+                orchestria_device_id: None,
                 current_default_device_id: None,
                 current_default_device_name: default_name,
             };
@@ -767,7 +770,7 @@ mod fallback_driver {
         DriverStatus {
             installed: false,
             loaded: false,
-            omnirip_device_id: None,
+            orchestria_device_id: None,
             current_default_device_id: None,
             current_default_device_name: None,
         }
@@ -891,7 +894,7 @@ mod fallback_driver {
         match install_driver_gui() {
             Ok(DriverInstallOutcome::ActivatedImmediate(m))
             | Ok(DriverInstallOutcome::RebootRequired(m)) => {
-                println!("[OmniRip] {}", m);
+                println!("[Orchestria] {}", m);
                 Ok(())
             }
             Err(e) => Err(e.into()),
@@ -900,7 +903,7 @@ mod fallback_driver {
 
     pub fn uninstall_driver() -> Result<(), Box<dyn std::error::Error>> {
         let msg = uninstall_driver_gui()?;
-        println!("[OmniRip] {}", msg);
+        println!("[Orchestria] {}", msg);
         Ok(())
     }
 
@@ -933,7 +936,7 @@ mod tests {
 
     #[test]
     fn virtual_device_filter_rejects_loopbacks_and_keeps_bluetooth_dacs() {
-        assert!(is_virtual_audio_device_name("OmniRip Audio"));
+        assert!(is_virtual_audio_device_name("Orchestria Audio"));
         assert!(is_virtual_audio_device_name("BlackHole 2ch"));
         assert!(is_virtual_audio_device_name("CABLE Input (VB-Audio Virtual)"));
         assert!(!is_virtual_audio_device_name("AirPods Pro"));
@@ -993,7 +996,7 @@ pub fn run_driver_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>>
     match sub {
         "status" => {
             let health = check_system_audio_health();
-            println!("--- OmniRip Audio Driver Status ---");
+            println!("--- Orchestria Audio Driver Status ---");
             println!("Installed: {}", if health.driver_installed { "Yes" } else { "No" });
             println!("Loaded in OS Audio: {}", if health.driver_loaded { "Yes" } else { "No" });
             if let Some(v) = health.driver_version {
@@ -1016,7 +1019,7 @@ pub fn run_driver_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>>
         "install-gui" => {
             match install_driver_gui() {
                 Ok(DriverInstallOutcome::ActivatedImmediate(msg))
-                | Ok(DriverInstallOutcome::RebootRequired(msg)) => println!("[OmniRip] {}", msg),
+                | Ok(DriverInstallOutcome::RebootRequired(msg)) => println!("[Orchestria] {}", msg),
                 Err(e) => return Err(e.into()),
             }
         }
@@ -1025,10 +1028,10 @@ pub fn run_driver_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>>
         }
         "uninstall-gui" => {
             let msg = uninstall_driver_gui()?;
-            println!("[OmniRip] {}", msg);
+            println!("[Orchestria] {}", msg);
         }
         _ => {
-            eprintln!("Usage: omnirip driver [status | install | install-gui | uninstall | uninstall-gui]");
+            eprintln!("Usage: orchestria driver [status | install | install-gui | uninstall | uninstall-gui]");
             std::process::exit(1);
         }
     }

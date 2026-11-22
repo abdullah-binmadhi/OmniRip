@@ -1,7 +1,7 @@
 //! Lock-free POSIX Shared Memory reader for the macOS Output-Only HAL v2 driver.
 //!
-//! Because `OmniRipAudio.driver` v2 exposes strictly an output stream and writes desktop
-//! PCM into `/omnirip_audio_shm`, OmniRip maps the ring buffer read-only (`O_RDONLY` /
+//! Because `OrchestriaAudio.driver` v2 exposes strictly an output stream and writes desktop
+//! PCM into `/orchestria_audio_shm`, Orchestria maps the ring buffer read-only (`O_RDONLY` /
 //! `PROT_READ`) and opens ZERO CoreAudio input streams — eliminating the macOS orange
 //! microphone indicator dot and microphone TCC prompt while System-Wide EQ is active.
 
@@ -11,15 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-pub const OMNIRIP_SHM_NAME: &str = "/omnirip_audio_shm";
-pub const OMNIRIP_SHM_MAGIC: u32 = 0x4F4D_5348; // "OMSH"
-pub const OMNIRIP_SHM_VERSION: u32 = 2;
-pub const OMNIRIP_SHM_FRAMES: usize = 32_768;
-pub const OMNIRIP_SHM_CHANNELS: usize = 2;
+pub const ORCHESTRIA_SHM_NAME: &str = "/orchestria_audio_shm";
+pub const ORCHESTRIA_SHM_MAGIC: u32 = 0x4F4D_5348; // "OMSH"
+pub const ORCHESTRIA_SHM_VERSION: u32 = 2;
+pub const ORCHESTRIA_SHM_FRAMES: usize = 32_768;
+pub const ORCHESTRIA_SHM_CHANNELS: usize = 2;
 
-/// Binary ABI shared with `drivers/omnirip_hal/OmniRipAudio.h` (`OmniRipShmRing`).
+/// Binary ABI shared with `drivers/orchestria_hal/OrchestriaAudio.h` (`OrchestriaShmRing`).
 #[repr(C, align(64))]
-pub struct OmniRipShmRing {
+pub struct OrchestriaShmRing {
     pub magic: u32,
     pub version: u32,
     pub channels: u32,
@@ -31,17 +31,17 @@ pub struct OmniRipShmRing {
     pub write_cursor: AtomicU64,
     pub heartbeat_ns: AtomicU64,
     pub _pad: [u8; 16],
-    pub frames: [[f32; 2]; OMNIRIP_SHM_FRAMES],
+    pub frames: [[f32; 2]; ORCHESTRIA_SHM_FRAMES],
 }
 
-impl OmniRipShmRing {
+impl OrchestriaShmRing {
     /// Creates an initialized ring buffer in memory for unit tests.
     pub fn new_boxed() -> Box<Self> {
         let mut ring = Box::new(Self {
-            magic: OMNIRIP_SHM_MAGIC,
-            version: OMNIRIP_SHM_VERSION,
-            channels: OMNIRIP_SHM_CHANNELS as u32,
-            capacity_frames: OMNIRIP_SHM_FRAMES as u32,
+            magic: ORCHESTRIA_SHM_MAGIC,
+            version: ORCHESTRIA_SHM_VERSION,
+            channels: ORCHESTRIA_SHM_CHANNELS as u32,
+            capacity_frames: ORCHESTRIA_SHM_FRAMES as u32,
             sample_rate_hz: AtomicU32::new(48_000),
             volume_bits: AtomicU32::new(1.0f32.to_bits()),
             is_muted: AtomicU32::new(0),
@@ -49,9 +49,9 @@ impl OmniRipShmRing {
             write_cursor: AtomicU64::new(0),
             heartbeat_ns: AtomicU64::new(0),
             _pad: [0u8; 16],
-            frames: [[0.0f32; 2]; OMNIRIP_SHM_FRAMES],
+            frames: [[0.0f32; 2]; ORCHESTRIA_SHM_FRAMES],
         });
-        ring.magic = OMNIRIP_SHM_MAGIC;
+        ring.magic = ORCHESTRIA_SHM_MAGIC;
         ring
     }
 }
@@ -83,7 +83,7 @@ mod posix_shm {
 
 /// Read-only consumer view over either a real POSIX SHM mapping or an in-memory test ring.
 pub struct ShmRingReader {
-    ptr: *const OmniRipShmRing,
+    ptr: *const OrchestriaShmRing,
     fd: i32,
     mapped_len: usize,
     read_cursor: u64,
@@ -92,18 +92,18 @@ pub struct ShmRingReader {
 unsafe impl Send for ShmRingReader {}
 
 impl ShmRingReader {
-    /// Opens `/omnirip_audio_shm` read-only and validates header magic/version.
+    /// Opens `/orchestria_audio_shm` read-only and validates header magic/version.
     #[cfg(unix)]
     pub fn open_default() -> Result<Self, String> {
         use std::ffi::CString;
-        let name = CString::new(OMNIRIP_SHM_NAME).map_err(|e| e.to_string())?;
+        let name = CString::new(ORCHESTRIA_SHM_NAME).map_err(|e| e.to_string())?;
         let fd = unsafe { posix_shm::shm_open(name.as_ptr(), posix_shm::O_RDONLY, 0) };
         if fd < 0 {
             let err = std::io::Error::last_os_error();
-            return Err(format!("shm_open({}) failed: {}", OMNIRIP_SHM_NAME, err));
+            return Err(format!("shm_open({}) failed: {}", ORCHESTRIA_SHM_NAME, err));
         }
 
-        let len = std::mem::size_of::<OmniRipShmRing>();
+        let len = std::mem::size_of::<OrchestriaShmRing>();
         let mapped = unsafe {
             posix_shm::mmap(
                 std::ptr::null_mut(),
@@ -119,15 +119,15 @@ impl ShmRingReader {
             unsafe {
                 posix_shm::close(fd);
             }
-            return Err(format!("mmap({}) failed: {}", OMNIRIP_SHM_NAME, err));
+            return Err(format!("mmap({}) failed: {}", ORCHESTRIA_SHM_NAME, err));
         }
 
-        let ring_ptr = mapped as *const OmniRipShmRing;
+        let ring_ptr = mapped as *const OrchestriaShmRing;
         let ring = unsafe { &*ring_ptr };
-        if ring.magic != OMNIRIP_SHM_MAGIC
-            || ring.version != OMNIRIP_SHM_VERSION
-            || ring.channels != OMNIRIP_SHM_CHANNELS as u32
-            || ring.capacity_frames != OMNIRIP_SHM_FRAMES as u32
+        if ring.magic != ORCHESTRIA_SHM_MAGIC
+            || ring.version != ORCHESTRIA_SHM_VERSION
+            || ring.channels != ORCHESTRIA_SHM_CHANNELS as u32
+            || ring.capacity_frames != ORCHESTRIA_SHM_FRAMES as u32
         {
             unsafe {
                 posix_shm::munmap(mapped, len);
@@ -158,22 +158,22 @@ impl ShmRingReader {
 
     /// Creates a reader bound to an existing in-memory ring (for deterministic unit tests).
     #[cfg(test)]
-    pub fn from_test_ring(ring: &OmniRipShmRing) -> Self {
+    pub fn from_test_ring(ring: &OrchestriaShmRing) -> Self {
         Self {
-            ptr: ring as *const OmniRipShmRing,
+            ptr: ring as *const OrchestriaShmRing,
             fd: -1,
             mapped_len: 0,
             read_cursor: 0,
         }
     }
 
-    /// Returns true if `/omnirip_audio_shm` exists, maps cleanly, and reports version 2.
+    /// Returns true if `/orchestria_audio_shm` exists, maps cleanly, and reports version 2.
     pub fn is_available() -> bool {
         Self::open_default().is_ok()
     }
 
     #[inline]
-    fn ring(&self) -> &OmniRipShmRing {
+    fn ring(&self) -> &OrchestriaShmRing {
         unsafe { &*self.ptr }
     }
 
@@ -200,7 +200,7 @@ impl ShmRingReader {
             return 0;
         }
         // Borrow disjoint `self.ptr` directly so `self.read_cursor` can be updated cleanly.
-        let ring: &OmniRipShmRing = unsafe { &*self.ptr };
+        let ring: &OrchestriaShmRing = unsafe { &*self.ptr };
         let wc = ring.write_cursor.load(Ordering::Acquire);
 
         if wc == self.read_cursor {
@@ -213,7 +213,7 @@ impl ShmRingReader {
             return 0;
         }
 
-        let cap = OMNIRIP_SHM_FRAMES as u64;
+        let cap = ORCHESTRIA_SHM_FRAMES as u64;
         let available = wc - self.read_cursor;
         if available > cap {
             // Overrun recovery: snap forward close to live edge.
@@ -231,8 +231,8 @@ impl ShmRingReader {
             return to_read;
         }
 
-        let start = (self.read_cursor as usize) % OMNIRIP_SHM_FRAMES;
-        let first = (OMNIRIP_SHM_FRAMES - start).min(to_read);
+        let start = (self.read_cursor as usize) % ORCHESTRIA_SHM_FRAMES;
+        let first = (ORCHESTRIA_SHM_FRAMES - start).min(to_read);
         let second = to_read - first;
 
         out[..first].copy_from_slice(&ring.frames[start..start + first]);
@@ -259,7 +259,7 @@ impl Drop for ShmRingReader {
     }
 }
 
-/// Active background thread bridging `/omnirip_audio_shm` into `ServoWriter` (zero CoreAudio input).
+/// Active background thread bridging `/orchestria_audio_shm` into `ServoWriter` (zero CoreAudio input).
 pub struct ShmCaptureHandle {
     stop_flag: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
@@ -267,7 +267,7 @@ pub struct ShmCaptureHandle {
 
 impl ShmCaptureHandle {
     /// Starts the zero-dot POSIX SHM reader thread.
-    /// If `/omnirip_audio_shm` does not exist yet (e.g. `coreaudiod` is about to initialize the v2 HAL
+    /// If `/orchestria_audio_shm` does not exist yet (e.g. `coreaudiod` is about to initialize the v2 HAL
     /// plugin on the first audio cycle), `wait_for_shm` lets the thread poll until it appears without
     /// ever opening a CoreAudio input stream.
     pub fn start(
@@ -287,7 +287,7 @@ impl ShmCaptureHandle {
         let stop_clone = Arc::clone(&stop_flag);
 
         let handle = thread::Builder::new()
-            .name("omnirip-shm-reader".to_string())
+            .name("orchestria-shm-reader".to_string())
             .spawn(move || {
                 let mut shm_opt = initial_shm;
                 let mut scratch = [[0.0f32; 2]; 1024];
@@ -363,20 +363,20 @@ mod tests {
 
     #[test]
     fn shm_ring_abi_matches_c_header() {
-        assert_eq!(std::mem::align_of::<OmniRipShmRing>(), 64);
+        assert_eq!(std::mem::align_of::<OrchestriaShmRing>(), 64);
         assert_eq!(
-            std::mem::size_of::<OmniRipShmRing>(),
-            64 + OMNIRIP_SHM_FRAMES * OMNIRIP_SHM_CHANNELS * std::mem::size_of::<f32>()
+            std::mem::size_of::<OrchestriaShmRing>(),
+            64 + ORCHESTRIA_SHM_FRAMES * ORCHESTRIA_SHM_CHANNELS * std::mem::size_of::<f32>()
         );
     }
 
     #[test]
     fn shm_reader_reads_wraparound_and_recovers_from_overrun() {
-        let mut ring = OmniRipShmRing::new_boxed();
+        let mut ring = OrchestriaShmRing::new_boxed();
         // Write across ring boundary: start at capacity - 4, write 8 frames.
-        let start = OMNIRIP_SHM_FRAMES - 4;
+        let start = ORCHESTRIA_SHM_FRAMES - 4;
         for i in 0..8 {
-            let idx = (start + i) % OMNIRIP_SHM_FRAMES;
+            let idx = (start + i) % ORCHESTRIA_SHM_FRAMES;
             ring.frames[idx] = [(i + 1) as f32 * 0.1, -(i as f32) * 0.1];
         }
         ring.write_cursor.store((start + 8) as u64, Ordering::Release);
@@ -390,9 +390,9 @@ mod tests {
         assert!((out[0][0] - 0.1).abs() < 1e-6);
         assert!((out[7][0] - 0.8).abs() < 1e-6);
 
-        // Simulate severe writer overrun (> OMNIRIP_SHM_FRAMES ahead).
-        let huge_cursor = (OMNIRIP_SHM_FRAMES as u64) * 3;
-        ring.frames[(huge_cursor as usize - 1) % OMNIRIP_SHM_FRAMES] = [0.75, -0.75];
+        // Simulate severe writer overrun (> ORCHESTRIA_SHM_FRAMES ahead).
+        let huge_cursor = (ORCHESTRIA_SHM_FRAMES as u64) * 3;
+        ring.frames[(huge_cursor as usize - 1) % ORCHESTRIA_SHM_FRAMES] = [0.75, -0.75];
         ring.write_cursor.store(huge_cursor, Ordering::Release);
 
         let mut overrun_buf = [[0.0f32; 2]; 1024];
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn shm_reader_emits_zeros_when_muted_and_reports_volume() {
-        let mut ring = OmniRipShmRing::new_boxed();
+        let mut ring = OrchestriaShmRing::new_boxed();
         ring.frames[0] = [0.5, 0.5];
         ring.frames[1] = [0.6, 0.6];
         ring.is_muted.store(1, Ordering::Relaxed);

@@ -1,8 +1,8 @@
 [package]
-name = "omnirip"
+name = "orchestria"
 version = "0.2.0"
 edition = "2021"
-authors = ["OmniRip Team"]
+authors = ["Orchestria Team"]
 description = "Audiophile Studio System EQ & Mastering Engine in Rust"
 
 [dependencies]

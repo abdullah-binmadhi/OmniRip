@@ -1,4 +1,4 @@
-//! Soulseek / Nicotine+ Account Discovery, Switcher & Candidate Modal for OmniRip.
+//! Soulseek / Nicotine+ Account Discovery, Switcher & Candidate Modal for Orchestria.
 //! Automatically scans the local device for saved Soulseek accounts, presents interactive
 //! account switching, provides empty-state guidance for new users, and supports manual login.
 
@@ -180,7 +180,7 @@ impl NicotineModal {
                         let acc = DiscoveredAccount {
                             username: u,
                             password: if p.is_empty() { None } else { Some(p) },
-                            source: "Manual Entry (OmniRip Config)".to_string(),
+                            source: "Manual Entry (Orchestria Config)".to_string(),
                             config_path: None,
                             is_active: true,
                         };
@@ -330,7 +330,7 @@ impl NicotineModal {
                 Line::from(Span::styled("  2. Or press [M] to enter your Soulseek username and password manually.", Style::default().fg(Color::Yellow))),
                 Line::from(Span::styled("  3. Or press [R] to re-scan storage after logging into your client.", Style::default().fg(Color::Gray))),
                 Line::from(""),
-                Line::from(Span::styled("  (OmniRip automatically saves your active credentials to ~/.config/omnirip/soulseek.ini)", Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled("  (Orchestria automatically saves your active credentials to ~/.config/orchestria/soulseek.ini)", Style::default().fg(Color::DarkGray))),
             ];
             let guidance_p = Paragraph::new(guidance);
             frame.render_widget(guidance_p, layout[1]);
@@ -452,7 +452,7 @@ impl NicotineModal {
 
         let note_p = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled(" • Persists to ~/.config/omnirip/soulseek.ini and syncs with Nicotine+", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(" • Persists to ~/.config/orchestria/soulseek.ini and syncs with Nicotine+", Style::default().fg(Color::DarkGray))),
             Line::from(Span::styled(" • slskd internal API keys are automatically generated (no manual setup required)", Style::default().fg(Color::DarkGray))),
             Line::from(Span::styled(" • Live authentication automatically verifies your password against vps.slsknet.org", Style::default().fg(Color::DarkGray))),
         ]);

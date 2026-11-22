@@ -1,4 +1,4 @@
-//! Universal Audio Metadata Tagger for OmniRip using Lofty.
+//! Universal Audio Metadata Tagger for Orchestria using Lofty.
 //! Supports FLAC, MP3, OPUS, OGG, M4A, WAV, and AIFF.
 
 use lofty::config::WriteOptions;

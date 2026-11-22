@@ -2,7 +2,7 @@
 //!
 //! Resolves Spotify, Apple Music, YouTube Music, and plain-text song queries
 //! to high-bitrate Opus/AAC audio streams using zero-auth public lookups,
-//! caching resolved video mappings locally in `~/.config/omnirip/stream_cache.json`
+//! caching resolved video mappings locally in `~/.config/orchestria/stream_cache.json`
 //! for instant sub-millisecond replay.
 
 use serde::{Deserialize, Serialize};
@@ -94,9 +94,9 @@ pub struct StreamCacheStore {
 impl StreamCacheStore {
     pub fn cache_file_path() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("omnirip").join("stream_cache.json")
+            PathBuf::from(home).join(".config").join("orchestria").join("stream_cache.json")
         } else {
-            PathBuf::from(".config/omnirip/stream_cache.json")
+            PathBuf::from(".config/orchestria/stream_cache.json")
         }
     }
 
@@ -177,7 +177,7 @@ impl StreamResolver {
         let temp_dir = std::env::temp_dir();
         let safe_name = crate::harvest::yt_dlp::sanitize_filename(&query_key);
         for ext in &["flac", "opus", "webm", "m4a", "mp3"] {
-            let candidate = temp_dir.join(format!("omnirip_stream_{}.{}", safe_name, ext));
+            let candidate = temp_dir.join(format!("orchestria_stream_{}.{}", safe_name, ext));
             if candidate.exists() {
                 if let Ok(meta) = fs::metadata(&candidate) {
                     if meta.len() > 50_000 {
@@ -217,7 +217,7 @@ impl StreamResolver {
         let safe_name = crate::harvest::yt_dlp::sanitize_filename(&query_key);
 
         // Tier 1 & 2 Probe: Check local stream cache or downloads for verified FLAC
-        let flac_file = temp_dir.join(format!("omnirip_stream_{}.flac", safe_name));
+        let flac_file = temp_dir.join(format!("orchestria_stream_{}.flac", safe_name));
         if flac_file.exists() {
             if let Ok(meta) = fs::metadata(&flac_file) {
                 if meta.len() > 500_000 {
@@ -233,7 +233,7 @@ impl StreamResolver {
         }
 
         // Tier 3 Probe: Check for local 320k MP3
-        let mp3_file = temp_dir.join(format!("omnirip_stream_{}.mp3", safe_name));
+        let mp3_file = temp_dir.join(format!("orchestria_stream_{}.mp3", safe_name));
         if mp3_file.exists() {
             if let Ok(meta) = fs::metadata(&mp3_file) {
                 if meta.len() > 200_000 {
@@ -245,7 +245,7 @@ impl StreamResolver {
         // Tier 4 Probe: Check for cached 160k Opus / M4A stream
         // Check for cached native streams (opus, webm, m4a, mp3, flac)
         for ext in &["opus", "webm", "m4a", "mp3", "flac"] {
-            let cached_file = temp_dir.join(format!("omnirip_stream_{}.{}", safe_name, ext));
+            let cached_file = temp_dir.join(format!("orchestria_stream_{}.{}", safe_name, ext));
             if cached_file.exists() {
                 if let Ok(meta) = fs::metadata(&cached_file) {
                     if meta.len() > 100_000 {
@@ -286,7 +286,7 @@ impl StreamResolver {
             format!("ytsearch1:{}", query.trim())
         };
 
-        let output_template = temp_dir.join(format!("omnirip_stream_{}.%(ext)s", safe_name));
+        let output_template = temp_dir.join(format!("orchestria_stream_{}.%(ext)s", safe_name));
 
         let execute_ytdlp = |q: &str| -> Result<std::process::Output, String> {
             let mut cmd = Command::new("yt-dlp");
@@ -296,7 +296,7 @@ impl StreamResolver {
                 "-N", "16",
                 "--concurrent-fragments", "16",
                 "--buffer-size", "64K",
-                "-o", output_template.to_str().unwrap_or("/tmp/omnirip_stream.%(ext)s"),
+                "-o", output_template.to_str().unwrap_or("/tmp/orchestria_stream.%(ext)s"),
             ]);
             if let Some(zen_profile) = crate::harvest::library_sync::LibrarySyncEngine::detect_zen_browser_profiles() {
                 cmd.args(["--cookies-from-browser", &format!("firefox:{}", zen_profile.to_string_lossy())]);
@@ -324,7 +324,7 @@ impl StreamResolver {
 
         let mut resolved_file = None;
         for ext in &["opus", "webm", "m4a", "ogg", "mp3", "flac"] {
-            let candidate = temp_dir.join(format!("omnirip_stream_{}.{}", safe_name, ext));
+            let candidate = temp_dir.join(format!("orchestria_stream_{}.{}", safe_name, ext));
             if candidate.exists() {
                 if let Ok(meta) = fs::metadata(&candidate) {
                     if meta.len() > 50_000 {

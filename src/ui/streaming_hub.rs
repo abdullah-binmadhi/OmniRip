@@ -2,7 +2,7 @@
 //!
 //! Provides a unified music player for Spotify, Apple Music, YouTube Music,
 //! and freeform search queries, streaming audio via high-bitrate Opus streams,
-//! persisting user-calibrated volume levels, and routing audio through OmniRip's
+//! persisting user-calibrated volume levels, and routing audio through Orchestria's
 //! 16-module mastering DSP rack and real-time spectrum telemetry engine.
 
 use crate::dsp::player::TrackPlayer;

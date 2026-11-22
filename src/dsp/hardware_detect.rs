@@ -75,7 +75,7 @@ pub enum TransducerType {
     UsbDacLineOut,
     /// Bluetooth wireless audio transceiver (A2DP / AAC / LDAC).
     BluetoothA2dp,
-    /// Virtual audio loopback driver (e.g. OmniRip Audio, BlackHole).
+    /// Virtual audio loopback driver (e.g. Orchestria Audio, BlackHole).
     VirtualLoopback,
     /// Unclassified or default system endpoint.
     Unknown,
@@ -250,7 +250,7 @@ impl HardwareChipProfile {
             return TransducerType::BuiltinSpeakers;
         };
         let lower = name.to_lowercase();
-        if lower.contains("blackhole") || lower.contains("omnirip") || lower.contains("loopback") {
+        if lower.contains("blackhole") || lower.contains("orchestria") || lower.contains("omnirip") || lower.contains("loopback") {
             TransducerType::VirtualLoopback
         } else if lower.contains("ibasso") || lower.contains("dc03") || lower.contains("dc04") || lower.contains("dc05") || lower.contains("dc06") || lower.contains("dc07")
             || lower.contains("ifi") || lower.contains("zen") || lower.contains("chord") || lower.contains("mojo")

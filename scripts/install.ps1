@@ -1,4 +1,4 @@
-# OmniRip Windows installer.
+# Orchestria Windows installer.
 #
 # Uses the source checkout this script sits in when there is one (built with Cargo). Otherwise it
 # downloads the latest release and refuses to install unless its SHA-256 matches SHA256SUMS.
@@ -6,30 +6,30 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host " OmniRip: Audiophile Studio System EQ & Mastering Suite " -ForegroundColor Cyan
+Write-Host " Orchestria: Audiophile Studio System EQ & Mastering Suite " -ForegroundColor Cyan
 Write-Host " Windows PowerShell Installer                           " -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 
 if ([IntPtr]::Size -ne 8) {
-    Write-Error "OmniRip requires a 64-bit Windows operating system."
+    Write-Error "Orchestria requires a 64-bit Windows operating system."
     exit 1
 }
 
-$InstallDir = "$env:LOCALAPPDATA\Programs\OmniRip"
-$BinaryPath = "$InstallDir\omnirip.exe"
+$InstallDir = "$env:LOCALAPPDATA\Programs\Orchestria"
+$BinaryPath = "$InstallDir\orchestria.exe"
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 # `irm ... | iex` runs without a script file, so there may be no script directory.
 $RepoRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { "" }
-$ReleaseBase = "https://github.com/abdullah-binmadhi/OmniRip/releases/latest/download"
+$ReleaseBase = "https://github.com/abdullah-binmadhi/Orchestria/releases/latest/download"
 
 if ($RepoRoot -and (Test-Path "$RepoRoot\Cargo.toml") -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
     Write-Host "[1/3] Building from the local repository with Cargo..." -ForegroundColor Yellow
     cargo build --release --manifest-path "$RepoRoot\Cargo.toml"
-    Copy-Item -Path "$RepoRoot\target\release\omnirip.exe" -Destination $BinaryPath -Force
+    Copy-Item -Path "$RepoRoot\target\release\orchestria.exe" -Destination $BinaryPath -Force
 } else {
     Write-Host "[1/3] Downloading the latest release..." -ForegroundColor Yellow
-    $Archive = "omnirip-windows-x64.zip"
+    $Archive = "orchestria-windows-x64.zip"
     $TempZip = Join-Path $env:TEMP $Archive
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/$Archive" -OutFile $TempZip
     $Sums = (Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/SHA256SUMS").Content
@@ -60,5 +60,5 @@ if ($UserPath -notlike "*$InstallDir*") {
 }
 
 Write-Host ""
-Write-Host "OmniRip is installed. Open a new terminal and run: omnirip" -ForegroundColor Green
+Write-Host "Orchestria is installed. Open a new terminal and run: orchestria" -ForegroundColor Green
 Write-Host "On launch, the guided First-Run Setup Wizard will verify your Sound Engine & tools automatically." -ForegroundColor DarkGray

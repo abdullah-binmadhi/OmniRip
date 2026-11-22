@@ -1,4 +1,4 @@
-# OmniRip
+# Orchestria
 
 ```text
  ██████╗ ███╗   ███╗███╗   ██╗██╗██████╗ ██╗██████╗ 
@@ -11,17 +11,17 @@
 
 ### The All-in-One Music Downloader, Streaming Player & Sound Enhancer
 
-OmniRip is a fast, lightweight music companion built for your terminal. Whether you want to download high-resolution albums, stream web playlists instantly, check if your music files are truly studio quality, or make your headphones and speakers sound their absolute best, OmniRip does it all with a clean, distraction-free interface.
+Orchestria is a fast, lightweight music companion built for your terminal. Whether you want to download high-resolution albums, stream web playlists instantly, check if your music files are truly studio quality, or make your headphones and speakers sound their absolute best, Orchestria does it all with a clean, distraction-free interface.
 
 ---
 
 ## The Four Workstations at a Glance
 
-OmniRip organizes its features into four dedicated workstations. Press **`M`** at any time to open the Workstation Mode Switcher:
+Orchestria organizes its features into four dedicated workstations. Press **`M`** at any time to open the Workstation Mode Switcher:
 
 ```mermaid
 flowchart TD
-    ROOT["OmniRip (Press 'M' to switch)"] --> W1["Workstation 1: Music Downloader & Harvester"]
+    ROOT["Orchestria (Press 'M' to switch)"] --> W1["Workstation 1: Music Downloader & Harvester"]
     ROOT --> W2["Workstation 2: System EQ & Sound Enhancer"]
     ROOT --> W3["Workstation 3: Cloud Playlist Archiver"]
     ROOT --> W4["Workstation 4: Universal Streaming Hub"]
@@ -51,7 +51,7 @@ flowchart TD
 
 ### 1. Smart Search & Multi-Disc Album Grouping (Workstation 1)
 
-Finding albums is straightforward and accurate. OmniRip searches across peer networks, puts exact matches right at the top (+100,000 relevance boost), and automatically merges multi-disc albums (like Disc 1 and Disc 2) into one unified release folder.
+Finding albums is straightforward and accurate. Orchestria searches across peer networks, puts exact matches right at the top (+100,000 relevance boost), and automatically merges multi-disc albums (like Disc 1 and Disc 2) into one unified release folder.
 
 ```mermaid
 flowchart LR
@@ -63,13 +63,13 @@ flowchart LR
 ```
 
 - **Unified Multi-Disc Releases**: Subfolders like `CD1`, `CD2`, `Disc 1`, `FLAC`, and `Vinyl` are combined into a single complete album release.
-- **Full-Context Filtering**: When filtering your results, OmniRip checks the entire folder path so searching `Artist Album` matches even if the artist name is stored in a parent directory.
+- **Full-Context Filtering**: When filtering your results, Orchestria checks the entire folder path so searching `Artist Album` matches even if the artist name is stored in a parent directory.
 
 ---
 
 ### 2. Spot Fake Lossless Files Before Downloading (`[V]`)
 
-Have you ever downloaded a lossless FLAC file only to find out it was actually a low-quality MP3 converted into a FLAC? OmniRip protects your library. Press **`V`** on any song or album to inspect its audio frequency spectrum before downloading:
+Have you ever downloaded a lossless FLAC file only to find out it was actually a low-quality MP3 converted into a FLAC? Orchestria protects your library. Press **`V`** on any song or album to inspect its audio frequency spectrum before downloading:
 
 ```mermaid
 flowchart TD
@@ -107,12 +107,12 @@ flowchart TD
 
 ### 4. One-Key Network Reconnect & Self-Healing (`[F5]` / `[W]`)
 
-If your laptop wakes from sleep or your Wi-Fi disconnects, you do not need to quit or restart OmniRip. Press **`F5`** or **`W`** to automatically reconnect to the music network, refresh search sockets, and pick up right where you left off.
+If your laptop wakes from sleep or your Wi-Fi disconnects, you do not need to quit or restart Orchestria. Press **`F5`** or **`W`** to automatically reconnect to the music network, refresh search sockets, and pick up right where you left off.
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant App as OmniRip
+    participant App as Orchestria
     participant Daemon as Soulseek Network Engine
     User->>App: Press F5 or W
     App->>Daemon: Ping & Health Verification
@@ -139,7 +139,7 @@ flowchart LR
 
 - **Direct Numeric Jump**: Type any song number (like `2` `5` then press `Enter`) to jump directly to track #25 in your queue.
 - **Quick Skips**: Jump forward 10 tracks with `PageDown` or `J`, and backward 10 tracks with `PageUp` or `K`.
-- **Seamless Autoplay**: When a song finishes, OmniRip automatically transitions to the next track in sequence.
+- **Seamless Autoplay**: When a song finishes, Orchestria automatically transitions to the next track in sequence.
 
 ---
 
@@ -161,7 +161,7 @@ flowchart LR
 
 ### 7. Personalize Sound for Your Headphones & Speakers (`[G]`)
 
-Every pair of headphones has a unique acoustic shape. OmniRip features an interactive gear calibration wizard (**`G`**) to tune your audio specifically for your equipment:
+Every pair of headphones has a unique acoustic shape. Orchestria features an interactive gear calibration wizard (**`G`**) to tune your audio specifically for your equipment:
 
 ```mermaid
 flowchart LR
@@ -177,7 +177,7 @@ flowchart LR
 
 ### 8. Low-Latency Esports Gaming Mode (`[Shift+G]`)
 
-When playing competitive games like *League of Legends*, *Counter-Strike 2*, or *Valorant*, audio stuttering and operating system lag can ruin the match. OmniRip features an ultra-low-latency gaming profile designed to run alongside high-framerate games:
+When playing competitive games like *League of Legends*, *Counter-Strike 2*, or *Valorant*, audio stuttering and operating system lag can ruin the match. Orchestria features an ultra-low-latency gaming profile designed to run alongside high-framerate games:
 
 ```mermaid
 flowchart TD
@@ -195,7 +195,7 @@ flowchart TD
 
 ### 9. Privacy-First Microphone Controls (`[X]`)
 
-OmniRip keeps microphone and audio input capture **completely turned off by default**. This protects your privacy and dismisses the macOS menu bar orange microphone dot during music listening.
+Orchestria keeps microphone and audio input capture **completely turned off by default**. This protects your privacy and dismisses the macOS menu bar orange microphone dot during music listening.
 
 When you need audio input capture for loopback processing, toggle it easily:
 - Press **`X`** or **`Shift+M`** for an instant toggle.
@@ -205,7 +205,7 @@ When you need audio input capture for loopback processing, toggle it easily:
 
 ### 10. Studio Spectrum Visualizer (32 Visual Styles)
 
-OmniRip includes a studio-grade spectrum analyzer with **32 visual styles**:
+Orchestria includes a studio-grade spectrum analyzer with **32 visual styles**:
 - High-contrast bar spectrums, 10-band octave energy meters, vectorscope Lissajous curves, and 3D waterfalls.
 - Aesthetic color themes: Cyberpunk 2077, Matrix Terminal, Retrowave Sunset, Vaporwave Mall, Lo-Fi Chill, and Tokyo Night.
 - Professional loudness metering: ITU-R BS.1770 K-weighted LUFS, stereo peak dBFS, and phase correlation.
@@ -214,7 +214,7 @@ OmniRip includes a studio-grade spectrum analyzer with **32 visual styles**:
 
 ### 11. Hardware DAC Profiles & Analog Flavor Mimicker (`[Ctrl+D]`)
 
-OmniRip features a built-in hardware DAC and analog output stage mimicker that models the distinctive sonic characteristics of legendary digital-to-analog converter architectures:
+Orchestria features a built-in hardware DAC and analog output stage mimicker that models the distinctive sonic characteristics of legendary digital-to-analog converter architectures:
 
 ```mermaid
 flowchart LR
@@ -235,7 +235,7 @@ flowchart LR
 | **Stock OEM+** | 100% pure neutral studio reference with zero coloration, flat frequency curve, and 16-point Blackman-Harris sinc precision. | Critical studio mastering and reference monitoring |
 
 #### How to Switch DAC Profiles:
-- **Global Hotkeys**: Press **`Shift+D`**, **`F6`**, or **`Ctrl+D`** anywhere in OmniRip to cycle forward through DAC profiles.
+- **Global Hotkeys**: Press **`Shift+D`**, **`F6`**, or **`Ctrl+D`** anywhere in Orchestria to cycle forward through DAC profiles.
 - **Reverse Cycling**: Press **`Shift+F6`** or **`Ctrl+Shift+D`** to cycle backward.
 - **Command Bar**: Type `:` then enter your preferred DAC:
   - `:dac schiit` or `:dac r2r` (activates Schiit Multibit)
@@ -254,7 +254,7 @@ flowchart LR
 
 ```text
 +-------------------------------------------------------------------------------------------------------+
-| OMNIRIP Universal Streaming Hub v0.2.0           [VOL: 65%] [DSP: HARMAN 2019] [NATIVE OPUS 256K]      |
+| ORCHESTRIA Universal Streaming Hub v0.2.0           [VOL: 65%] [DSP: HARMAN 2019] [NATIVE OPUS 256K]      |
 +-------------------------------------------------------------------------------------------------------+
 | Search / URL: [https://music.youtube.com/playlist?list=...                               ]            |
 +-------------------------------------------------------------------+-----------------------------------+
@@ -279,15 +279,15 @@ flowchart LR
 
 ### Option 1: Homebrew (macOS & Linux)
 
-Install and keep OmniRip updated via the official Homebrew Tap:
+Install and keep Orchestria updated via the official Homebrew Tap:
 
 ```bash
 # Add the tap and install
 brew tap abdullah-binmadhi/tap
-brew install omnirip
+brew install orchestria
 
 # Upgrade to future versions anytime
-brew upgrade omnirip
+brew upgrade orchestria
 ```
 
 ### Option 2: One-Line Universal Script (macOS & Linux)
@@ -295,31 +295,31 @@ brew upgrade omnirip
 Install or update the latest pre-built standalone binary directly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.sh | bash
 ```
 
 ### Option 3: Double-Click Desktop Installer (macOS & Windows)
 
-- **macOS**: Double-click [`scripts/install.command`](file:///Users/abdullahbinmadhi/Projects/OmniRip/scripts/install.command) in Finder to install and strip Gatekeeper quarantine in 5 seconds.
+- **macOS**: Double-click [`scripts/install.command`](file:///Users/abdullahbinmadhi/Projects/Orchestria/scripts/install.command) in Finder to install and strip Gatekeeper quarantine in 5 seconds.
 - **Windows**: Right-click `scripts/install.ps1` and select **Run with PowerShell**, or execute:
   ```powershell
-  irm https://raw.githubusercontent.com/abdullah-binmadhi/OmniRip/main/scripts/install.ps1 | iex
+  irm https://raw.githubusercontent.com/abdullah-binmadhi/Orchestria/main/scripts/install.ps1 | iex
   ```
 
 ### Option 4: In-App Self-Updater & Setup Wizard (Zero Terminal)
 
-OmniRip checks for new releases on launch. Inside OmniRip:
+Orchestria checks for new releases on launch. Inside Orchestria:
 - Type **`:update`** to automatically download and atomically install the latest release.
 - Type **`:setup`** or press **`F12`** to open the **Setup & Dependency Health Wizard**, auto-download missing tools (`yt-dlp`), or install the macOS audio driver via Touch ID.
 
 ---
 
-### Launching OmniRip
+### Launching Orchestria
 
-Start OmniRip from any terminal window:
+Start Orchestria from any terminal window:
 
 ```bash
-omnirip
+orchestria
 ```
 
 ---
@@ -337,7 +337,7 @@ omnirip
 | `Shift+F6` / `Ctrl+Shift+D` | Cycle Hardware DAC Profile backward |
 | `:` | Open Interactive Command Bar (`:update`, `:setup`, `:dac schiit`, `:game on`, `:mic on`, `:q`) |
 | `+` / `-` | Increase / decrease volume by 5% (synchronized 1:1 with hardware volume) |
-| `Q` | Cleanly exit OmniRip and restore default audio settings |
+| `Q` | Cleanly exit Orchestria and restore default audio settings |
 
 ### Workstation 1: Downloader & Harvester Controls
 
@@ -395,7 +395,7 @@ omnirip
 
 ## Automated Verification & Stability
 
-OmniRip contains a comprehensive automated test suite verifying audio engine stability, filter accuracy, authenticity detection, multi-disc grouping, and streaming synchronization:
+Orchestria contains a comprehensive automated test suite verifying audio engine stability, filter accuracy, authenticity detection, multi-disc grouping, and streaming synchronization:
 
 ```bash
 cargo test
@@ -408,4 +408,4 @@ All 264 unit and integration tests run and pass cleanly.
 ## License
 
 Distributed under the MIT License.
-OmniRip (c) 2026.
+Orchestria (c) 2026.

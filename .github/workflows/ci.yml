@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches-ignore: [ main ]
   pull_request:
   workflow_call:
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

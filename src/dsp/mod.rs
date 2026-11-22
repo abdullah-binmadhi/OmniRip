@@ -26,7 +26,7 @@ pub use player::{TrackInfo, TrackPlayer};
 pub use servo::{create_servo_ring_buffer, ServoReader, ServoWriter};
 pub use streamer::{AudioStreamer, SyncMode};
 pub use telemetry::TelemetryEngine;
-pub use transport::{AudioPacketHeader, IpcAudioServer, OMNIRIP_SOCKET_PATH};
+pub use transport::{AudioPacketHeader, IpcAudioServer, ORCHESTRIA_SOCKET_PATH};
 
 /// Complete mastering audio DSP pipeline.
 #[derive(Debug, Clone)]

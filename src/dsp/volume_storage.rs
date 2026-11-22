@@ -32,15 +32,15 @@ impl Default for VolumeConfig {
 pub fn volume_config_path() -> PathBuf {
     #[cfg(test)]
     {
-        return std::env::temp_dir().join(format!("omnirip_test_vol_{}_{:?}.json", std::process::id(), std::thread::current().id()));
+        return std::env::temp_dir().join(format!("orchestria_test_vol_{}_{:?}.json", std::process::id(), std::thread::current().id()));
     }
     #[allow(unreachable_code)]
     if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".config").join("omnirip").join("volume.json")
+        PathBuf::from(home).join(".config").join("orchestria").join("volume.json")
     } else if let Ok(profile) = std::env::var("USERPROFILE") {
-        PathBuf::from(profile).join(".config").join("omnirip").join("volume.json")
+        PathBuf::from(profile).join(".config").join("orchestria").join("volume.json")
     } else {
-        PathBuf::from(".config/omnirip/volume.json")
+        PathBuf::from(".config/orchestria/volume.json")
     }
 }
 

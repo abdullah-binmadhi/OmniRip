@@ -1,4 +1,4 @@
-//! Real-Time Modular Tiling Visuals Dashboard for OmniRip TUI.
+//! Real-Time Modular Tiling Visuals Dashboard for Orchestria TUI.
 //! Provides 32 distinct, mathematically rigorous audiophile visualizers across 5 families:
 //! - Family A (Spectral): 32-Band, 64-Band, 128-Band Spectrum, Spectrogram Waterfall, Isometric Waterfall, Spectral Centroid, Octave Bands, Spectral Flatness.
 //! - Family B (Stereo & Spatial): Lissajous Phase, Polar Soundstage, Stereo Correlation, Mid/Side Ratio, Binaural Aperture, Diamond VectorScope.
@@ -1589,7 +1589,7 @@ impl VisualsDashboard {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  Reconstruction Filter Overshoot Risk: ", Style::default().fg(theme.text_dim)),
-            Span::styled(if isp > 0.0 { "HIGH (DAC Inter-Sample Clipping Likely)" } else { "ZERO (Guarded by OmniRip Limiter)" }, Style::default().fg(theme.success)),
+            Span::styled(if isp > 0.0 { "HIGH (DAC Inter-Sample Clipping Likely)" } else { "ZERO (Guarded by Orchestria Limiter)" }, Style::default().fg(theme.success)),
         ]));
         let p = Paragraph::new(lines);
         f.render_widget(p, area);

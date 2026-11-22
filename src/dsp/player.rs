@@ -1,7 +1,7 @@
 //! In-Memory High-Fidelity Audio Track Player in Pure Rust using `symphonia`.
 //!
 //! Provides gapless, zero-latency playback of downloaded audio files (FLAC, MP3, M4A, WAV, Opus)
-//! routed directly through OmniRip's mastering DSP pipeline, 10-Band EQ, and live telemetry engine.
+//! routed directly through Orchestria's mastering DSP pipeline, 10-Band EQ, and live telemetry engine.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -615,7 +615,7 @@ mod tests {
     #[test]
     fn test_probe_real_files() {
         let player = TrackPlayer::new(48000.0);
-        let webm_path = std::env::temp_dir().join("omnirip_stream_BriCie - 【BriCie】 White Silence (English Cover).webm");
+        let webm_path = std::env::temp_dir().join("orchestria_stream_BriCie - 【BriCie】 White Silence (English Cover).webm");
         if webm_path.exists() {
             let res_webm = player.load_file(&webm_path);
             assert!(res_webm.is_ok(), "BriCie webm should decode successfully via ffmpeg fallback");

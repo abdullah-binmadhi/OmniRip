@@ -289,7 +289,7 @@ max_log_lines = 2000
 Secrets: `SLSKD_API_KEY`, `ACOUSTID_API_KEY` from environment only. Config stores the *env
 var name*, never a value. The logging masker (`util/logging_setup.py`) redacts anything
 matching configured key values. A gitignored `.env` next to the config (or at
-`OMNIRIP_ENV_FILE`) is loaded into the process environment at startup for launches that do not
+`ORCHESTRIA_ENV_FILE`) is loaded into the process environment at startup for launches that do not
 inherit shell exports; already-set environment variables always win (docs/01 D20).
 
 ## 7. Logging & observability

@@ -1,4 +1,4 @@
-//! Lyrics Resolver and Synced LRC Generator for OmniRip.
+//! Lyrics Resolver and Synced LRC Generator for Orchestria.
 //! Integrates LRCLIB public API for millisecond-synced lyrics with video synopsis fallback.
 
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -37,7 +37,7 @@ pub async fn fetch_lyrics_lrclib(
     let url = "https://lrclib.net/api/get";
     let resp = client
         .get(url)
-        .header(USER_AGENT, "OmniRip/0.2.0 ( https://github.com/abdullah-binmadhi/OmniRip )")
+        .header(USER_AGENT, "Orchestria/0.2.0 ( https://github.com/abdullah-binmadhi/Orchestria )")
         .header(ACCEPT, "application/json")
         .query(&query_params)
         .send()
@@ -64,7 +64,7 @@ pub async fn fetch_lyrics_lrclib(
     let q = format!("{} {}", artist.trim(), title.trim());
     let search_resp = client
         .get(search_url)
-        .header(USER_AGENT, "OmniRip/0.2.0 ( https://github.com/abdullah-binmadhi/OmniRip )")
+        .header(USER_AGENT, "Orchestria/0.2.0 ( https://github.com/abdullah-binmadhi/Orchestria )")
         .header(ACCEPT, "application/json")
         .query(&[("q", q.as_str())])
         .send()

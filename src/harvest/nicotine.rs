@@ -1,4 +1,4 @@
-//! Nicotine+ Local Configuration & Lossless P2P Integration for OmniRip.
+//! Nicotine+ Local Configuration & Lossless P2P Integration for Orchestria.
 //! Reads active sessions from ~/.config/nicotine/config and ranks lossless FLAC candidates.
 
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ impl NicotineConfig {
         let mut paths: Vec<(PathBuf, &str)> = Vec::new();
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             let h = PathBuf::from(&home);
-            paths.push((h.join(".config/omnirip/soulseek.ini"), "OmniRip Config"));
+            paths.push((h.join(".config/orchestria/soulseek.ini"), "Orchestria Config"));
             paths.push((h.join(".config/nicotine/config"), "Nicotine+ (Config)"));
             paths.push((h.join("Library/Application Support/Nicotine/config"), "Nicotine+ (macOS AppSupport)"));
             paths.push((h.join("Library/Application Support/Nicotine+/config"), "Nicotine+ (macOS AppSupport)"));
@@ -60,7 +60,7 @@ impl NicotineConfig {
         }
         if let Ok(appdata) = std::env::var("APPDATA") {
             let a = PathBuf::from(&appdata);
-            paths.push((a.join("omnirip/soulseek.ini"), "OmniRip Config (Windows)"));
+            paths.push((a.join("orchestria/soulseek.ini"), "Orchestria Config (Windows)"));
             paths.push((a.join("nicotine/config"), "Nicotine+ (Windows)"));
             paths.push((a.join("SoulseekQt/soulseek.ini"), "SoulseekQt (Windows)"));
         }
@@ -91,8 +91,8 @@ impl NicotineConfig {
         slskd_paths.push((PathBuf::from("tools/slskd/slskd.local.yml"), "slskd Local Daemon"));
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             let h = PathBuf::from(&home);
-            slskd_paths.push((h.join(".config/omnirip/slskd.yml"), "OmniRip slskd Config"));
-            slskd_paths.push((h.join("Projects/OmniRip/tools/slskd/slskd.local.yml"), "slskd Workspace Daemon"));
+            slskd_paths.push((h.join(".config/orchestria/slskd.yml"), "Orchestria slskd Config"));
+            slskd_paths.push((h.join("Projects/Orchestria/tools/slskd/slskd.local.yml"), "slskd Workspace Daemon"));
         }
         for (path, label) in slskd_paths {
             if path.exists() {
@@ -188,18 +188,18 @@ impl NicotineConfig {
         }
     }
 
-    /// Saves the selected account as the active default in ~/.config/omnirip/soulseek.ini (or %APPDATA%/omnirip/soulseek.ini).
+    /// Saves the selected account as the active default in ~/.config/orchestria/soulseek.ini (or %APPDATA%/orchestria/soulseek.ini).
     pub fn save_active_account(username: &str, password: Option<&str>) -> Result<PathBuf, String> {
         let config_dir = if let Ok(appdata) = std::env::var("APPDATA") {
-            PathBuf::from(appdata).join("omnirip")
+            PathBuf::from(appdata).join("orchestria")
         } else if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            PathBuf::from(home).join(".config/omnirip")
+            PathBuf::from(home).join(".config/orchestria")
         } else {
-            PathBuf::from(".config/omnirip")
+            PathBuf::from(".config/orchestria")
         };
 
         std::fs::create_dir_all(&config_dir)
-            .map_err(|e| format!("Failed to create omnirip config directory: {}", e))?;
+            .map_err(|e| format!("Failed to create orchestria config directory: {}", e))?;
 
         let file_path = config_dir.join("soulseek.ini");
         let pass_line = match password {
@@ -251,7 +251,7 @@ impl NicotineConfig {
         let mut candidates = Vec::new();
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             let home_path = PathBuf::from(&home);
-            candidates.push(home_path.join(".config/omnirip/soulseek.ini"));
+            candidates.push(home_path.join(".config/orchestria/soulseek.ini"));
             candidates.push(home_path.join(".config/nicotine/config"));
             candidates.push(home_path.join("Library/Application Support/Nicotine/config"));
             candidates.push(home_path.join("Library/Application Support/Nicotine+/config"));
@@ -259,7 +259,7 @@ impl NicotineConfig {
         }
         if let Ok(appdata) = std::env::var("APPDATA") {
             let appdata_path = PathBuf::from(&appdata);
-            candidates.push(appdata_path.join("omnirip/soulseek.ini"));
+            candidates.push(appdata_path.join("orchestria/soulseek.ini"));
             candidates.push(appdata_path.join("nicotine/config"));
         }
 
@@ -847,7 +847,7 @@ downloaddir = /Users/test/Music/NicotineDownloads
 
     #[test]
     fn test_discover_accounts_and_save() {
-        let temp_dir = std::env::temp_dir().join("omnirip_test_acc");
+        let temp_dir = std::env::temp_dir().join("orchestria_test_acc");
         let _ = std::fs::create_dir_all(&temp_dir);
         let ini_file = temp_dir.join("soulseek.ini");
         let _ = std::fs::write(&ini_file, "[server]\nlogin = test_save_user\npassw = test_pass\n");

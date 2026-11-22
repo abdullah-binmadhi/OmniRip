@@ -9,21 +9,21 @@ pub const EXPECTED_DRIVER_BUNDLE_VERSION: u32 = 2;
 /// Where the driver bundle comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DriverSource {
-    /// A finished `OmniRipAudio.driver` bundle.
+    /// A finished `OrchestriaAudio.driver` bundle.
     Bundle(PathBuf),
-    /// A source checkout (`drivers/omnirip_hal`) that must be built with `make` first.
+    /// A source checkout (`drivers/orchestria_hal`) that must be built with `make` first.
     SourceTree(PathBuf),
 }
 
-/// Directory where OmniRip caches staged driver bundles when the binary directory is read-only.
+/// Directory where Orchestria caches staged driver bundles when the binary directory is read-only.
 pub fn user_driver_cache_dir() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        return PathBuf::from(appdata).join("OmniRip");
+        return PathBuf::from(appdata).join("Orchestria");
     }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".local").join("share").join("omnirip");
+        return PathBuf::from(home).join(".local").join("share").join("orchestria");
     }
-    std::env::temp_dir().join("omnirip")
+    std::env::temp_dir().join("orchestria")
 }
 
 /// Parses `CFBundleVersion` from a `.driver/Contents/Info.plist` file.
@@ -40,39 +40,39 @@ pub fn read_bundle_version(bundle_dir: &Path) -> Option<u32> {
 
 /// Finds the driver for a binary running from `exe_dir`, in this order:
 /// 1. a bundle shipped next to the binary (release archives);
-/// 2. canonicalized symlink / Homebrew `pkgshare` / `libexec` locations (`../share/omnirip/`, `../libexec/`);
-/// 3. user driver cache (`~/.local/share/omnirip/OmniRipAudio.driver`);
-/// 4. a source checkout with `drivers/omnirip_hal/Makefile`, searched upward from the binary, canonical binary,
+/// 2. canonicalized symlink / Homebrew `pkgshare` / `libexec` locations (`../share/orchestria/`, `../libexec/`);
+/// 3. user driver cache (`~/.local/share/orchestria/OrchestriaAudio.driver`);
+/// 4. a source checkout with `drivers/orchestria_hal/Makefile`, searched upward from the binary, canonical binary,
 ///    and working directory.
 pub fn locate_driver_source(exe_dir: &Path, cwd: &Path) -> Option<DriverSource> {
-    let mut bundle_candidates = vec![exe_dir.join("OmniRipAudio.driver")];
+    let mut bundle_candidates = vec![exe_dir.join("OrchestriaAudio.driver")];
 
     if let Ok(exe_path) = std::env::current_exe() {
         if let Ok(canon_exe) = std::fs::canonicalize(&exe_path) {
             if let Some(canon_dir) = canon_exe.parent() {
-                bundle_candidates.push(canon_dir.join("OmniRipAudio.driver"));
+                bundle_candidates.push(canon_dir.join("OrchestriaAudio.driver"));
                 if let Some(prefix) = canon_dir.parent() {
-                    bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
-                    bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
-                    bundle_candidates.push(prefix.join("OmniRipAudio.driver"));
+                    bundle_candidates.push(prefix.join("share").join("orchestria").join("OrchestriaAudio.driver"));
+                    bundle_candidates.push(prefix.join("libexec").join("OrchestriaAudio.driver"));
+                    bundle_candidates.push(prefix.join("OrchestriaAudio.driver"));
                 }
             }
         }
     }
 
     if let Ok(canon_dir) = std::fs::canonicalize(exe_dir) {
-        bundle_candidates.push(canon_dir.join("OmniRipAudio.driver"));
+        bundle_candidates.push(canon_dir.join("OrchestriaAudio.driver"));
         if let Some(prefix) = canon_dir.parent() {
-            bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
-            bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
-            bundle_candidates.push(prefix.join("OmniRipAudio.driver"));
+            bundle_candidates.push(prefix.join("share").join("orchestria").join("OrchestriaAudio.driver"));
+            bundle_candidates.push(prefix.join("libexec").join("OrchestriaAudio.driver"));
+            bundle_candidates.push(prefix.join("OrchestriaAudio.driver"));
         }
     } else if let Some(prefix) = exe_dir.parent() {
-        bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
-        bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
+        bundle_candidates.push(prefix.join("share").join("orchestria").join("OrchestriaAudio.driver"));
+        bundle_candidates.push(prefix.join("libexec").join("OrchestriaAudio.driver"));
     }
 
-    bundle_candidates.push(user_driver_cache_dir().join("OmniRipAudio.driver"));
+    bundle_candidates.push(user_driver_cache_dir().join("OrchestriaAudio.driver"));
 
     for candidate in bundle_candidates {
         if candidate.is_dir() {
@@ -91,7 +91,7 @@ pub fn locate_driver_source(exe_dir: &Path, cwd: &Path) -> Option<DriverSource> 
         let mut dir = Some(start);
         for _ in 0..6 {
             let Some(current) = dir else { break };
-            let source = current.join("drivers").join("omnirip_hal");
+            let source = current.join("drivers").join("orchestria_hal");
             if source.join("Makefile").is_file() {
                 return Some(DriverSource::SourceTree(source));
             }
@@ -117,7 +117,7 @@ mod tests {
 
     fn scratch_dir(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("omnirip-bundle-{}-{}", name, std::process::id()));
+            std::env::temp_dir().join(format!("orchestria-bundle-{}-{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         dir
@@ -126,10 +126,10 @@ mod tests {
     #[test]
     fn a_shipped_bundle_beside_the_binary_wins() {
         let root = scratch_dir("shipped");
-        std::fs::create_dir_all(root.join("OmniRipAudio.driver")).expect("create bundle");
+        std::fs::create_dir_all(root.join("OrchestriaAudio.driver")).expect("create bundle");
         assert_eq!(
             locate_driver_source(&root, &root),
-            Some(DriverSource::Bundle(root.join("OmniRipAudio.driver")))
+            Some(DriverSource::Bundle(root.join("OrchestriaAudio.driver")))
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -138,7 +138,7 @@ mod tests {
     fn homebrew_pkgshare_bundle_is_found_from_bin_dir() {
         let root = scratch_dir("brew");
         let bin_dir = root.join("bin");
-        let pkgshare = root.join("share").join("omnirip").join("OmniRipAudio.driver");
+        let pkgshare = root.join("share").join("orchestria").join("OrchestriaAudio.driver");
         std::fs::create_dir_all(&bin_dir).expect("create bin dir");
         std::fs::create_dir_all(&pkgshare).expect("create pkgshare bundle");
 
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn a_source_checkout_is_found_by_walking_up_from_the_binary() {
         let root = scratch_dir("checkout");
-        let source = root.join("drivers").join("omnirip_hal");
+        let source = root.join("drivers").join("orchestria_hal");
         std::fs::create_dir_all(&source).expect("create source tree");
         std::fs::write(source.join("Makefile"), "all:\n").expect("write Makefile");
         let exe_dir = root.join("target").join("release");
@@ -170,22 +170,22 @@ mod tests {
     #[test]
     fn read_bundle_version_parses_plist_version() {
         let root = scratch_dir("plist");
-        let contents = root.join("OmniRipAudio.driver").join("Contents");
+        let contents = root.join("OrchestriaAudio.driver").join("Contents");
         std::fs::create_dir_all(&contents).expect("create Contents dir");
         std::fs::write(
             contents.join("Info.plist"),
             "<plist><dict><key>CFBundleVersion</key><string>2</string></dict></plist>",
         )
         .expect("write plist");
-        assert_eq!(read_bundle_version(&root.join("OmniRipAudio.driver")), Some(2));
+        assert_eq!(read_bundle_version(&root.join("OrchestriaAudio.driver")), Some(2));
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn shell_quoting_survives_single_quotes() {
         assert_eq!(
-            shell_single_quote("/Apps/O'Brien/omnirip"),
-            "'/Apps/O'\\''Brien/omnirip'"
+            shell_single_quote("/Apps/O'Brien/orchestria"),
+            "'/Apps/O'\\''Brien/orchestria'"
         );
     }
 

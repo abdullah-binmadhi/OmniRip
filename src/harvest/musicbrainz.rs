@@ -1,4 +1,4 @@
-//! Asynchronous MusicBrainz REST API Client for OmniRip.
+//! Asynchronous MusicBrainz REST API Client for Orchestria.
 //! Resolves noisy track and video titles into canonical metadata and formatted Nicotine+ search queries.
 
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -53,7 +53,7 @@ pub async fn lookup_metadata(
 
     let resp = client
         .get(url)
-        .header(USER_AGENT, "OmniRip/0.2.0 ( https://github.com/abdullah-binmadhi/OmniRip )")
+        .header(USER_AGENT, "Orchestria/0.2.0 ( https://github.com/abdullah-binmadhi/Orchestria )")
         .header(ACCEPT, "application/json")
         .query(&[("query", lucene_query.as_str()), ("fmt", "json"), ("limit", "3")])
         .send()
@@ -153,7 +153,7 @@ pub async fn fetch_cover_art_archive(release_mbid: &str) -> Option<Vec<u8>> {
 
     let resp = client
         .get(&url)
-        .header(USER_AGENT, "OmniRip/0.2.0 ( https://github.com/abdullah-binmadhi/OmniRip )")
+        .header(USER_AGENT, "Orchestria/0.2.0 ( https://github.com/abdullah-binmadhi/Orchestria )")
         .send()
         .await
         .ok()?;

@@ -1,4 +1,4 @@
-//! Asynchronous yt-dlp Audio Downloader for OmniRip.
+//! Asynchronous yt-dlp Audio Downloader for Orchestria.
 //! Wraps system yt-dlp to download high-resolution audio (FLAC / OPUS) with real-time progress parsing.
 
 use std::path::Path;

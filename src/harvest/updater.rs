@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Default GitHub repository used for self-update checks.
-pub const UPDATE_REPO: &str = "abdullah-binmadhi/OmniRip";
+pub const UPDATE_REPO: &str = "abdullah-binmadhi/Orchestria";
 
-/// Minimum valid size (1 MB) for an extracted OmniRip native executable.
+/// Minimum valid size (1 MB) for an extracted Orchestria native executable.
 pub const MIN_VALID_BINARY_BYTES: u64 = 1_000_000;
 
 /// Release signing key, in minisign's base64 format.
@@ -92,12 +92,12 @@ pub struct LastSeenBuild {
 
 /// Returns the compile-time Git SHA baked by `build.rs`, or `"unknown"`.
 pub fn current_build_sha() -> &'static str {
-    option_env!("OMNIRIP_GIT_SHA").unwrap_or("unknown")
+    option_env!("ORCHESTRIA_GIT_SHA").unwrap_or("unknown")
 }
 
 /// Returns the compile-time Unix commit timestamp baked by `build.rs`, or `0`.
 pub fn current_commit_timestamp() -> i64 {
-    option_env!("OMNIRIP_COMMIT_TS")
+    option_env!("ORCHESTRIA_COMMIT_TS")
         .and_then(|s| s.trim().parse::<i64>().ok())
         .unwrap_or(0)
 }
@@ -112,10 +112,10 @@ pub fn short_sha(sha: &str) -> &str {
     }
 }
 
-/// Extracts `<!-- omnirip-sha:40_HEX_CHARS -->` from a GitHub Release body.
+/// Extracts `<!-- orchestria-sha:40_HEX_CHARS -->` from a GitHub Release body.
 pub fn extract_release_sha(body: Option<&str>) -> Option<String> {
     let text = body?;
-    let marker = "<!-- omnirip-sha:";
+    let marker = "<!-- orchestria-sha:";
     let start = text.find(marker)? + marker.len();
     let rest = &text[start..];
     let end = rest.find("-->")?;
@@ -127,20 +127,20 @@ pub fn extract_release_sha(body: Option<&str>) -> Option<String> {
     }
 }
 
-/// Extracts `<!-- omnirip-ts:UNIX_EPOCH -->` from a GitHub Release body.
+/// Extracts `<!-- orchestria-ts:UNIX_EPOCH -->` from a GitHub Release body.
 pub fn extract_release_timestamp(body: Option<&str>) -> Option<i64> {
     let text = body?;
-    let marker = "<!-- omnirip-ts:";
+    let marker = "<!-- orchestria-ts:";
     let start = text.find(marker)? + marker.len();
     let rest = &text[start..];
     let end = rest.find("-->")?;
     rest[..end].trim().parse::<i64>().ok()
 }
 
-/// Extracts `<!-- omnirip-driver-ver:N -->` from a GitHub Release body.
+/// Extracts `<!-- orchestria-driver-ver:N -->` from a GitHub Release body.
 pub fn extract_release_driver_version(body: Option<&str>) -> Option<u32> {
     let text = body?;
-    let marker = "<!-- omnirip-driver-ver:";
+    let marker = "<!-- orchestria-driver-ver:";
     let start = text.find(marker)? + marker.len();
     let rest = &text[start..];
     let end = rest.find("-->")?;
@@ -150,9 +150,9 @@ pub fn extract_release_driver_version(body: Option<&str>) -> Option<u32> {
 /// Checks if a given executable path resides inside a Homebrew prefix or Cellar.
 pub fn is_homebrew_binary_path(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    s.contains("/Cellar/omnirip/")
-        || s.contains("/homebrew/bin/omnirip")
-        || s.contains("/linuxbrew/.linuxbrew/bin/omnirip")
+    s.contains("/Cellar/orchestria/")
+        || s.contains("/homebrew/bin/orchestria")
+        || s.contains("/linuxbrew/.linuxbrew/bin/orchestria")
 }
 
 /// Checks if the currently executing binary is managed by Homebrew.
@@ -202,12 +202,12 @@ pub fn is_newer_version(local: &str, remote: &str) -> bool {
 pub fn simplify_release_notes(raw_body: &str) -> Vec<String> {
     let mut bullets: Vec<String> = Vec::new();
 
-    // 1. If the release body contains an explicit <!-- omnirip-notes-start --> block, parse it first.
+    // 1. If the release body contains an explicit <!-- orchestria-notes-start --> block, parse it first.
     if let (Some(start_idx), Some(end_idx)) = (
-        raw_body.find("<!-- omnirip-notes-start -->"),
-        raw_body.find("<!-- omnirip-notes-end -->"),
+        raw_body.find("<!-- orchestria-notes-start -->"),
+        raw_body.find("<!-- orchestria-notes-end -->"),
     ) {
-        let inner_start = start_idx + "<!-- omnirip-notes-start -->".len();
+        let inner_start = start_idx + "<!-- orchestria-notes-start -->".len();
         if inner_start < end_idx {
             for line in raw_body[inner_start..end_idx].lines() {
                 if let Some(translated) = translate_single_note_line(line) {
@@ -506,16 +506,16 @@ fn ensure_period(s: &str) -> String {
 /// Returns the expected release asset archive name for the current platform.
 pub fn expected_asset_name() -> &'static str {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    return "omnirip-macos-arm64.tar.gz";
+    return "orchestria-macos-arm64.tar.gz";
 
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    return "omnirip-macos-x86_64.tar.gz";
+    return "orchestria-macos-x86_64.tar.gz";
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return "omnirip-linux-x86_64.tar.gz";
+    return "orchestria-linux-x86_64.tar.gz";
 
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    return "omnirip-windows-x64.zip";
+    return "orchestria-windows-x64.zip";
 
     #[cfg(not(any(
         all(target_os = "macos", target_arch = "aarch64"),
@@ -523,7 +523,7 @@ pub fn expected_asset_name() -> &'static str {
         all(target_os = "linux", target_arch = "x86_64"),
         all(target_os = "windows", target_arch = "x86_64")
     )))]
-    return "omnirip.tar.gz";
+    return "orchestria.tar.gz";
 }
 
 /// Evaluates a `GitHubRelease` against the running binary's SemVer version, commit SHA, and timestamp.
@@ -593,7 +593,7 @@ pub async fn check_latest_release(repo: &str) -> Result<Option<UpdateInfo>, Stri
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent(format!("OmniRip-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("Orchestria-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -765,12 +765,12 @@ pub fn verify_extracted_binary(bin_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Path where the single-generation rollback binary (`omnirip.prev`) is stored before any self-update.
+/// Path where the single-generation rollback binary (`orchestria.prev`) is stored before any self-update.
 pub fn rollback_binary_path() -> PathBuf {
     let name = if cfg!(target_os = "windows") {
-        "omnirip.prev.exe"
+        "orchestria.prev.exe"
     } else {
-        "omnirip.prev"
+        "orchestria.prev"
     };
     crate::driver::bundle::user_driver_cache_dir()
         .join("rollback")
@@ -854,7 +854,7 @@ where
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
-        .user_agent(format!("OmniRip-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("Orchestria-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -995,7 +995,7 @@ where
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
-    let temp_dir = std::env::temp_dir().join(format!("omnirip_update_{}", std::process::id()));
+    let temp_dir = std::env::temp_dir().join(format!("orchestria_update_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&temp_dir);
 
     let is_zip = download_url.ends_with(".zip");
@@ -1016,7 +1016,7 @@ where
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent(format!("OmniRip-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("Orchestria-SelfUpdater/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     let sums = fetch_text(&client, &sums_url).await?;
@@ -1082,11 +1082,11 @@ where
         }
     }
 
-    // 4. Locate new omnirip binary inside extracted folder.
+    // 4. Locate new orchestria binary inside extracted folder.
     let binary_name = if cfg!(target_os = "windows") {
-        "omnirip.exe"
+        "orchestria.exe"
     } else {
-        "omnirip"
+        "orchestria"
     };
     let mut new_bin: Option<PathBuf> = None;
 
@@ -1107,7 +1107,7 @@ where
     }
 
     let new_bin_path =
-        new_bin.ok_or("Failed to locate new omnirip binary in extracted release archive.")?;
+        new_bin.ok_or("Failed to locate new orchestria binary in extracted release archive.")?;
 
     // 5. Verify native executable magic (Mach-O / ELF / PE MZ) and minimum binary size (>= 1 MB).
     verify_extracted_binary(&new_bin_path)?;
@@ -1119,18 +1119,18 @@ where
     atomic_replace_binary(&new_bin_path, &current_exe)?;
 
     // 8. Stage updated HAL driver bundle if present in the archive so next launch offers v2 upgrade.
-    let extracted_driver = extract_dir.join("OmniRipAudio.driver");
+    let extracted_driver = extract_dir.join("OrchestriaAudio.driver");
     if extracted_driver.is_dir() {
         let sibling_dest = current_exe
             .parent()
-            .map(|p| p.join("OmniRipAudio.driver"));
+            .map(|p| p.join("OrchestriaAudio.driver"));
         let copied_sibling = sibling_dest
             .as_ref()
             .map(|dst| copy_dir_recursive(&extracted_driver, dst).is_ok())
             .unwrap_or(false);
         if !copied_sibling {
             let cache_dest =
-                crate::driver::bundle::user_driver_cache_dir().join("OmniRipAudio.driver");
+                crate::driver::bundle::user_driver_cache_dir().join("OrchestriaAudio.driver");
             let _ = copy_dir_recursive(&extracted_driver, &cache_dest);
         }
     }
@@ -1269,7 +1269,7 @@ mod tests {
     #[test]
     fn checksum_urls_sit_next_to_the_archive() {
         let (sums, sig) = checksum_urls(
-            "https://example.com/releases/download/v1/omnirip-linux-x86_64.tar.gz",
+            "https://example.com/releases/download/v1/orchestria-linux-x86_64.tar.gz",
         )
         .expect("release asset URL");
         assert_eq!(
@@ -1286,15 +1286,15 @@ mod tests {
     fn test_expected_asset_name_not_empty() {
         let asset = expected_asset_name();
         assert!(!asset.is_empty());
-        assert!(asset.contains("omnirip"));
+        assert!(asset.contains("orchestria"));
     }
 
     #[test]
     fn test_extract_release_markers() {
         let body = "\
-<!-- omnirip-sha:005bd19a1b2c3d4e5f60718293a4b5c6d7e8f9a0 -->
-<!-- omnirip-ts:1763830000 -->
-<!-- omnirip-driver-ver:2 -->
+<!-- orchestria-sha:005bd19a1b2c3d4e5f60718293a4b5c6d7e8f9a0 -->
+<!-- orchestria-ts:1763830000 -->
+<!-- orchestria-driver-ver:2 -->
 ## What's Changed
 ";
         assert_eq!(
@@ -1309,9 +1309,9 @@ mod tests {
     fn test_evaluate_release_update_detects_rolling_sha_change() {
         let release = GitHubRelease {
             tag_name: "v0.2.0-rolling".to_string(),
-            name: Some("OmniRip Rolling Build".to_string()),
+            name: Some("Orchestria Rolling Build".to_string()),
             body: Some(
-                "<!-- omnirip-sha:bbbbbbb222222233333334444444555555566666 -->\n<!-- omnirip-ts:2000 -->\n- feat(audio): zero-dot SHM capture"
+                "<!-- orchestria-sha:bbbbbbb222222233333334444444555555566666 -->\n<!-- orchestria-ts:2000 -->\n- feat(audio): zero-dot SHM capture"
                     .to_string(),
             ),
             assets: vec![],
@@ -1323,7 +1323,7 @@ mod tests {
             "0.2.0",
             "aaaaaaa111111122222223333333444444455555",
             1000,
-            "omnirip-macos-arm64.tar.gz",
+            "orchestria-macos-arm64.tar.gz",
             false,
         );
         assert!(info.has_update);
@@ -1335,7 +1335,7 @@ mod tests {
             "0.2.0",
             "bbbbbbb222222233333334444444555555566666",
             2000,
-            "omnirip-macos-arm64.tar.gz",
+            "orchestria-macos-arm64.tar.gz",
             false,
         );
         assert!(!same.has_update);
@@ -1346,7 +1346,7 @@ mod tests {
             "0.2.0",
             "aaaaaaa111111122222223333333444444455555",
             3000,
-            "omnirip-macos-arm64.tar.gz",
+            "orchestria-macos-arm64.tar.gz",
             false,
         );
         assert!(!older_ts.has_update);
@@ -1355,7 +1355,7 @@ mod tests {
     #[test]
     fn test_simplify_release_notes_translates_jargon_into_plain_english() {
         let raw = "\
-<!-- omnirip-sha:005bd19a1b2c3d4e5f60718293a4b5c6d7e8f9a0 -->
+<!-- orchestria-sha:005bd19a1b2c3d4e5f60718293a4b5c6d7e8f9a0 -->
 ## What's Changed
 * Merge pull request #3 from abdullah-binmadhi/fix/model-download-parallel
 * chore(ci): update cache key
@@ -1390,7 +1390,7 @@ mod tests {
     #[test]
     fn test_post_update_welcome_persistence_roundtrip() {
         let tmp = std::env::temp_dir().join(format!(
-            "omnirip_welcome_test_{}.json",
+            "orchestria_welcome_test_{}.json",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&tmp);
@@ -1399,7 +1399,7 @@ mod tests {
             current_version: "0.2.0".to_string(),
             latest_version: "v0.2.0-rolling".to_string(),
             has_update: true,
-            download_url: "https://example.com/omnirip.tar.gz".to_string(),
+            download_url: "https://example.com/orchestria.tar.gz".to_string(),
             release_name: "Rolling".to_string(),
             release_notes: String::new(),
             remote_sha: Some("abcdef1234567890".to_string()),

@@ -1,4 +1,4 @@
-//! OmniRip: Audiophile Studio System EQ, Mastering Suite & Harvester in pure Rust.
+//! Orchestria: Audiophile Studio System EQ, Mastering Suite & Harvester in pure Rust.
 
 use crossterm::cursor::Show;
 use crossterm::event::DisableBracketedPaste;
@@ -13,12 +13,12 @@ pub mod ui;
 
 const USAGE: &str = "\
 Usage:
-  omnirip                              start the TUI
-  omnirip driver [status|install|install-gui|uninstall|uninstall-gui]
-  omnirip feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
-  omnirip stream <url>                 stream an http(s) URL through the engine
-  omnirip --rollback                   restore the previous OmniRip binary backup
-  omnirip --help | --version";
+  orchestria                              start the TUI
+  orchestria driver [status|install|install-gui|uninstall|uninstall-gui]
+  orchestria feed [--file <path>]         feed raw 48 kHz f32 stereo PCM into the engine
+  orchestria stream <url>                 stream an http(s) URL through the engine
+  orchestria --rollback                   restore the previous Orchestria binary backup
+  orchestria --help | --version";
 
 /// What the process was asked to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -76,12 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let sha = harvest::updater::current_build_sha();
             if sha != "unknown" && !sha.is_empty() {
                 println!(
-                    "omnirip {} ({})",
+                    "orchestria {} ({})",
                     env!("CARGO_PKG_VERSION"),
                     harvest::updater::short_sha(sha)
                 );
             } else {
-                println!("omnirip {}", env!("CARGO_PKG_VERSION"));
+                println!("orchestria {}", env!("CARGO_PKG_VERSION"));
             }
             return Ok(());
         }
@@ -89,13 +89,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match harvest::updater::apply_rollback() {
                 Ok(path) => {
                     println!(
-                        "Restored previous OmniRip binary at {}. Launch `omnirip` to start.",
+                        "Restored previous Orchestria binary at {}. Launch `orchestria` to start.",
                         path.display()
                     );
                     return Ok(());
                 }
                 Err(e) => {
-                    eprintln!("omnirip rollback failed: {}", e);
+                    eprintln!("orchestria rollback failed: {}", e);
                     std::process::exit(1);
                 }
             }
@@ -104,11 +104,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Feed(rest) => return dsp::transport::run_feed_cli(&rest),
         Command::Stream(Some(url)) => return dsp::transport::run_stream_cli(&url),
         Command::Stream(None) => {
-            eprintln!("Usage: omnirip stream <url>");
+            eprintln!("Usage: orchestria stream <url>");
             std::process::exit(1);
         }
         Command::Unknown(arg) => {
-            eprintln!("omnirip: unknown argument '{arg}'\n\n{USAGE}");
+            eprintln!("orchestria: unknown argument '{arg}'\n\n{USAGE}");
             std::process::exit(2);
         }
         Command::Tui => {}
@@ -130,28 +130,28 @@ mod tests {
 
     #[test]
     fn no_arguments_starts_the_tui() {
-        assert_eq!(parse_command(&args(&["omnirip"])), Command::Tui);
+        assert_eq!(parse_command(&args(&["orchestria"])), Command::Tui);
     }
 
     #[test]
     fn no_mic_flag_still_starts_the_tui() {
-        assert_eq!(parse_command(&args(&["omnirip", "--no-mic"])), Command::Tui);
+        assert_eq!(parse_command(&args(&["orchestria", "--no-mic"])), Command::Tui);
     }
 
     #[test]
     fn help_and_version_are_recognised() {
-        assert_eq!(parse_command(&args(&["omnirip", "--help"])), Command::Help);
-        assert_eq!(parse_command(&args(&["omnirip", "-h"])), Command::Help);
-        assert_eq!(parse_command(&args(&["omnirip", "--version"])), Command::Version);
-        assert_eq!(parse_command(&args(&["omnirip", "-V"])), Command::Version);
-        assert_eq!(parse_command(&args(&["omnirip", "--rollback"])), Command::Rollback);
-        assert_eq!(parse_command(&args(&["omnirip", "rollback"])), Command::Rollback);
+        assert_eq!(parse_command(&args(&["orchestria", "--help"])), Command::Help);
+        assert_eq!(parse_command(&args(&["orchestria", "-h"])), Command::Help);
+        assert_eq!(parse_command(&args(&["orchestria", "--version"])), Command::Version);
+        assert_eq!(parse_command(&args(&["orchestria", "-V"])), Command::Version);
+        assert_eq!(parse_command(&args(&["orchestria", "--rollback"])), Command::Rollback);
+        assert_eq!(parse_command(&args(&["orchestria", "rollback"])), Command::Rollback);
     }
 
     #[test]
     fn unknown_flags_are_rejected_instead_of_starting_the_tui() {
         assert_eq!(
-            parse_command(&args(&["omnirip", "--bogus"])),
+            parse_command(&args(&["orchestria", "--bogus"])),
             Command::Unknown("--bogus".to_string())
         );
     }
@@ -159,17 +159,17 @@ mod tests {
     #[test]
     fn subcommands_keep_their_arguments() {
         assert_eq!(
-            parse_command(&args(&["omnirip", "driver", "status"])),
+            parse_command(&args(&["orchestria", "driver", "status"])),
             Command::Driver(args(&["status"]))
         );
         assert_eq!(
-            parse_command(&args(&["omnirip", "feed", "--file", "a.raw"])),
+            parse_command(&args(&["orchestria", "feed", "--file", "a.raw"])),
             Command::Feed(args(&["--file", "a.raw"]))
         );
         assert_eq!(
-            parse_command(&args(&["omnirip", "stream", "https://example.com/x"])),
+            parse_command(&args(&["orchestria", "stream", "https://example.com/x"])),
             Command::Stream(Some("https://example.com/x".to_string()))
         );
-        assert_eq!(parse_command(&args(&["omnirip", "stream"])), Command::Stream(None));
+        assert_eq!(parse_command(&args(&["orchestria", "stream"])), Command::Stream(None));
     }
 }

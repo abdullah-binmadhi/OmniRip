@@ -580,7 +580,7 @@ impl ArchiverState {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
-            let out_path = temp_dir.join(format!("omnirip_preview_{}.m4a", timestamp));
+            let out_path = temp_dir.join(format!("orchestria_preview_{}.m4a", timestamp));
             let query = format!("ytsearch1:{} - {} official audio", artist, title);
             let child = std::process::Command::new("yt-dlp")
                 .args([
@@ -589,7 +589,7 @@ impl ArchiverState {
                     "--download-sections", "*0-30",
                     "--no-playlist",
                     "-o",
-                    out_path.to_str().unwrap_or("/tmp/omnirip_preview.m4a"),
+                    out_path.to_str().unwrap_or("/tmp/orchestria_preview.m4a"),
                     &query,
                 ])
                 .output();
@@ -1118,11 +1118,11 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 /// Default music directory resolver (portable cross macOS, Windows, Linux).
 fn default_music_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join("Music").join("OmniRip")
+        PathBuf::from(home).join("Music").join("Orchestria")
     } else if let Ok(profile) = std::env::var("USERPROFILE") {
-        PathBuf::from(profile).join("Music").join("OmniRip")
+        PathBuf::from(profile).join("Music").join("Orchestria")
     } else {
-        PathBuf::from("./OmniRipArchive")
+        PathBuf::from("./OrchestriaArchive")
     }
 }
 
@@ -1239,7 +1239,7 @@ mod tests {
 
     #[test]
     fn test_append_to_m3u8() {
-        let temp_dir = std::env::temp_dir().join(format!("omnirip_m3u8_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!("orchestria_m3u8_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let m3u8_file = temp_dir.join("test_playlist.m3u8");
         let track = ParsedTrack {
             title: "Around the World".to_string(),
@@ -1318,7 +1318,7 @@ mod tests {
 
     #[test]
     fn test_local_deduplication() {
-        let temp_dir = std::env::temp_dir().join(format!("omnirip_dedup_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!("orchestria_dedup_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let mut state = ArchiverState::new();
         state.storage_path = temp_dir.clone();
         state.folder_template = FolderTemplate::Flat;

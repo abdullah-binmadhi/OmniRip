@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
-/// Persisted onboarding state so OmniRip remembers setup completion & post-reboot recovery.
+/// Persisted onboarding state so Orchestria remembers setup completion & post-reboot recovery.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SetupPersistence {
     pub completed_driver_version: u32,
@@ -529,7 +529,7 @@ impl SetupModalState {
                 }
             } else {
                 let _ = tx.send(SetupWorkerEvent::DriverActivated(
-                    "OmniRip Sound Engine & media tools verified ready.".to_string(),
+                    "Orchestria Sound Engine & media tools verified ready.".to_string(),
                 ));
             }
         });
@@ -633,11 +633,11 @@ impl SetupModalState {
         }
     }
 
-    /// Start asynchronous self-update of OmniRip.
+    /// Start asynchronous self-update of Orchestria.
     pub fn start_self_update(&mut self) {
         self.phase = SetupPhase::Running;
         self.is_downloading = true;
-        self.download_tool = "OmniRip Update".to_string();
+        self.download_tool = "Orchestria Update".to_string();
         self.download_progress_pct = 0;
         self.download_status = "Checking latest release on GitHub...".to_string();
         self.cancel_signal = Arc::new(AtomicBool::new(false));
@@ -646,7 +646,7 @@ impl SetupModalState {
 
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
-                let release_res = crate::harvest::updater::check_latest_release("abdullah-binmadhi/OmniRip").await;
+                let release_res = crate::harvest::updater::check_latest_release("abdullah-binmadhi/Orchestria").await;
                 match release_res {
                     Ok(Some(info)) => {
                         let apply_res = crate::harvest::updater::apply_self_update_with_info(
@@ -666,7 +666,7 @@ impl SetupModalState {
                         }
                     }
                     Ok(None) => {
-                        println!("[Update] OmniRip is already at the latest version.");
+                        println!("[Update] Orchestria is already at the latest version.");
                     }
                     Err(e) => {
                         eprintln!("[Update] Failed to query releases: {}", e);
@@ -695,7 +695,7 @@ impl SetupModalState {
         f.render_widget(Clear, popup_area);
 
         let title = if self.first_run_gate {
-            " OMNIRIP FIRST-RUN SETUP & PRE-FLIGHT CHECK "
+            " ORCHESTRIA FIRST-RUN SETUP & PRE-FLIGHT CHECK "
         } else {
             " SYSTEM SETUP & SOUND ENGINE HEALTH WIZARD "
         };
@@ -749,7 +749,7 @@ impl SetupModalState {
                     Line::from(Span::styled(format!("Details: {}", msg), Style::default().fg(Color::Cyan))),
                     Line::from(""),
                     Line::from(Span::styled(
-                        "After restarting your computer, just launch `omnirip` and System-Wide EQ",
+                        "After restarting your computer, just launch `orchestria` and System-Wide EQ",
                         Style::default().fg(Color::Gray),
                     )),
                     Line::from(Span::styled(
@@ -778,7 +778,7 @@ impl SetupModalState {
 
                 let hdr = Paragraph::new(vec![
                     Line::from(Span::styled(
-                        "OMNIRIP READY — ALL SYSTEMS GREEN",
+                        "ORCHESTRIA READY — ALL SYSTEMS GREEN",
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     )),
                     Line::from(Span::styled(
@@ -809,7 +809,7 @@ impl SetupModalState {
                 f.render_widget(body, chunks[1]);
 
                 let footer = Paragraph::new(Line::from(vec![
-                    Span::styled("[Enter / Esc] Launch OmniRip Now", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::styled("[Enter / Esc] Launch Orchestria Now", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ]));
                 f.render_widget(footer, chunks[2]);
                 return;
@@ -1012,7 +1012,7 @@ mod tests {
 
     #[test]
     fn test_setup_persistence_roundtrip_and_reboot_phase() {
-        let path = std::env::temp_dir().join(format!("omnirip-setup-test-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("orchestria-setup-test-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&path);
 
         let p = SetupPersistence {

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Double-clickable macOS Finder installer for OmniRip
+# Double-clickable macOS Finder installer for Orchestria
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
 echo "======================================================="
-echo " OmniRip: One-Click macOS Installer                    "
+echo " Orchestria: One-Click macOS Installer                    "
 echo "======================================================="
 
 xattr -dr com.apple.quarantine "$DIR" >/dev/null 2>&1 || true

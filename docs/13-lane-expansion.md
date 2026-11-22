@@ -106,7 +106,7 @@ Wiring:
 `CoverArtService.fetch_recording_credits(recording_id) -> RecordingCredits | None`
 
 - Endpoint: `https://musicbrainz.org/ws/2/recording/<mbid>?inc=artist-rels&fmt=json` with a
-  descriptive `User-Agent` (`OmniRip/0.1 ( … )`) — required by MusicBrainz.
+  descriptive `User-Agent` (`Orchestria/0.1 ( … )`) — required by MusicBrainz.
 - Parsing: `instrument` → instruments, `vocal` → vocals, `producer` → producers,
   `performer`/`performance` → performers. The instrument/vocal *type* lives in `attributes`
   (`["double bass"]`, `["lead vocals"]`), falling back to the relation type when empty.
@@ -128,7 +128,7 @@ place.
 `StemSeparator.separate_extra_lanes(input_path, output_dir, mode=…, progress_callback=…)`
 
 - Model: `htdemucs_6s` → `adefossez/HTDemucs-6s`, file `5c90dfd2.safetensors` (54.9 MB),
-  loaded with `demucs.hf.load_safetensors_model` from the OmniRip model cache (single
+  loaded with `demucs.hf.load_safetensors_model` from the Orchestria model cache (single
   download, `ModelManager`-managed).
 - Output: `{stem}_{mode}_raw_guitar.wav` and `{stem}_{mode}_raw_piano.wav` — the **same mode
   suffix** as the 4-source run, so `dynamic_layers._collect_extra_lanes` (which globs

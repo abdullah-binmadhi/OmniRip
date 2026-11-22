@@ -999,7 +999,7 @@ impl AccountSyncModal {
                         Span::styled("Spotify user profiles and Liked Songs are private DRM-protected libraries.", Style::default().fg(theme.text)),
                     ]),
                     Line::from(vec![
-                        Span::styled("To import all your 700+ Liked Songs into OmniRip:", Style::default().fg(theme.secondary)),
+                        Span::styled("To import all your 700+ Liked Songs into Orchestria:", Style::default().fg(theme.secondary)),
                     ]),
                     Line::from(""),
                     Line::from(vec![
@@ -1021,7 +1021,7 @@ impl AccountSyncModal {
                     ]),
                     Line::from(""),
                     Line::from(vec![
-                        Span::styled("OmniRip will immediately parse and stream all ~700 tracks with Studio EQ!", Style::default().fg(Color::Green)),
+                        Span::styled("Orchestria will immediately parse and stream all ~700 tracks with Studio EQ!", Style::default().fg(Color::Green)),
                     ]),
                 ];
                 f.render_widget(Paragraph::new(instructions).style(Style::default().fg(theme.text_dim)).alignment(Alignment::Left), track_inner);

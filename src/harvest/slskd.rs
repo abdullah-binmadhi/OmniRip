@@ -1,4 +1,4 @@
-//! Asynchronous Soulseek / Slskd API Client for OmniRip.
+//! Asynchronous Soulseek / Slskd API Client for Orchestria.
 //! Interacts with Slskd daemon to search lossless flac/wav files and monitor transfers.
 
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -381,7 +381,7 @@ impl SlskdClient {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let music_dir = format!("{}/Music", home);
         let yaml_content = format!(
-            "# Auto-provisioned by OmniRip\nsoulseek:\n  username: {}\n  password: {}\n  listen_port: 50300\nweb:\n  listen:\n    ip: 127.0.0.1\n    ports:\n      - 5030\n  authentication:\n    api_key: {}\n  url_base: /\nremote_configuration: true\nfeature:\n  swagger: true\nshares:\n  directories:\n    - {}\n",
+            "# Auto-provisioned by Orchestria\nsoulseek:\n  username: {}\n  password: {}\n  listen_port: 50300\nweb:\n  listen:\n    ip: 127.0.0.1\n    ports:\n      - 5030\n  authentication:\n    api_key: {}\n  url_base: /\nremote_configuration: true\nfeature:\n  swagger: true\nshares:\n  directories:\n    - {}\n",
             username, password, api_key, music_dir
         );
 
@@ -397,7 +397,7 @@ impl SlskdClient {
     /// Auto-provisions slskd YAML config with the specified Soulseek credentials and an auto-generated API key.
     pub fn ensure_slskd_config(username: &str, password: &str) -> Result<(std::path::PathBuf, String), String> {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let global_dir = std::path::PathBuf::from(&home).join(".config/omnirip");
+        let global_dir = std::path::PathBuf::from(&home).join(".config/orchestria");
         let _ = std::fs::create_dir_all(&global_dir);
         let global_path = global_dir.join("slskd.yml");
         let _ = Self::ensure_slskd_config_at(&global_path, username, password);
@@ -439,9 +439,9 @@ impl SlskdClient {
             ];
             if let Ok(home) = std::env::var("HOME") {
                 let home_p = std::path::PathBuf::from(home);
-                candidates.push(home_p.join(".config/omnirip/slskd.yml"));
-                candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.local.yml"));
-                candidates.push(home_p.join("Projects/OmniRip/tools/slskd/slskd.yml"));
+                candidates.push(home_p.join(".config/orchestria/slskd.yml"));
+                candidates.push(home_p.join("Projects/Orchestria/tools/slskd/slskd.local.yml"));
+                candidates.push(home_p.join("Projects/Orchestria/tools/slskd/slskd.yml"));
                 candidates.push(home_p.join("Library/Application Support/slskd/slskd.yml"));
                 candidates.push(home_p.join(".config/slskd/slskd.yml"));
             }
@@ -478,7 +478,7 @@ impl SlskdClient {
         ];
         if let Ok(home) = std::env::var("HOME") {
             let home_p = std::path::PathBuf::from(home);
-            candidates.push(home_p.join(".config/omnirip/slskd.yml"));
+            candidates.push(home_p.join(".config/orchestria/slskd.yml"));
             candidates.push(home_p.join("Library/Application Support/slskd/slskd.yml"));
             candidates.push(home_p.join(".config/slskd/slskd.yml"));
         }
@@ -555,8 +555,8 @@ impl SlskdClient {
         if let Ok(home) = std::env::var("HOME") {
             let home_p = std::path::PathBuf::from(home);
             candidates.push((
-                home_p.join("Projects/OmniRip/tools/slskd/slskd"),
-                home_p.join("Projects/OmniRip/tools/slskd/slskd.local.yml"),
+                home_p.join("Projects/Orchestria/tools/slskd/slskd"),
+                home_p.join("Projects/Orchestria/tools/slskd/slskd.local.yml"),
             ));
         }
 

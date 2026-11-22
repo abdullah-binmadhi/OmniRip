@@ -1,4 +1,4 @@
-//! Multi-Palette Theme Engine for OmniRip TUI.
+//! Multi-Palette Theme Engine for Orchestria TUI.
 //! Supports 7 high-contrast color palettes: Cyberpunk Neon, Tokyo Night, Monokai Pro,
 //! Matrix Green, Nordic Frost, Dracula Night, and Amber CRT.
 

@@ -338,7 +338,7 @@ pub fn render_preset_modal(f: &mut Frame, area: Rect, state: &PresetModalState) 
                 ]));
                 f.render_widget(err_widget, inner[2]);
             } else {
-                let hint = Paragraph::new("Stored to ~/.config/omnirip/presets/ and loaded to AutoEQ profiles.")
+                let hint = Paragraph::new("Stored to ~/.config/orchestria/presets/ and loaded to AutoEQ profiles.")
                     .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(hint, inner[2]);
             }

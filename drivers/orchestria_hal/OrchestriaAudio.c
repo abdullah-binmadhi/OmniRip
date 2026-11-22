@@ -1,4 +1,4 @@
-#include "OmniRipAudio.h"
+#include "OrchestriaAudio.h"
 #include <fcntl.h>
 #include <mach/mach_time.h>
 #include <string.h>
@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 // Driver Singleton State
-static OmniRipDriverState gDriverState = {
+static OrchestriaDriverState gDriverState = {
     .host = NULL,
     .ref_count = 1,
     .sample_rate = 48000.0,
@@ -97,7 +97,7 @@ static uint64_t MonotonicNowNs(void) {
 }
 
 static void SyncShmHeaderMetadata(void) {
-    OmniRipShmRing* shm = gDriverState.shm_ring;
+    OrchestriaShmRing* shm = gDriverState.shm_ring;
     if (!shm) return;
     atomic_store_explicit(&shm->sample_rate_hz, (uint32_t)gDriverState.sample_rate, memory_order_relaxed);
     atomic_store_explicit(&shm->volume_bits, FloatToU32Bits(gDriverState.volume_scalar), memory_order_relaxed);
@@ -110,39 +110,39 @@ static void EnsureShmInitialized(void) {
         return;
     }
 
-    int fd = shm_open(kOmniRip_ShmName, O_CREAT | O_RDWR, 0644);
+    int fd = shm_open(kOrchestria_ShmName, O_CREAT | O_RDWR, 0644);
     if (fd < 0) {
-        syslog(LOG_ERR, "OmniRip: shm_open(%s) failed", kOmniRip_ShmName);
+        syslog(LOG_ERR, "Orchestria: shm_open(%s) failed", kOrchestria_ShmName);
         return;
     }
 
-    // Override coreaudiod process umask so user-space OmniRip can open O_RDONLY safely.
+    // Override coreaudiod process umask so user-space Orchestria can open O_RDONLY safely.
     (void)fchmod(fd, 0644);
-    if (ftruncate(fd, (off_t)sizeof(OmniRipShmRing)) != 0) {
+    if (ftruncate(fd, (off_t)sizeof(OrchestriaShmRing)) != 0) {
         // Ignore EINVAL if shared memory segment already exists with exact target size.
         struct stat st;
-        if (fstat(fd, &st) != 0 || (size_t)st.st_size < sizeof(OmniRipShmRing)) {
-            syslog(LOG_ERR, "OmniRip: ftruncate(%s) failed", kOmniRip_ShmName);
+        if (fstat(fd, &st) != 0 || (size_t)st.st_size < sizeof(OrchestriaShmRing)) {
+            syslog(LOG_ERR, "Orchestria: ftruncate(%s) failed", kOrchestria_ShmName);
             close(fd);
             return;
         }
     }
 
-    void* ptr = mmap(NULL, sizeof(OmniRipShmRing), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* ptr = mmap(NULL, sizeof(OrchestriaShmRing), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED || ptr == NULL) {
-        syslog(LOG_ERR, "OmniRip: mmap(%s) failed", kOmniRip_ShmName);
+        syslog(LOG_ERR, "Orchestria: mmap(%s) failed", kOrchestria_ShmName);
         close(fd);
         return;
     }
 
-    OmniRipShmRing* shm = (OmniRipShmRing*)ptr;
-    if (shm->magic != kOmniRip_ShmMagic || shm->version != kOmniRip_ShmVersion ||
-        shm->channels != kOmniRip_Channels || shm->capacity_frames != kOmniRip_RingBufferFrames) {
-        memset(shm, 0, sizeof(OmniRipShmRing));
-        shm->magic = kOmniRip_ShmMagic;
-        shm->version = kOmniRip_ShmVersion;
-        shm->channels = kOmniRip_Channels;
-        shm->capacity_frames = kOmniRip_RingBufferFrames;
+    OrchestriaShmRing* shm = (OrchestriaShmRing*)ptr;
+    if (shm->magic != kOrchestria_ShmMagic || shm->version != kOrchestria_ShmVersion ||
+        shm->channels != kOrchestria_Channels || shm->capacity_frames != kOrchestria_RingBufferFrames) {
+        memset(shm, 0, sizeof(OrchestriaShmRing));
+        shm->magic = kOrchestria_ShmMagic;
+        shm->version = kOrchestria_ShmVersion;
+        shm->channels = kOrchestria_Channels;
+        shm->capacity_frames = kOrchestria_RingBufferFrames;
         atomic_store_explicit(&shm->write_cursor, 0, memory_order_relaxed);
     }
 
@@ -158,17 +158,17 @@ static void GetStreamFormat(Float64 sampleRate, AudioStreamBasicDescription* out
     outDesc->mSampleRate = sampleRate;
     outDesc->mFormatID = kAudioFormatLinearPCM;
     outDesc->mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked;
-    outDesc->mBytesPerPacket = sizeof(Float32) * kOmniRip_Channels;
+    outDesc->mBytesPerPacket = sizeof(Float32) * kOrchestria_Channels;
     outDesc->mFramesPerPacket = 1;
-    outDesc->mBytesPerFrame = sizeof(Float32) * kOmniRip_Channels;
-    outDesc->mChannelsPerFrame = kOmniRip_Channels;
+    outDesc->mBytesPerFrame = sizeof(Float32) * kOrchestria_Channels;
+    outDesc->mChannelsPerFrame = kOrchestria_Channels;
     outDesc->mBitsPerChannel = 32;
     outDesc->mReserved = 0;
 }
 
 // Factory Function
 __attribute__((visibility("default")))
-void* OmniRipAudio_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequestedTypeUUID) {
+void* OrchestriaAudio_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequestedTypeUUID) {
     (void)inAllocator;
     CFUUIDRef factoryUUID = CFUUIDGetConstantUUIDWithBytes(NULL,
         0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x4a, 0x5b,
@@ -513,7 +513,7 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyPreferredChannelLayout:
-                *outDataSize = offsetof(AudioChannelLayout, mChannelDescriptions) + (kOmniRip_Channels * sizeof(AudioChannelDescription));
+                *outDataSize = offsetof(AudioChannelLayout, mChannelDescriptions) + (kOrchestria_Channels * sizeof(AudioChannelDescription));
                 return kAudioHardwareNoError;
         }
     } else if (inObjectID == kObjectID_Stream_Output) {
@@ -583,7 +583,7 @@ static OSStatus Driver_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, 
                 return kAudioHardwareNoError;
         }
     }
-    syslog(LOG_NOTICE, "OmniRip UNKNOWN PROP (Size) obj=%u sel=%.4s (0x%08x) scope=%.4s elem=%u",
+    syslog(LOG_NOTICE, "Orchestria UNKNOWN PROP (Size) obj=%u sel=%.4s (0x%08x) scope=%.4s elem=%u",
            inObjectID, (char*)&inAddress->mSelector, inAddress->mSelector, (char*)&inAddress->mScope, inAddress->mElement);
     return kAudioHardwareUnknownPropertyError;
 }
@@ -607,7 +607,7 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 *outDataSize = sizeof(AudioObjectID);
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyManufacturer:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Manufacturer);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Manufacturer);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
@@ -627,7 +627,7 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
             case kAudioPlugInPropertyTranslateUIDToDevice:
                 if (inQualifierData != NULL && inQualifierDataSize >= sizeof(CFStringRef)) {
                     CFStringRef theUID = *((CFStringRef*)inQualifierData);
-                    if (theUID != NULL && CFStringCompare(theUID, CFSTR(kOmniRip_Device_UID), 0) == kCFCompareEqualTo) {
+                    if (theUID != NULL && CFStringCompare(theUID, CFSTR(kOrchestria_Device_UID), 0) == kCFCompareEqualTo) {
                         *((AudioObjectID*)outData) = kObjectID_Device;
                         *outDataSize = sizeof(AudioObjectID);
                         return kAudioHardwareNoError;
@@ -643,7 +643,7 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
             case kAudioPlugInPropertyTranslateUIDToBox:
                 if (inQualifierData != NULL && inQualifierDataSize >= sizeof(CFStringRef)) {
                     CFStringRef theUID = *((CFStringRef*)inQualifierData);
-                    if (theUID != NULL && CFStringCompare(theUID, CFSTR(kOmniRip_Box_UID), 0) == kCFCompareEqualTo) {
+                    if (theUID != NULL && CFStringCompare(theUID, CFSTR(kOrchestria_Box_UID), 0) == kCFCompareEqualTo) {
                         *((AudioObjectID*)outData) = kObjectID_Box;
                         *outDataSize = sizeof(AudioObjectID);
                         return kAudioHardwareNoError;
@@ -673,17 +673,17 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 *outDataSize = sizeof(AudioObjectID);
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyName:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Device_Name);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Device_Name);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyManufacturer:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Manufacturer);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Manufacturer);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
             case kAudioBoxPropertyBoxUID:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Box_UID);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Box_UID);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
@@ -734,22 +734,22 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 *outDataSize = sizeof(AudioObjectID);
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyName:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Device_Name);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Device_Name);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
             case kAudioObjectPropertyManufacturer:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Manufacturer);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Manufacturer);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyDeviceUID:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Device_UID);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Device_UID);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyModelUID:
-                *((CFStringRef*)outData) = CFSTR(kOmniRip_Device_Model_UID);
+                *((CFStringRef*)outData) = CFSTR(kOrchestria_Device_Model_UID);
                 CFRetain(*((CFStringRef*)outData));
                 *outDataSize = sizeof(CFStringRef);
                 return kAudioHardwareNoError;
@@ -855,17 +855,17 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 }
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyZeroTimeStampPeriod:
-                *((UInt32*)outData) = kOmniRip_RingBufferFrames;
+                *((UInt32*)outData) = kOrchestria_RingBufferFrames;
                 *outDataSize = sizeof(UInt32);
                 return kAudioHardwareNoError;
             case kAudioDevicePropertyPreferredChannelLayout: {
-                UInt32 theACLSize = offsetof(AudioChannelLayout, mChannelDescriptions) + (kOmniRip_Channels * sizeof(AudioChannelDescription));
+                UInt32 theACLSize = offsetof(AudioChannelLayout, mChannelDescriptions) + (kOrchestria_Channels * sizeof(AudioChannelDescription));
                 if (inDataSize >= theACLSize) {
                     AudioChannelLayout* acl = (AudioChannelLayout*)outData;
                     acl->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
                     acl->mChannelBitmap = 0;
-                    acl->mNumberChannelDescriptions = kOmniRip_Channels;
-                    for (UInt32 i = 0; i < kOmniRip_Channels; i++) {
+                    acl->mNumberChannelDescriptions = kOrchestria_Channels;
+                    for (UInt32 i = 0; i < kOrchestria_Channels; i++) {
                         acl->mChannelDescriptions[i].mChannelLabel = kAudioChannelLabel_Left + i;
                         acl->mChannelDescriptions[i].mChannelFlags = 0;
                         acl->mChannelDescriptions[i].mCoordinates[0] = 0;
@@ -995,7 +995,7 @@ static OSStatus Driver_GetPropertyData(AudioServerPlugInDriverRef inDriver, Audi
                 return kAudioHardwareNoError;
         }
     }
-    syslog(LOG_NOTICE, "OmniRip UNKNOWN PROP (Data) obj=%u sel=%.4s (0x%08x) scope=%.4s elem=%u inDataSize=%u",
+    syslog(LOG_NOTICE, "Orchestria UNKNOWN PROP (Data) obj=%u sel=%.4s (0x%08x) scope=%.4s elem=%u inDataSize=%u",
            inObjectID, (char*)&inAddress->mSelector, inAddress->mSelector, (char*)&inAddress->mScope, inAddress->mElement, inDataSize);
     return kAudioHardwareUnknownPropertyError;
 }
@@ -1090,7 +1090,7 @@ static OSStatus Driver_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, Aud
 
     pthread_mutex_lock(&gDriverState.io_mutex);
     uint64_t currentHostTime = mach_absolute_time();
-    Float64 theHostTicksPerRingBuffer = gDriverState.host_ticks_per_frame * (Float64)kOmniRip_RingBufferFrames;
+    Float64 theHostTicksPerRingBuffer = gDriverState.host_ticks_per_frame * (Float64)kOrchestria_RingBufferFrames;
     Float64 theNextTickOffset = gDriverState.previous_ticks + theHostTicksPerRingBuffer;
     uint64_t theNextHostTime = gDriverState.anchor_host_time + (uint64_t)theNextTickOffset;
 
@@ -1099,7 +1099,7 @@ static OSStatus Driver_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, Aud
         gDriverState.previous_ticks = theNextTickOffset;
     }
 
-    *outSampleTime = (Float64)(gDriverState.number_timestamps * kOmniRip_RingBufferFrames);
+    *outSampleTime = (Float64)(gDriverState.number_timestamps * kOrchestria_RingBufferFrames);
     *outHostTime = gDriverState.anchor_host_time + (uint64_t)gDriverState.previous_ticks;
     *outSeed = 1;
     pthread_mutex_unlock(&gDriverState.io_mutex);
@@ -1132,19 +1132,19 @@ static OSStatus Driver_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioO
         return kAudioHardwareNoError;
     }
 
-    OmniRipShmRing* shm = gDriverState.shm_ring;
+    OrchestriaShmRing* shm = gDriverState.shm_ring;
     if (!shm) {
         return kAudioHardwareNoError;
     }
 
     UInt32 framesToWrite = inIOBufferFrameSize;
-    if (framesToWrite > kOmniRip_RingBufferFrames) {
-        framesToWrite = kOmniRip_RingBufferFrames;
+    if (framesToWrite > kOrchestria_RingBufferFrames) {
+        framesToWrite = kOrchestria_RingBufferFrames;
     }
 
     uint64_t cursor = atomic_load_explicit(&shm->write_cursor, memory_order_relaxed);
-    UInt32 startFrame = (UInt32)(cursor % kOmniRip_RingBufferFrames);
-    UInt32 firstPart = kOmniRip_RingBufferFrames - startFrame;
+    UInt32 startFrame = (UInt32)(cursor % kOrchestria_RingBufferFrames);
+    UInt32 firstPart = kOrchestria_RingBufferFrames - startFrame;
     UInt32 secondPart = 0;
     if (firstPart >= framesToWrite) {
         firstPart = framesToWrite;
@@ -1154,15 +1154,15 @@ static OSStatus Driver_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioO
 
     const Float32* src = (const Float32*)ioMainBuffer;
     if (gDriverState.is_muted) {
-        memset(shm->frames + (startFrame * kOmniRip_Channels), 0, firstPart * kOmniRip_Channels * sizeof(Float32));
+        memset(shm->frames + (startFrame * kOrchestria_Channels), 0, firstPart * kOrchestria_Channels * sizeof(Float32));
         if (secondPart > 0) {
-            memset(shm->frames, 0, secondPart * kOmniRip_Channels * sizeof(Float32));
+            memset(shm->frames, 0, secondPart * kOrchestria_Channels * sizeof(Float32));
         }
     } else {
-        // Write raw unity-gain PCM; user-space OmniRip reads atomic volume_bits separately for clean SNR.
-        memcpy(shm->frames + (startFrame * kOmniRip_Channels), src, firstPart * kOmniRip_Channels * sizeof(Float32));
+        // Write raw unity-gain PCM; user-space Orchestria reads atomic volume_bits separately for clean SNR.
+        memcpy(shm->frames + (startFrame * kOrchestria_Channels), src, firstPart * kOrchestria_Channels * sizeof(Float32));
         if (secondPart > 0) {
-            memcpy(shm->frames, src + (firstPart * kOmniRip_Channels), secondPart * kOmniRip_Channels * sizeof(Float32));
+            memcpy(shm->frames, src + (firstPart * kOrchestria_Channels), secondPart * kOrchestria_Channels * sizeof(Float32));
         }
     }
 

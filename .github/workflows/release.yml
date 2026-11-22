@@ -23,21 +23,21 @@ jobs:
     needs: test
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: omnirip-macos-arm64.tar.gz
-          - os: macos-14
+            artifact_name: orchestria-macos-arm64.tar.gz
+          - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: omnirip-macos-x86_64.tar.gz
+            artifact_name: orchestria-macos-x86_64.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: omnirip-windows-x64.zip
+            artifact_name: orchestria-windows-x64.zip
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: omnirip-linux-x86_64.tar.gz
+            artifact_name: orchestria-linux-x86_64.tar.gz
 
     steps:
       - name: Checkout repository
@@ -73,10 +73,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/bundle
-          cp "target/${{ matrix.target }}/release/omnirip" dist/bundle/
+          cp "target/${{ matrix.target }}/release/orchestria" dist/bundle/
           # One universal driver (arm64 + x86_64): both macOS archives carry a plug-in that loads.
-          make -C drivers/omnirip_hal
-          cp -R drivers/omnirip_hal/OmniRipAudio.driver dist/bundle/
+          make -C drivers/orchestria_hal
+          cp -R drivers/orchestria_hal/OrchestriaAudio.driver dist/bundle/
           cp scripts/install.sh scripts/install.command README.md dist/bundle/
           tar -czf "dist/${{ matrix.artifact_name }}" -C dist/bundle .
 
@@ -86,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/bundle
-          cp "target/${{ matrix.target }}/release/omnirip" dist/bundle/
+          cp "target/${{ matrix.target }}/release/orchestria" dist/bundle/
           cp scripts/install.sh README.md dist/bundle/
           tar -czf "dist/${{ matrix.artifact_name }}" -C dist/bundle .
 
@@ -95,7 +95,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/omnirip.exe", "scripts/install.ps1", "README.md" -DestinationPath "dist/${{ matrix.artifact_name }}"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/orchestria.exe", "scripts/install.ps1", "README.md" -DestinationPath "dist/${{ matrix.artifact_name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -129,10 +129,10 @@ jobs:
 
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             release_tag="${GITHUB_REF_NAME}"
-            release_title="OmniRip ${release_tag} (${short_sha})"
+            release_title="Orchestria ${release_tag} (${short_sha})"
           else
             release_tag="v${pkg_ver}-rolling"
-            release_title="OmniRip v${pkg_ver} (${short_sha})"
+            release_title="Orchestria v${pkg_ver} (${short_sha})"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -f "${release_tag}" "${{ github.sha }}"
@@ -188,13 +188,13 @@ jobs:
           if not bullets:
               bullets.append("[IMPROVED] Faster performance, cleaner sound routing, and stability improvements.")
 
-          print(f"<!-- omnirip-sha:{sha} -->")
-          print(f"<!-- omnirip-ts:{commit_ts} -->")
-          print("<!-- omnirip-driver-ver:2 -->")
-          print("<!-- omnirip-notes-start -->")
+          print(f"<!-- orchestria-sha:{sha} -->")
+          print(f"<!-- orchestria-ts:{commit_ts} -->")
+          print("<!-- orchestria-driver-ver:2 -->")
+          print("<!-- orchestria-notes-start -->")
           for b in bullets:
               print(f"- {b}")
-          print("<!-- omnirip-notes-end -->")
+          print("<!-- orchestria-notes-end -->")
           print("\n### What's New & Fixed")
           for b in bullets:
               print(f"- {b}")
@@ -212,13 +212,13 @@ jobs:
         run: |
           set -euo pipefail
           cd release_artifacts
-          sha256sum omnirip-* > SHA256SUMS
+          sha256sum orchestria-* > SHA256SUMS
           cat SHA256SUMS
           if [ -n "$MINISIGN_SECRET_KEY" ]; then
             sudo apt-get update
             sudo apt-get install -y minisign
             printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
-            minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -x SHA256SUMS.minisig -t "OmniRip ${{ steps.meta.outputs.release_tag }}"
+            minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -x SHA256SUMS.minisig -t "Orchestria ${{ steps.meta.outputs.release_tag }}"
             rm -f "$RUNNER_TEMP/minisign.key"
           else
             echo "Notice: MINISIGN_SECRET_KEY not set; publishing verified SHA256SUMS."
@@ -234,7 +234,7 @@ jobs:
           make_latest: true
           generate_release_notes: true
           files: |
-            release_artifacts/omnirip-*
+            release_artifacts/orchestria-*
             release_artifacts/SHA256SUMS
             release_artifacts/SHA256SUMS.minisig
         env:

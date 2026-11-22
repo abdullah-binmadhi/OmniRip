@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         OmniRip Pure Rust Audio Engine Bridge
-// @namespace    https://github.com/omnirip/bridge
+// @name         Orchestria Pure Rust Audio Engine Bridge
+// @namespace    https://github.com/orchestria/bridge
 // @version      1.0.0
-// @description  Routes live YouTube and web video audio directly to OmniRip System EQ on 127.0.0.1:49152
+// @description  Routes live YouTube and web video audio directly to Orchestria System EQ on 127.0.0.1:49152
 // @match        *://*.youtube.com/*
 // @match        *://*.soundcloud.com/*
 // @match        *://*.twitch.tv/*
@@ -13,33 +13,33 @@
 (function() {
     'use strict';
 
-    console.log('[OmniRip Bridge] Initializing browser WebAudio capture...');
+    console.log('[Orchestria Bridge] Initializing browser WebAudio capture...');
 
     let audioCtx = null;
     let sourceNode = null;
     let processorNode = null;
     let ws = null;
-    const OMNIRIP_PORT = 49152;
+    const ORCHESTRIA_PORT = 49152;
 
     function initCapture() {
         const mediaEl = document.querySelector('video') || document.querySelector('audio');
-        if (!mediaEl || mediaEl._omniripAttached) {
+        if (!mediaEl || mediaEl._orchestriaAttached) {
             return;
         }
 
-        mediaEl._omniripAttached = true;
-        console.log('[OmniRip Bridge] Found active media element:', mediaEl);
+        mediaEl._orchestriaAttached = true;
+        console.log('[Orchestria Bridge] Found active media element:', mediaEl);
 
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
             sourceNode = audioCtx.createMediaElementSource(mediaEl);
             processorNode = audioCtx.createScriptProcessor(512, 2, 2);
 
-            // Connect to OmniRip TCP/WebSocket Gateway
+            // Connect to Orchestria TCP/WebSocket Gateway
             const connectWs = () => {
-                ws = new WebSocket(`ws://127.0.0.1:${OMNIRIP_PORT}`);
+                ws = new WebSocket(`ws://127.0.0.1:${ORCHESTRIA_PORT}`);
                 ws.binaryType = 'arraybuffer';
-                ws.onopen = () => console.log('[OmniRip Bridge] Connected to OmniRip Audio Engine!');
+                ws.onopen = () => console.log('[Orchestria Bridge] Connected to Orchestria Audio Engine!');
                 ws.onerror = () => setTimeout(connectWs, 3000);
             };
             connectWs();
@@ -52,7 +52,7 @@
                 const right = e.inputBuffer.getChannelData(1);
                 const frameCount = left.length;
 
-                // Build OmniRip AudioPacketHeader (16 bytes) + Float32 Stereo Payload
+                // Build Orchestria AudioPacketHeader (16 bytes) + Float32 Stereo Payload
                 const packetSize = 16 + (frameCount * 8);
                 const buffer = new ArrayBuffer(packetSize);
                 const view = new DataView(buffer);
@@ -76,9 +76,9 @@
 
             sourceNode.connect(processorNode);
             processorNode.connect(audioCtx.destination);
-            console.log('[OmniRip Bridge] WebAudio capture active and streaming to OmniRip.');
+            console.log('[Orchestria Bridge] WebAudio capture active and streaming to Orchestria.');
         } catch (err) {
-            console.error('[OmniRip Bridge] WebAudio initialization error:', err);
+            console.error('[Orchestria Bridge] WebAudio initialization error:', err);
         }
     }
 

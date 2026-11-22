@@ -1,6 +1,6 @@
-//! OmniRip Preset Storage and Remote Downloader Engine.
+//! Orchestria Preset Storage and Remote Downloader Engine.
 //!
-//! Provides JSON persistence for user presets in ~/.config/omnirip/presets/,
+//! Provides JSON persistence for user presets in ~/.config/orchestria/presets/,
 //! synthesis of 10-band graphic EQ curves to parametric biquad matrices,
 //! and network fetching for remote AutoEQ/EqualizerAPO profiles.
 
@@ -20,9 +20,9 @@ pub const GRAPHIC_EQ_FREQUENCIES: [f32; 10] = [
 /// Quality factor for 10-band standard 1-octave graphic EQ filters.
 pub const GRAPHIC_EQ_Q: f32 = 1.414;
 
-/// Persisted configuration of an OmniRip audio preset.
+/// Persisted configuration of an Orchestria audio preset.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct OmniRipPreset {
+pub struct OrchestriaPreset {
     pub name: String,
     pub preamp_db: f32,
     pub volume_boost_db: f32,
@@ -35,7 +35,7 @@ pub struct OmniRipPreset {
     pub raw_eq_text: Option<String>,
 }
 
-impl OmniRipPreset {
+impl OrchestriaPreset {
     /// Construct a preset from active audio DSP parameters.
     pub fn from_active_state(
         name: String,
@@ -86,7 +86,7 @@ impl OmniRipPreset {
         }
     }
 
-    /// Convert an OmniRipPreset into a full MasteringPreset for the preset library.
+    /// Convert an OrchestriaPreset into a full MasteringPreset for the preset library.
     pub fn to_mastering_preset(&self) -> crate::dsp::enhancer::MasteringPreset {
         crate::dsp::enhancer::MasteringPreset {
             name: Box::leak(self.name.clone().into_boxed_str()),
@@ -133,20 +133,20 @@ impl OmniRipPreset {
     }
 }
 
-/// Retrieve the canonical directory for storing user presets (~/.config/omnirip/presets/ on Unix, %APPDATA%\omnirip\presets on Windows).
+/// Retrieve the canonical directory for storing user presets (~/.config/orchestria/presets/ on Unix, %APPDATA%\orchestria\presets on Windows).
 pub fn get_presets_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("OMNIRIP_PRESETS_DIR") {
+    if let Ok(dir) = std::env::var("ORCHESTRIA_PRESETS_DIR") {
         let p = PathBuf::from(dir);
         let _ = fs::create_dir_all(&p);
         return p;
     }
 
     let target = if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".config").join("omnirip").join("presets")
+        PathBuf::from(home).join(".config").join("orchestria").join("presets")
     } else if let Ok(appdata) = std::env::var("APPDATA") {
-        PathBuf::from(appdata).join("omnirip").join("presets")
+        PathBuf::from(appdata).join("orchestria").join("presets")
     } else if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        PathBuf::from(userprofile).join(".config").join("omnirip").join("presets")
+        PathBuf::from(userprofile).join(".config").join("orchestria").join("presets")
     } else {
         PathBuf::from("./presets")
     };
@@ -155,7 +155,7 @@ pub fn get_presets_dir() -> PathBuf {
         let _ = fs::remove_file(target.join(".probe"));
         target
     } else {
-        let fallback = std::env::temp_dir().join("omnirip").join("presets");
+        let fallback = std::env::temp_dir().join("orchestria").join("presets");
         let _ = fs::create_dir_all(&fallback);
         fallback
     }
@@ -180,8 +180,8 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 }
 
-/// Save an OmniRip preset as JSON in ~/.config/omnirip/presets/.
-pub fn save_preset_to_disk(preset: &OmniRipPreset) -> Result<PathBuf, String> {
+/// Save an Orchestria preset as JSON in ~/.config/orchestria/presets/.
+pub fn save_preset_to_disk(preset: &OrchestriaPreset) -> Result<PathBuf, String> {
     let dir = get_presets_dir();
     let file_name = format!("{}.json", sanitize_filename(&preset.name));
     let path = dir.join(file_name);
@@ -290,12 +290,12 @@ pub fn load_gear_for_transducer(
     }
 }
 
-/// Save active acoustic gear profile to ~/.config/omnirip/active_gear.json (legacy wrapper).
+/// Save active acoustic gear profile to ~/.config/orchestria/active_gear.json (legacy wrapper).
 pub fn save_active_gear_to_disk(gear: &crate::dsp::enhancer::AcousticGearProfile) -> Result<PathBuf, String> {
     save_gear_for_transducer(gear)
 }
 
-/// Load active acoustic gear profile from ~/.config/omnirip/active_gear.json (legacy wrapper).
+/// Load active acoustic gear profile from ~/.config/orchestria/active_gear.json (legacy wrapper).
 pub fn load_active_gear_from_disk() -> Option<crate::dsp::enhancer::AcousticGearProfile> {
     let base_dir = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
     let path = base_dir.join("active_gear.json");
@@ -308,8 +308,8 @@ pub fn load_active_gear_from_disk() -> Option<crate::dsp::enhancer::AcousticGear
 }
 
 
-/// Load all user presets from ~/.config/omnirip/presets/.
-pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OmniRipPreset, ParametricProfile)> {
+/// Load all user presets from ~/.config/orchestria/presets/.
+pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OrchestriaPreset, ParametricProfile)> {
     let dir = get_presets_dir();
     let mut results = Vec::new();
 
@@ -322,7 +322,7 @@ pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OmniRipPreset, Parametric
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(preset) = serde_json::from_str::<OmniRipPreset>(&content) {
+                if let Ok(preset) = serde_json::from_str::<OrchestriaPreset>(&content) {
                     let profile = preset.to_profile(sample_rate);
                     results.push((preset, profile));
                 }
@@ -335,7 +335,7 @@ pub fn load_all_user_presets(sample_rate: f32) -> Vec<(OmniRipPreset, Parametric
     results
 }
 
-/// Return the directory for storing user custom mastering presets (~/.config/omnirip/mastering_presets/).
+/// Return the directory for storing user custom mastering presets (~/.config/orchestria/mastering_presets/).
 pub fn get_mastering_presets_dir() -> PathBuf {
     let base = get_presets_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
     let dir = base.join("mastering_presets");
@@ -345,7 +345,7 @@ pub fn get_mastering_presets_dir() -> PathBuf {
     dir
 }
 
-/// Save a user mastering preset as JSON in ~/.config/omnirip/mastering_presets/.
+/// Save a user mastering preset as JSON in ~/.config/orchestria/mastering_presets/.
 pub fn save_mastering_preset_to_disk(preset: &crate::dsp::enhancer::MasteringPreset) -> Result<PathBuf, String> {
     let dir = get_mastering_presets_dir();
     let file_name = format!("{}.json", sanitize_filename(preset.name));
@@ -358,12 +358,12 @@ pub fn save_mastering_preset_to_disk(preset: &crate::dsp::enhancer::MasteringPre
     Ok(path)
 }
 
-/// Load all user mastering presets from ~/.config/omnirip/mastering_presets/ and ~/.config/omnirip/presets/.
+/// Load all user mastering presets from ~/.config/orchestria/mastering_presets/ and ~/.config/orchestria/presets/.
 pub fn load_all_user_mastering_presets() -> Vec<crate::dsp::enhancer::MasteringPreset> {
     let mut results = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
 
-    // 1. Scan primary mastering presets directory (~/.config/omnirip/mastering_presets/)
+    // 1. Scan primary mastering presets directory (~/.config/orchestria/mastering_presets/)
     let dir = get_mastering_presets_dir();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
@@ -374,7 +374,7 @@ pub fn load_all_user_mastering_presets() -> Vec<crate::dsp::enhancer::MasteringP
                         if seen_names.insert(saved.name.clone()) {
                             results.push(saved.to_mastering_preset());
                         }
-                    } else if let Ok(omni) = serde_json::from_str::<OmniRipPreset>(&content) {
+                    } else if let Ok(omni) = serde_json::from_str::<OrchestriaPreset>(&content) {
                         if seen_names.insert(omni.name.clone()) {
                             results.push(omni.to_mastering_preset());
                         }
@@ -384,7 +384,7 @@ pub fn load_all_user_mastering_presets() -> Vec<crate::dsp::enhancer::MasteringP
         }
     }
 
-    // 2. Also scan general presets directory (~/.config/omnirip/presets/)
+    // 2. Also scan general presets directory (~/.config/orchestria/presets/)
     let presets_dir = get_presets_dir();
     if presets_dir.exists() && presets_dir != dir {
         if let Ok(entries) = fs::read_dir(&presets_dir) {
@@ -396,7 +396,7 @@ pub fn load_all_user_mastering_presets() -> Vec<crate::dsp::enhancer::MasteringP
                             if seen_names.insert(saved.name.clone()) {
                                 results.push(saved.to_mastering_preset());
                             }
-                        } else if let Ok(omni) = serde_json::from_str::<OmniRipPreset>(&content) {
+                        } else if let Ok(omni) = serde_json::from_str::<OrchestriaPreset>(&content) {
                             if seen_names.insert(omni.name.clone()) {
                                 results.push(omni.to_mastering_preset());
                             }
@@ -466,7 +466,7 @@ mod tests {
         gains[5] = -2.5; // 1000 Hz
         gains[9] = 4.0; // 16000 Hz
 
-        let preset = OmniRipPreset::from_active_state(
+        let preset = OrchestriaPreset::from_active_state(
             "Test Preset".to_string(),
             -3.0,
             1.2,
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_preset_roundtrip_serialization() {
-        let preset = OmniRipPreset::from_active_state(
+        let preset = OrchestriaPreset::from_active_state(
             "Roundtrip Test".to_string(),
             -4.5,
             0.0,
@@ -504,7 +504,7 @@ mod tests {
         );
 
         let json = serde_json::to_string(&preset).expect("Serialization failed");
-        let decoded: OmniRipPreset = serde_json::from_str(&json).expect("Deserialization failed");
+        let decoded: OrchestriaPreset = serde_json::from_str(&json).expect("Deserialization failed");
 
         assert_eq!(preset, decoded);
     }
@@ -557,7 +557,7 @@ mod tests {
 
         // 4. Test disk save
         let mut custom_preset = presets[0].clone();
-        custom_preset.name = Box::leak("OmniRip Reference Mastering Test".to_string().into_boxed_str());
+        custom_preset.name = Box::leak("Orchestria Reference Mastering Test".to_string().into_boxed_str());
         custom_preset.description = Box::leak("Unit test reference mastering preset".to_string().into_boxed_str());
         custom_preset.spatial_width = 1.45;
         custom_preset.tube_warmth = 0.65;
@@ -568,7 +568,7 @@ mod tests {
 
         // Verify loaded user presets contains our saved custom preset
         let user_presets = load_all_user_mastering_presets();
-        let found = user_presets.iter().find(|p| p.name == "OmniRip Reference Mastering Test");
+        let found = user_presets.iter().find(|p| p.name == "Orchestria Reference Mastering Test");
         assert!(found.is_some(), "Saved custom preset should be present in loaded user mastering presets");
         let found_preset = found.unwrap();
         assert_eq!(found_preset.spatial_width, 1.45);

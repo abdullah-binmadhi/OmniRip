@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn sha256_matches_the_standard_test_vector() {
-        let path = std::env::temp_dir().join(format!("omnirip-sha256-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("orchestria-sha256-{}", std::process::id()));
         std::fs::write(&path, b"abc").expect("write temp file");
         let digest = sha256_file(&path);
         let _ = std::fs::remove_file(&path);

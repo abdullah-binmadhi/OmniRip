@@ -152,7 +152,7 @@ impl UpdateModalState {
         self.manual_check_in_flight = true;
         self.spawn_update_check(0);
         UpdateModalAction::StatusUpdate(
-            "Checking GitHub for the latest OmniRip self-update...".to_string(),
+            "Checking GitHub for the latest Orchestria self-update...".to_string(),
         )
     }
 
@@ -183,10 +183,10 @@ impl UpdateModalState {
         self.worker_rx = Some(rx);
 
         let initial_status = if info.is_homebrew {
-            "Upgrading OmniRip via Homebrew (`brew upgrade omnirip`)...".to_string()
+            "Upgrading Orchestria via Homebrew (`brew upgrade orchestria`)...".to_string()
         } else {
             format!(
-                "Downloading & verifying OmniRip {}...",
+                "Downloading & verifying Orchestria {}...",
                 info.display_version()
             )
         };
@@ -203,9 +203,9 @@ impl UpdateModalState {
                 if info.is_homebrew {
                     let _ = tx.send(UpdateWorkerEvent::DownloadProgress {
                         pct: 35,
-                        status: "Running `brew upgrade omnirip`...".to_string(),
+                        status: "Running `brew upgrade orchestria`...".to_string(),
                     });
-                    let out = Command::new("brew").args(["upgrade", "omnirip"]).output();
+                    let out = Command::new("brew").args(["upgrade", "orchestria"]).output();
                     match out {
                         Ok(o) if o.status.success() => {
                             updater::record_pending_post_update_welcome(&info);
@@ -300,7 +300,7 @@ impl UpdateModalState {
                             } else if (user_busy_typing || blocking_modal_open) && !was_manual {
                                 self.pending_update = Some(info.clone());
                                 action = UpdateModalAction::StatusUpdate(format!(
-                                    "⬆ OmniRip {} update available! Press Ctrl+U to view What's New & update.",
+                                    "⬆ Orchestria {} update available! Press Ctrl+U to view What's New & update.",
                                     info.display_version()
                                 ));
                             } else {
@@ -309,7 +309,7 @@ impl UpdateModalState {
                             }
                         } else if was_manual {
                             action = UpdateModalAction::StatusUpdate(format!(
-                                "OmniRip is already up to date ({}).",
+                                "Orchestria is already up to date ({}).",
                                 info.current_display_version()
                             ));
                         }
@@ -318,7 +318,7 @@ impl UpdateModalState {
                         if self.manual_check_in_flight {
                             self.manual_check_in_flight = false;
                             action = UpdateModalAction::StatusUpdate(
-                                "OmniRip is up to date (no published releases found).".to_string(),
+                                "Orchestria is up to date (no published releases found).".to_string(),
                             );
                         }
                     }
@@ -353,7 +353,7 @@ impl UpdateModalState {
                         if was_background {
                             self.mode = UpdateModalMode::ReadyToRestart { info: info.clone() };
                             action = UpdateModalAction::StatusUpdate(format!(
-                                "✨ OmniRip {} installed! Press Enter to restart into the new version.",
+                                "✨ Orchestria {} installed! Press Enter to restart into the new version.",
                                 info.display_version()
                             ));
                         } else {
@@ -421,7 +421,7 @@ impl UpdateModalState {
                         *bg = true;
                     }
                     UpdateModalAction::StatusUpdate(format!(
-                        "Downloading OmniRip {} in the background...",
+                        "Downloading Orchestria {} in the background...",
                         info_clone.display_version()
                     ))
                 }
@@ -439,7 +439,7 @@ impl UpdateModalState {
                 KeyCode::Esc => {
                     self.mode = UpdateModalMode::Hidden;
                     UpdateModalAction::StatusUpdate(
-                        "Update installed! Restart OmniRip anytime to use the new version."
+                        "Update installed! Restart Orchestria anytime to use the new version."
                             .to_string(),
                     )
                 }
@@ -484,7 +484,7 @@ impl UpdateModalState {
             UpdateModalMode::Available(info) => {
                 let block = Block::default()
                     .title(Span::styled(
-                        " 🚀 OmniRip Update Available ",
+                        " 🚀 Orchestria Update Available ",
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::Cyan)
@@ -592,7 +592,7 @@ impl UpdateModalState {
             } => {
                 let block = Block::default()
                     .title(Span::styled(
-                        " ⬇ Installing OmniRip Update ",
+                        " ⬇ Installing Orchestria Update ",
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::Cyan)
@@ -663,7 +663,7 @@ impl UpdateModalState {
             UpdateModalMode::ReadyToRestart { info } => {
                 let block = Block::default()
                     .title(Span::styled(
-                        " ✨ OmniRip Update Ready ",
+                        " ✨ Orchestria Update Ready ",
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::LightGreen)
@@ -677,7 +677,7 @@ impl UpdateModalState {
                     Line::from(""),
                     Line::from(vec![
                         Span::styled(
-                            "  OmniRip ",
+                            "  Orchestria ",
                             Style::default().fg(Color::White),
                         ),
                         Span::styled(
@@ -733,7 +733,7 @@ impl UpdateModalState {
             } => {
                 let block = Block::default()
                     .title(Span::styled(
-                        format!(" ✨ OmniRip Just Got Better! (v{}) ", version_label),
+                        format!(" ✨ Orchestria Just Got Better! (v{}) ", version_label),
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::LightGreen)
@@ -746,7 +746,7 @@ impl UpdateModalState {
                 let mut lines = vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  You are now running the latest version of OmniRip. Here is what changed:",
+                        "  You are now running the latest version of Orchestria. Here is what changed:",
                         Style::default().fg(Color::White),
                     )),
                     Line::from(""),
@@ -756,7 +756,7 @@ impl UpdateModalState {
                 }
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
-                    "  Tip: If anything ever feels off, run `omnirip --rollback` or `:rollback` to restore the previous build.",
+                    "  Tip: If anything ever feels off, run `orchestria --rollback` or `:rollback` to restore the previous build.",
                     Style::default().fg(Color::DarkGray),
                 )));
                 lines.push(Line::from(""));
@@ -791,7 +791,7 @@ impl UpdateModalState {
                 let lines = vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  OmniRip could not complete the update right now:",
+                        "  Orchestria could not complete the update right now:",
                         Style::default().fg(Color::White),
                     )),
                     Line::from(""),
@@ -801,7 +801,7 @@ impl UpdateModalState {
                     )),
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  Your current OmniRip installation was not modified.",
+                        "  Your current Orchestria installation was not modified.",
                         Style::default().fg(Color::Gray),
                     )),
                     Line::from(""),
@@ -903,8 +903,8 @@ mod tests {
             current_version: "0.2.0".to_string(),
             latest_version: "v0.2.0-rolling".to_string(),
             has_update: true,
-            download_url: "https://example.com/omnirip.tar.gz".to_string(),
-            release_name: "OmniRip Rolling".to_string(),
+            download_url: "https://example.com/orchestria.tar.gz".to_string(),
+            release_name: "Orchestria Rolling".to_string(),
             release_notes: String::new(),
             remote_sha: Some("1234567890abcdef".to_string()),
             simple_notes: vec![

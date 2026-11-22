@@ -1,4 +1,4 @@
-//! YouTube Title Cleaning & Artist-Track Parsing Engine for OmniRip.
+//! YouTube Title Cleaning & Artist-Track Parsing Engine for Orchestria.
 //! Normalizes noisy titles by removing tags like "[Official Video]", "(Audio)", "[HD]", etc.
 
 use std::sync::LazyLock;

@@ -5,7 +5,7 @@ pub mod storage;
 pub use parser::{parse_parametric_eq, ParametricProfile};
 pub use storage::{
     download_raw_preset, load_all_user_mastering_presets, load_all_user_presets,
-    save_mastering_preset_to_disk, save_preset_to_disk, OmniRipPreset,
+    save_mastering_preset_to_disk, save_preset_to_disk, OrchestriaPreset,
 };
 
 /// Return bundled headphone and audiophile reference profiles.

@@ -66,11 +66,11 @@ pub struct LinkBankStore {
 impl LinkBankStore {
     pub fn config_dir() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("omnirip")
+            PathBuf::from(home).join(".config").join("orchestria")
         } else if let Ok(user_profile) = std::env::var("USERPROFILE") {
-            PathBuf::from(user_profile).join(".config").join("omnirip")
+            PathBuf::from(user_profile).join(".config").join("orchestria")
         } else {
-            PathBuf::from(".config/omnirip")
+            PathBuf::from(".config/orchestria")
         }
     }
 

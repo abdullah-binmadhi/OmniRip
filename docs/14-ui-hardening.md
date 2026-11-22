@@ -207,7 +207,7 @@ Delivered:
   app detects a dead window after 30 s and shows a one-time relaunch hint; a
   clean exit removes the file.
 - Ownership banner in the detached terminal: "Selection & edits live in this
-  terminal · playhead/transport owned by the main OmniRip window".
+  terminal · playhead/transport owned by the main Orchestria window".
 - Lane provenance filter in `LayerStudio` (`f` in the terminal): all → audio
   (separator/DSP/6-source/mix) → hosted → credits → tags; click mapping and
   rendering both use the filtered list; a footer shows the active filter.

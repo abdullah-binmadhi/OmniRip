@@ -18,7 +18,7 @@ logs/
 *.sqlite3
 *.db
 .harvester/
-.omnirip/
+.orchestria/
 
 # Downloads and audio outputs
 downloads/

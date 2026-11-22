@@ -5,7 +5,7 @@
 use crate::autoeq::{get_bundled_profiles, parse_parametric_eq, ParametricProfile};
 use crate::autoeq::storage::{
     download_raw_preset, load_all_user_mastering_presets, load_all_user_presets,
-    save_mastering_preset_to_disk, save_preset_to_disk, OmniRipPreset,
+    save_mastering_preset_to_disk, save_preset_to_disk, OrchestriaPreset,
 };
 use crate::dsp::biquad::{BiquadFilter, BiquadFilterType};
 use crate::dsp::enhancer::{AcousticGearProfile, CrossfeedMode, MasteringPreset};
@@ -217,9 +217,9 @@ impl App {
                 let in_name = streamer.active_input_name();
                 let out_name = streamer.active_output_name();
                 if streamer.is_input_capture_enabled() {
-                    format!("OmniRip Sound Engine ACTIVE ({}): [{}] -> DSP -> [{}]", streamer.active_capture_backend().label(), in_name, out_name)
+                    format!("Orchestria Sound Engine ACTIVE ({}): [{}] -> DSP -> [{}]", streamer.active_capture_backend().label(), in_name, out_name)
                 } else {
-                    format!("OmniRip App-Only EQ ACTIVE: DSP -> [{}] (Press F12 for System-Wide EQ setup)", out_name)
+                    format!("Orchestria App-Only EQ ACTIVE: DSP -> [{}] (Press F12 for System-Wide EQ setup)", out_name)
                 }
             }
             Err(e) => format!("Engine notice: {}", e),
@@ -567,7 +567,7 @@ impl App {
                 match crate::harvest::updater::apply_rollback() {
                     Ok(path) => {
                         self.set_status(&format!(
-                            "Restored previous OmniRip build at {}. Restart OmniRip to use it.",
+                            "Restored previous Orchestria build at {}. Restart Orchestria to use it.",
                             path.display()
                         ));
                     }
@@ -788,7 +788,7 @@ impl App {
                 (0.0, 0.0, 0.0, 0.0, 1.0, -0.2)
             };
 
-        let preset = OmniRipPreset::from_active_state(
+        let preset = OrchestriaPreset::from_active_state(
             name.to_string(),
             preamp_db,
             volume_boost_db,
@@ -911,7 +911,7 @@ impl App {
                 (0.0, 0.0, 0.0, 1.0, -0.2)
             };
 
-        let preset = OmniRipPreset::from_active_state(
+        let preset = OrchestriaPreset::from_active_state(
             name.to_string(),
             profile.preamp_db,
             volume_boost_db,
@@ -1046,7 +1046,7 @@ impl App {
                     }
 
                     if !dest.exists() {
-                        let _ = std::fs::write(&dest, b"OMNIRIP_AUDIO_ARCHIVE_DATA");
+                        let _ = std::fs::write(&dest, b"ORCHESTRIA_AUDIO_ARCHIVE_DATA");
                     }
 
                     let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(31_457_280);
@@ -2284,7 +2284,7 @@ impl App {
         };
 
         let mut spans = vec![
-            Span::styled("OMNIRIP ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled("ORCHESTRIA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
             mode_badge,
             theme_badge,
             dac_badge,
@@ -3232,7 +3232,7 @@ impl App {
             Line::from(vec![
                 Span::styled(" [2] Capture Mode: ", Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD)),
                 Span::styled(match self.streamer.engine_type {
-                    crate::dsp::streamer::AudioEngineType::PureRustIpc => "Pure Rust Zero-Driver IPC Transport (/tmp/omnirip_audio.sock)",
+                    crate::dsp::streamer::AudioEngineType::PureRustIpc => "Pure Rust Zero-Driver IPC Transport (/tmp/orchestria_audio.sock)",
                     crate::dsp::streamer::AudioEngineType::DirectHardware => "Driverless Bit-Perfect DAC Render",
                 }, Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
             ]),
@@ -3243,7 +3243,7 @@ impl App {
                 Span::styled("        v  (Lock-Free Ring Buffer Transport)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
-                Span::styled(" [3] OmniRip Real-Time DSP Engine", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" [3] Orchestria Real-Time DSP Engine", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
                 Span::styled(" (48.0 kHz 32-bit Float)", Style::default().fg(self.theme.text_dim)),
             ]),
             Line::from(vec![
@@ -3303,7 +3303,7 @@ impl App {
         let ipc_status_str = if ipc_telem.active_clients > 0 {
             format!("ACTIVE ({} client, {} packets)", ipc_telem.active_clients, ipc_telem.total_packets)
         } else {
-            "LISTENING (0 clients on /tmp/omnirip_audio.sock)".to_string()
+            "LISTENING (0 clients on /tmp/orchestria_audio.sock)".to_string()
         };
         let ipc_status_color = if ipc_telem.active_clients > 0 { self.theme.success } else { Color::Yellow };
 
@@ -4115,7 +4115,7 @@ mod tests {
         let mut app = App::new_test();
         app.active_mode = WorkstationMode::Archiver;
 
-        let temp_dir = std::env::temp_dir().join(format!("omnirip_batch_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!("orchestria_batch_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         app.archiver.storage_path = temp_dir.clone();
         app.archiver.generate_m3u8 = true;
 

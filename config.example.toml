@@ -19,7 +19,7 @@ max_queue_length = 5
 p2p_timeout_s = 30
 
 [acoustid]
-# Key value read from this env var (or a .env file next to the config / OMNIRIP_ENV_FILE).
+# Key value read from this env var (or a .env file next to the config / ORCHESTRIA_ENV_FILE).
 api_key_env = "ACOUSTID_API_KEY"
 rate_limit_per_s = 3
 cache_ttl_days = 90
@@ -135,7 +135,7 @@ reduced_motion = false
 # Opt-in — nothing is read or written until this is enabled. Folders default to the
 # standard layout and can stay unset.
 enabled = false
-vault_dir = "~/OmniRip-Vault"
+vault_dir = "~/Orchestria-Vault"
 # library = "Library"
 # sessions = "Sessions"
 # studio = "Studio"

@@ -26,10 +26,10 @@ pub struct ToolInfo {
 pub struct ToolResolver;
 
 impl ToolResolver {
-    /// Return the user-isolated directory for OmniRip external tools (`~/.local/share/omnirip/bin` on Unix, `%APPDATA%\OmniRip\bin` on Windows).
+    /// Return the user-isolated directory for Orchestria external tools (`~/.local/share/orchestria/bin` on Unix, `%APPDATA%\Orchestria\bin` on Windows).
     pub fn user_tools_dir() -> PathBuf {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            let p = PathBuf::from(appdata).join("OmniRip").join("bin");
+            let p = PathBuf::from(appdata).join("Orchestria").join("bin");
             return p;
         }
 
@@ -37,12 +37,12 @@ impl ToolResolver {
             let p = PathBuf::from(home)
                 .join(".local")
                 .join("share")
-                .join("omnirip")
+                .join("orchestria")
                 .join("bin");
             return p;
         }
 
-        PathBuf::from("/tmp/omnirip_tools")
+        PathBuf::from("/tmp/orchestria_tools")
     }
 
     /// Return sibling `./bin` directory next to the current running executable.
@@ -63,7 +63,7 @@ impl ToolResolver {
     }
 
     /// Resolve the executable path of a given tool name using priority:
-    /// 1. OmniRip User Tools directory (`~/.local/share/omnirip/bin`)
+    /// 1. Orchestria User Tools directory (`~/.local/share/orchestria/bin`)
     /// 2. Sibling directory (`./bin` or `./tools`)
     /// 3. Global system `PATH`
     pub fn resolve_tool(name: &str) -> Option<PathBuf> {
@@ -190,7 +190,7 @@ impl OfficialToolUrls {
     }
 }
 
-/// Asynchronous bootstrapper that downloads missing tools into OmniRip's isolated user directory.
+/// Asynchronous bootstrapper that downloads missing tools into Orchestria's isolated user directory.
 pub struct ToolBootstrapper;
 
 impl ToolBootstrapper {
@@ -422,8 +422,8 @@ mod tests {
 
     #[test]
     fn test_tool_probe_returns_struct() {
-        let probe = ToolResolver::probe_tool("omnirip_nonexistent_tool_xyz");
-        assert_eq!(probe.name, "omnirip_nonexistent_tool_xyz");
+        let probe = ToolResolver::probe_tool("orchestria_nonexistent_tool_xyz");
+        assert_eq!(probe.name, "orchestria_nonexistent_tool_xyz");
         assert!(!probe.is_installed);
         assert!(probe.resolved_path.is_none());
     }

@@ -47,8 +47,8 @@ fn main() {
         .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
         .unwrap_or_else(|| "0".to_string());
 
-    println!("cargo:rustc-env=OMNIRIP_GIT_SHA={}", sha);
-    println!("cargo:rustc-env=OMNIRIP_COMMIT_TS={}", commit_ts);
+    println!("cargo:rustc-env=ORCHESTRIA_GIT_SHA={}", sha);
+    println!("cargo:rustc-env=ORCHESTRIA_COMMIT_TS={}", commit_ts);
 }
 
 fn resolve_git_dir() -> std::path::PathBuf {

@@ -1,12 +1,12 @@
-# OmniRip: Download, Packaging, Setup & Architecture Guide
+# Orchestria: Download, Packaging, Setup & Architecture Guide
 
-This guide covers the packaging format, installation workflows, system prerequisites, out-of-the-box behavior, troubleshooting procedures, and pipeline architectures of OmniRip.
+This guide covers the packaging format, installation workflows, system prerequisites, out-of-the-box behavior, troubleshooting procedures, and pipeline architectures of Orchestria.
 
 ---
 
 ## 1. Out-of-the-Box Experience: What Works Immediately?
 
-When an end-user downloads and launches the compiled `omnirip` binary, the application requires zero database setup, zero background cloud dependencies, and zero license registration.
+When an end-user downloads and launches the compiled `orchestria` binary, the application requires zero database setup, zero background cloud dependencies, and zero license registration.
 
 ### Fully Functional Immediately (Zero External Dependencies)
 1. **Universal Streaming Hub & Audio Player (Workstation 4)**:
@@ -35,7 +35,7 @@ When an end-user downloads and launches the compiled `omnirip` binary, the appli
 
 | Feature Area | Prerequisite | Why It Is Needed | Default Behavior If Missing |
 | :--- | :--- | :--- | :--- |
-| **System-Wide Audio EQ (Workstation 2)** | CoreAudio HAL Loopback Driver (`OmniRipAudio.driver` or BlackHole) | macOS security policy requires an AudioServerPlugIn to capture global operating system output. | App functions in local auditioning mode with built-in test tones and local player; guides user to run driver installer. |
+| **System-Wide Audio EQ (Workstation 2)** | CoreAudio HAL Loopback Driver (`OrchestriaAudio.driver` or BlackHole) | macOS security policy requires an AudioServerPlugIn to capture global operating system output. | App functions in local auditioning mode with built-in test tones and local player; guides user to run driver installer. |
 | **Media Harvesting & Downloader (Workstation 1)** | `ffmpeg` and `yt-dlp` | Required for stream resolution, demuxing, AAC/MP3/Opus transcoding, and embedding ID3/Vorbis cover art metadata. | Plain URL downloads notify user in the status bar: `"ffmpeg or yt-dlp not found on system PATH"`. |
 | **Soulseek Lossless Swarm (P2P Ingestion)** | Free Soulseek username/password or local Nicotine+ config | Connects to the decentralized Soulseek P2P network to discover bit-perfect FLAC files. | Slskd daemon auto-detects existing local Nicotine+ credentials in `~/.config/nicotine/` if available, or presents the login modal (`A`). |
 | **Cloud Playlist Ingestion (Workstation 3)** | Public Playlist URLs or Browser Cookies | Fetches metadata from Spotify, Apple Music, and YouTube Music playlists. | Public playlist links ingest without authentication; private playlists utilize linked browser session cookies. |
@@ -44,16 +44,16 @@ When an end-user downloads and launches the compiled `omnirip` binary, the appli
 
 ## 2. Download Packaging and Distribution
 
-OmniRip is distributed as a self-contained, statically linked standalone executable with minimal dynamic system linkages.
+Orchestria is distributed as a self-contained, statically linked standalone executable with minimal dynamic system linkages.
 
 ### Release Packaging Matrix
 
 | Target Architecture | Distribution File | Contents | OS Compatibility |
 | :--- | :--- | :--- | :--- |
-| **macOS Apple Silicon (M1/M2/M3/M4)** | `omnirip-macos-arm64.tar.gz` | `omnirip` binary, `OmniRipAudio.driver` bundle, `README.md` | macOS 12 Monterey through macOS 15 Sequoia |
-| **macOS Intel (x86_64)** | `omnirip-macos-x86_64.tar.gz` | `omnirip` binary, `OmniRipAudio.driver` bundle, `README.md` | macOS 11 Big Sur through macOS 15 Sequoia |
-| **Linux (x86_64)** | `omnirip-linux-x86_64.tar.gz` | `omnirip` binary, `README.md` | Ubuntu 20.04+, Debian 11+, Arch, Fedora |
-| **Windows 11 / 10 (x64)** | `omnirip-windows-x64.zip` | `omnirip.exe`, `install.ps1`, `README.md` | Windows 10/11 64-bit |
+| **macOS Apple Silicon (M1/M2/M3/M4)** | `orchestria-macos-arm64.tar.gz` | `orchestria` binary, `OrchestriaAudio.driver` bundle, `README.md` | macOS 12 Monterey through macOS 15 Sequoia |
+| **macOS Intel (x86_64)** | `orchestria-macos-x86_64.tar.gz` | `orchestria` binary, `OrchestriaAudio.driver` bundle, `README.md` | macOS 11 Big Sur through macOS 15 Sequoia |
+| **Linux (x86_64)** | `orchestria-linux-x86_64.tar.gz` | `orchestria` binary, `README.md` | Ubuntu 20.04+, Debian 11+, Arch, Fedora |
+| **Windows 11 / 10 (x64)** | `orchestria-windows-x64.zip` | `orchestria.exe`, `install.ps1`, `README.md` | Windows 10/11 64-bit |
 
 ### Single-File Binary Architecture
 The compiled release executable contains:
@@ -71,29 +71,29 @@ The compiled release executable contains:
 When downloading binaries via web browsers (Safari, Chrome) from GitHub Releases, macOS sets the extended quarantine attribute (`com.apple.quarantine`).
 
 > [!WARNING]
-> Attempting to execute an unnotarized binary directly from Finder may display: `"omnirip cannot be opened because Apple cannot check it for malicious software"`.
+> Attempting to execute an unnotarized binary directly from Finder may display: `"orchestria cannot be opened because Apple cannot check it for malicious software"`.
 
 **Solution**:
 Remove the quarantine attribute in Terminal:
 ```bash
-xattr -d com.apple.quarantine omnirip
-chmod +x omnirip
-sudo mv omnirip /usr/local/bin/
+xattr -d com.apple.quarantine orchestria
+chmod +x orchestria
+sudo mv orchestria /usr/local/bin/
 ```
 
 ### B. macOS Microphone / Input Capture Permission Prompt
-When OmniRip initializes the system audio capture engine or when you activate input monitoring, macOS displays:
-`"omnirip would like to access the microphone"`.
+When Orchestria initializes the system audio capture engine or when you activate input monitoring, macOS displays:
+`"orchestria would like to access the microphone"`.
 
 > [!NOTE]
-> OmniRip captures loopback system audio through CoreAudio to apply system-wide equalization and mastering. On macOS, CoreAudio classifies all input streams as "microphone input", causing the macOS orange indicator dot to appear in the menu bar.
+> Orchestria captures loopback system audio through CoreAudio to apply system-wide equalization and mastering. On macOS, CoreAudio classifies all input streams as "microphone input", causing the macOS orange indicator dot to appear in the menu bar.
 
 **Solution**:
 - Click **Allow** when prompted by macOS.
-- To completely dismiss the orange dot whenever input monitoring is not needed, press **`X`** or **`Shift+M`** inside OmniRip to terminate the capture stream and close the hardware port.
+- To completely dismiss the orange dot whenever input monitoring is not needed, press **`X`** or **`Shift+M`** inside Orchestria to terminate the capture stream and close the hardware port.
 
 ### C. System Audio HAL Driver Installation (`sudo` Requirement)
-To capture global macOS desktop audio (YouTube in browser, Spotify app, Apple Music app, games) without third-party cables, OmniRip includes a CoreAudio AudioServerPlugIn (`OmniRipAudio.driver`).
+To capture global macOS desktop audio (YouTube in browser, Spotify app, Apple Music app, games) without third-party cables, Orchestria includes a CoreAudio AudioServerPlugIn (`OrchestriaAudio.driver`).
 
 > [!IMPORTANT]
 > Installing files into `/Library/Audio/Plug-Ins/HAL/` requires administrative root permissions because it integrates directly into the macOS `coreaudiod` system daemon.
@@ -101,9 +101,9 @@ To capture global macOS desktop audio (YouTube in browser, Spotify app, Apple Mu
 **Solution**:
 Run the built-in installer:
 ```bash
-sudo omnirip driver install
+sudo orchestria driver install
 ```
-This automatically compiles or copies `OmniRipAudio.driver` into `/Library/Audio/Plug-Ins/HAL/` and executes `sudo killall coreaudiod`. Audio routing auto-heals within 2 seconds.
+This automatically compiles or copies `OrchestriaAudio.driver` into `/Library/Audio/Plug-Ins/HAL/` and executes `sudo killall coreaudiod`. Audio routing auto-heals within 2 seconds.
 
 ### D. Downloader CLI Dependencies
 Workstation 1 (Downloader) and Workstation 3 (Archiver) rely on `ffmpeg` for audio conversion and `yt-dlp` for media stream extraction.
@@ -113,7 +113,7 @@ Install via Homebrew:
 ```bash
 brew install ffmpeg yt-dlp
 ```
-OmniRip detects these binaries dynamically on the system `PATH`.
+Orchestria detects these binaries dynamically on the system `PATH`.
 
 ---
 
@@ -131,13 +131,13 @@ flowchart TD
     end
 
     subgraph Drivers["2. Audio Ingestion Layer"]
-        HALDriver["OmniRip CoreAudio HAL Driver (/Library/Audio/Plug-Ins/HAL/)"]
+        HALDriver["Orchestria CoreAudio HAL Driver (/Library/Audio/Plug-Ins/HAL/)"]
         DownloaderEngine["Downloader & Harvester Engine (yt-dlp + ffmpeg)"]
         SlskdDaemon["Soulseek P2P Daemon (Bounded Memory IPC)"]
         LocalDecoder["Symphonia Pure Rust Decoder Engine"]
     end
 
-    subgraph Workstations["3. OmniRip Workstations"]
+    subgraph Workstations["3. Orchestria Workstations"]
         W1["[1] MP3 Downloader & Media Harvester"]
         W2["[2] System EQ & Audiophile Mastering"]
         W3["[3] Cloud Playlist Archiver & Ingestion"]
@@ -198,7 +198,7 @@ flowchart LR
     P2PDownload --> SpectralCheck
 
     SpectralCheck --> Tagging["ID3v2.4 / Vorbis Art & Metadata Tagger"]
-    Tagging --> FinalFile["Destination Library (~/Music/OmniRip/)"]
+    Tagging --> FinalFile["Destination Library (~/Music/Orchestria/)"]
 ```
 
 ---
@@ -208,7 +208,7 @@ Captures global system desktop audio, performs latency-stabilized resynchronizat
 
 ```mermaid
 flowchart TD
-    CoreAudio["macOS Desktop Audio Output"] --> VirtualDev["OmniRip Virtual HAL Device"]
+    CoreAudio["macOS Desktop Audio Output"] --> VirtualDev["Orchestria Virtual HAL Device"]
     VirtualDev --> CPALInput["CPAL CoreAudio Input Stream"]
     
     CPALInput --> ClockPLL["Pure Rust Master Clock PLL (Drift Compensation)"]
@@ -264,7 +264,7 @@ flowchart TD
 
     Symphonia --> LinearAudio["Decoded 32-bit Floating Point Audio Frames"]
     LinearAudio --> ServoResampler["Hermite / Sinc Resampler (Target Sample Rate 44.1 - 192 kHz)"]
-    ServoResampler --> UnifiedDSP["OmniRip Audio Pipeline (DAC Mimicker + EQ + Limiter)"]
+    ServoResampler --> UnifiedDSP["Orchestria Audio Pipeline (DAC Mimicker + EQ + Limiter)"]
     UnifiedDSP --> HardwareDevice["Active Audio Hardware Device"]
 ```
 
@@ -300,11 +300,11 @@ To verify that your installation is running in optimal condition:
 
 ```bash
 # 1. Run driver and audio health diagnostics
-omnirip driver status
+orchestria driver status
 
 # 2. Test output device resolution
-omnirip --help
+orchestria --help
 
 # 3. Test Soulseek P2P swarm connectivity
-# Inside OmniRip: Press ':' and enter ':chip' or ':dac status'
+# Inside Orchestria: Press ':' and enter ':chip' or ':dac status'
 ```

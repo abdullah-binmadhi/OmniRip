@@ -1,9 +1,9 @@
 //! Cross-Platform Low-Latency Audio Streamer in pure Rust.
 //!
-//! Bridges desktop audio into OmniRip's 64-bit DSP pipeline and physical DAC:
-//! - macOS HAL v2: Zero-Dot POSIX Shared Memory (`/omnirip_audio_shm`, zero CoreAudio input streams).
+//! Bridges desktop audio into Orchestria's 64-bit DSP pipeline and physical DAC:
+//! - macOS HAL v2: Zero-Dot POSIX Shared Memory (`/orchestria_audio_shm`, zero CoreAudio input streams).
 //! - Windows: Isolated virtual audio endpoint + WASAPI capture & playback (zero echo).
-//! - Linux: User-space PipeWire/PulseAudio null-sink (`OmniRip_Audio.monitor`, zero echo, zero sudo).
+//! - Linux: User-space PipeWire/PulseAudio null-sink (`Orchestria_Audio.monitor`, zero echo, zero sudo).
 
 use super::servo::{create_servo_ring_buffer, ServoReader, ServoWriter};
 use super::shm_capture::ShmCaptureHandle;
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioEngineType {
-    PureRustIpc,    // Pure Rust Zero-Driver IPC Engine (/tmp/omnirip_audio.sock)
+    PureRustIpc,    // Pure Rust Zero-Driver IPC Engine (/tmp/orchestria_audio.sock)
     DirectHardware, // Direct Hardware bit-perfect output with calibrated acoustic references
 }
 
@@ -210,7 +210,7 @@ pub fn set_macos_system_output_to_hardware() -> Result<String, String> {
     Ok("Non-macOS platform".to_string())
 }
 
-/// Output device that was the system default before OmniRip routed system audio to its virtual device (0 = none).
+/// Output device that was the system default before Orchestria routed system audio to its virtual device (0 = none).
 #[cfg(target_os = "macos")]
 static OUTPUT_BEFORE_LOOPBACK: AtomicU32 = AtomicU32::new(0);
 
@@ -223,7 +223,7 @@ fn remember_output_before_loopback(device_id: u32) {
     }
 }
 
-/// Puts system output back on the real hardware device it had before virtual routing, if OmniRip changed it.
+/// Puts system output back on the real hardware device it had before virtual routing, if Orchestria changed it.
 #[cfg(target_os = "macos")]
 pub fn restore_system_output() {
     let saved = OUTPUT_BEFORE_LOOPBACK.swap(0, Ordering::SeqCst);
@@ -396,7 +396,7 @@ impl AudioStreamer {
     pub fn available_input_names() -> Vec<String> {
         #[cfg(target_os = "windows")]
         if crate::driver::windows::is_headless_windows_ci() {
-            return vec!["Pure Rust IPC Transport (/tmp/omnirip_audio.sock)".to_string()];
+            return vec!["Pure Rust IPC Transport (/tmp/orchestria_audio.sock)".to_string()];
         }
 
         let mut list = Vec::new();
@@ -418,14 +418,14 @@ impl AudioStreamer {
         if crate::driver::installed_driver_version()
             .map(|v| v >= crate::driver::bundle::EXPECTED_DRIVER_BUNDLE_VERSION)
             .unwrap_or(false)
-            && crate::driver::get_device_id_by_name("OmniRip Audio").is_some()
+            && crate::driver::get_device_id_by_name("Orchestria Audio").is_some()
         {
-            list.insert(0, "OmniRip Audio (Zero-Dot SHM v2)".to_string());
+            list.insert(0, "Orchestria Audio (Zero-Dot SHM v2)".to_string());
         }
-        list.push("Pure Rust IPC Transport (/tmp/omnirip_audio.sock)".to_string());
+        list.push("Pure Rust IPC Transport (/tmp/orchestria_audio.sock)".to_string());
         list.sort_by_key(|name| {
             let n = name.to_lowercase();
-            if n.contains("omnirip") {
+            if n.contains("orchestria") {
                 0
             } else if n.contains("blackhole") || n.contains("vb-audio") || n.contains("cable") {
                 1
@@ -506,7 +506,7 @@ impl AudioStreamer {
 
     pub fn active_input_name(&self) -> String {
         if self.active_capture_backend == CaptureBackendKind::MacOsShmV2 {
-            return "OmniRip Audio (Zero-Dot SHM v2)".to_string();
+            return "Orchestria Audio (Zero-Dot SHM v2)".to_string();
         }
         if let Some(ref name) = self.selected_input_name {
             name.clone()
@@ -567,7 +567,7 @@ impl AudioStreamer {
 
         let out_name = self.active_output_name();
         Ok(format!(
-            "TRANSDUCER DIRECT ACTIVE: Pure Rust Engine -> OmniRip EQ -> [{}]",
+            "TRANSDUCER DIRECT ACTIVE: Pure Rust Engine -> Orchestria EQ -> [{}]",
             out_name
         ))
     }
@@ -601,7 +601,7 @@ impl AudioStreamer {
                     let n = name.to_lowercase();
                     let is_virtual = crate::driver::is_virtual_audio_device_name(&name)
                         || n.contains(".monitor");
-                    if is_virtual && !n.contains("mic") && n.contains("omnirip") {
+                    if is_virtual && !n.contains("mic") && n.contains("orchestria") {
                         in_dev = Some(dev.clone());
                         break;
                     }
@@ -760,7 +760,7 @@ impl AudioStreamer {
 
         let is_paused_in = Arc::clone(&self.is_paused);
         let sys_vol_in = Arc::clone(&self.system_volume_bits);
-        let in_is_omnirip = in_dev_name.to_lowercase().contains("omnirip");
+        let in_is_orchestria = in_dev_name.to_lowercase().contains("orchestria");
         #[cfg(target_os = "macos")]
         let mut qos_set_in = false;
 
@@ -783,7 +783,7 @@ impl AudioStreamer {
                 let n_frames = (data.len() / 2).min(2048);
 
                 let in_vol = f32::from_bits(sys_vol_in.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-                let norm_factor = if in_is_omnirip && in_vol < 0.999 {
+                let norm_factor = if in_is_orchestria && in_vol < 0.999 {
                     if in_vol > 0.001 {
                         1.0f32 / in_vol
                     } else {
@@ -829,13 +829,13 @@ impl AudioStreamer {
 
         #[cfg(target_os = "macos")]
         {
-            let omnirip_id = get_macos_device_id_by_keyword("omnirip");
+            let orchestria_id = get_macos_device_id_by_keyword("orchestria");
             let driver_ver = crate::driver::installed_driver_version().unwrap_or(0);
-            let shm_ready_driver = omnirip_id.is_some()
+            let shm_ready_driver = orchestria_id.is_some()
                 && driver_ver >= crate::driver::bundle::EXPECTED_DRIVER_BUNDLE_VERSION;
 
             // Tier 1: Output-Only HAL v2 + Zero-Dot POSIX Shared Memory (zero CoreAudio input streams).
-            if let Some(target_id) = omnirip_id {
+            if let Some(target_id) = orchestria_id {
                 if shm_ready_driver {
                     if let Some(current_id) = get_macos_default_output_id() {
                         if current_id != target_id {
@@ -868,7 +868,7 @@ impl AudioStreamer {
 
             // Tier 2: Legacy CoreAudio loopback (BlackHole 2ch or un-upgraded v1 HAL).
             if let Some(in_stream) = self.build_input_stream_internal() {
-                let loopback_id = omnirip_id.or_else(|| get_macos_device_id_by_keyword("blackhole"));
+                let loopback_id = orchestria_id.or_else(|| get_macos_device_id_by_keyword("blackhole"));
                 if let Some(target_id) = loopback_id {
                     if let Some(current_id) = get_macos_default_output_id() {
                         if current_id != target_id {
@@ -889,7 +889,7 @@ impl AudioStreamer {
                 return Ok(CaptureBackendKind::LegacyCoreAudioLoopback);
             }
 
-            Err("No OmniRip Audio driver or loopback device installed (run :setup or F12).".to_string())
+            Err("No Orchestria Audio driver or loopback device installed (run :setup or F12).".to_string())
         }
 
         #[cfg(target_os = "linux")]
@@ -906,7 +906,7 @@ impl AudioStreamer {
                         self.linux_null_sink_module = mod_id;
                     }
                     let _ = crate::driver::linux::set_default_sink(
-                        crate::driver::linux::OMNIRIP_LINUX_SINK,
+                        crate::driver::linux::ORCHESTRIA_LINUX_SINK,
                     );
                 }
                 Err(e) => return Err(e),
@@ -920,7 +920,7 @@ impl AudioStreamer {
                     self.linux_null_sink_module.take(),
                     self.saved_linux_sink.as_deref(),
                 );
-                Err("Could not open PipeWire/PulseAudio monitor stream for OmniRip_Audio.".to_string())
+                Err("Could not open PipeWire/PulseAudio monitor stream for Orchestria_Audio.".to_string())
             }
         }
 
@@ -941,7 +941,7 @@ impl AudioStreamer {
                     self.saved_windows_output_name = Some(cur);
                 }
             }
-            let _ = crate::driver::windows::set_default_playback_device_by_name("OmniRip");
+            let _ = crate::driver::windows::set_default_playback_device_by_name("Orchestria");
             if let Some(in_stream) = self.build_input_stream_internal() {
                 self.input_stream = Some(in_stream);
                 self.active_capture_backend = CaptureBackendKind::WindowsVirtualWasapi;
@@ -1016,7 +1016,7 @@ impl AudioStreamer {
     /// Toggles System-Wide EQ capture (`X` key / `:mic` / `:syseq`).
     /// On macOS HAL v2, turning ON uses Zero-Dot POSIX SHM without opening any mic stream.
     /// Turning OFF safely restores the physical hardware endpoint so desktop sound never mutes,
-    /// while OmniRip's internal Workstation 4 player keeps full 64-bit DSP & EQ.
+    /// while Orchestria's internal Workstation 4 player keeps full 64-bit DSP & EQ.
     pub fn set_input_capture(&mut self, enable: bool) -> (bool, String) {
         if !enable {
             self.input_capture_enabled.store(false, Ordering::SeqCst);
@@ -1081,7 +1081,7 @@ impl AudioStreamer {
         #[cfg(target_os = "macos")]
         {
             if self.is_input_capture_enabled() {
-                if let Some(loopback_id) = get_macos_device_id_by_keyword("omnirip")
+                if let Some(loopback_id) = get_macos_device_id_by_keyword("orchestria")
                     .or_else(|| get_macos_device_id_by_keyword("blackhole"))
                 {
                     let _ = set_macos_system_output_to_device_id(loopback_id);
@@ -1132,7 +1132,7 @@ impl AudioStreamer {
         #[cfg(target_os = "macos")]
         {
             let target_id = if self.is_input_capture_enabled() {
-                get_macos_device_id_by_keyword("omnirip")
+                get_macos_device_id_by_keyword("orchestria")
                     .or_else(|| get_macos_device_id_by_keyword("blackhole"))
                     .or_else(get_macos_default_output_id)
             } else {
@@ -1248,7 +1248,7 @@ impl AudioStreamer {
 
         #[cfg(target_os = "macos")]
         {
-            let loopback_id = get_macos_device_id_by_keyword("omnirip")
+            let loopback_id = get_macos_device_id_by_keyword("orchestria")
                 .or_else(|| get_macos_device_id_by_keyword("blackhole"))
                 .or_else(get_macos_default_output_id);
             if let Some(id) = loopback_id {
@@ -1273,7 +1273,7 @@ impl AudioStreamer {
         #[cfg(target_os = "macos")]
         {
             let init_vol = if self.is_input_capture_enabled() {
-                get_macos_device_id_by_keyword("omnirip")
+                get_macos_device_id_by_keyword("orchestria")
                     .and_then(crate::driver::get_device_volume)
                     .unwrap_or_else(|| f32::from_bits(self.system_volume_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0))
             } else {
@@ -1596,7 +1596,7 @@ mod tests {
         println!("Active Output: {}", out_name);
 
         assert!(!out_name.to_lowercase().contains("blackhole"), "Output must not be BlackHole loopback");
-        assert!(!out_name.to_lowercase().contains("omnirip"), "Output must not be OmniRip Stream virtual");
+        assert!(!out_name.to_lowercase().contains("orchestria"), "Output must not be Orchestria Stream virtual");
 
         for inp in &inputs {
             assert!(!inp.to_lowercase().contains("mic"), "Inputs must never contain microphones: {}", inp);
@@ -1645,7 +1645,7 @@ mod tests {
         let mut streamer = AudioStreamer::new(pipe);
 
         if streamer.start().is_ok() {
-            let socket_path = std::path::Path::new(super::super::transport::OMNIRIP_SOCKET_PATH);
+            let socket_path = std::path::Path::new(super::super::transport::ORCHESTRIA_SOCKET_PATH);
             let mut bound = false;
             for _ in 0..20 {
                 if socket_path.exists() {
@@ -1739,18 +1739,18 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn test_macos_omnirip_loopback_discovery() {
-        let omnirip_id = get_macos_device_id_by_keyword("omnirip");
-        println!("Discovered OmniRip Audio Device ID: {:?}", omnirip_id);
-        if omnirip_id.is_none() {
-            println!("Skipping on headless CI: OmniRip Audio driver not installed in runner environment");
+    fn test_macos_orchestria_loopback_discovery() {
+        let orchestria_id = get_macos_device_id_by_keyword("orchestria");
+        println!("Discovered Orchestria Audio Device ID: {:?}", orchestria_id);
+        if orchestria_id.is_none() {
+            println!("Skipping on headless CI: Orchestria Audio driver not installed in runner environment");
             return;
         }
 
         let default_id = get_macos_default_output_id();
         assert!(default_id.is_some(), "Default output device must be queryable");
 
-        if let (Some(target_id), Some(orig_id)) = (omnirip_id, default_id) {
+        if let (Some(target_id), Some(orig_id)) = (orchestria_id, default_id) {
             let alt_id = if orig_id != target_id {
                 orig_id
             } else {
@@ -1762,7 +1762,7 @@ mod tests {
             let _ = set_macos_system_output_to_device_id(alt_id);
             let restored = get_macos_default_output_id();
             let _ = set_macos_system_output_to_device_id(orig_id);
-            assert_eq!(switched, Some(target_id), "macOS default output must switch to OmniRip Audio");
+            assert_eq!(switched, Some(target_id), "macOS default output must switch to Orchestria Audio");
             assert_eq!(restored, Some(alt_id), "macOS default output must switch to alt device");
         }
     }
@@ -1803,7 +1803,7 @@ mod tests {
         assert!(!streamer.is_input_capture_enabled());
         assert!(streamer.input_stream.is_none());
 
-        let has_capture_driver = crate::driver::get_device_id_by_name("OmniRip Audio").is_some()
+        let has_capture_driver = crate::driver::get_device_id_by_name("Orchestria Audio").is_some()
             || crate::driver::get_device_id_by_name("BlackHole").is_some();
         let (enabled, _) = streamer.set_input_capture(true);
         assert_eq!(

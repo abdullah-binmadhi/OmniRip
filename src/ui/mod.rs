@@ -1,4 +1,4 @@
-//! OmniRip TUI module.
+//! Orchestria TUI module.
 
 pub mod account_modal;
 pub mod app;

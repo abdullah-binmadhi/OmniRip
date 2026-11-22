@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniRip Pure Rust Audio Engine - 1-Click Browser Setup</title>
+    <title>Orchestria Pure Rust Audio Engine - 1-Click Browser Setup</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -94,20 +94,20 @@
 </head>
 <body>
     <div class="card">
-        <h1>OmniRip Browser Audio Bridge</h1>
-        <p>Route YouTube, SoundCloud, Twitch, and web videos directly through OmniRip's 64-bit EQ Engine to your iBasso DAC or MacBook Headphone Jack with zero latency.</p>
+        <h1>Orchestria Browser Audio Bridge</h1>
+        <p>Route YouTube, SoundCloud, Twitch, and web videos directly through Orchestria's 64-bit EQ Engine to your iBasso DAC or MacBook Headphone Jack with zero latency.</p>
 
         <div class="drag-box">
             <p style="margin-top: 0; font-size: 13px; color: #90cdf4; font-weight: 600;">DRAG THIS BUTTON TO YOUR BOOKMARKS BAR:</p>
-            <a class="bookmarklet-btn" href="javascript:(function(){const m=document.querySelector('video')||document.querySelector('audio');if(!m){alert('No video/audio playing on page.');return;}if(m._omnirip){alert('OmniRip EQ already connected to this tab!');return;}m._omnirip=true;try{const c=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});const s=c.createMediaElementSource(m);const p=c.createScriptProcessor(512,2,2);const ws=new WebSocket('ws://127.0.0.1:49152');ws.binaryType='arraybuffer';ws.onopen=()=>console.log('[OmniRip] Connected to Audio Engine!');ws.onerror=()=>alert('Could not connect to OmniRip on 127.0.0.1:49152. Start OmniRip first!');let seq=0;p.onaudioprocess=(e)=>{if(ws.readyState!==1)return;const l=e.inputBuffer.getChannelData(0);const r=e.inputBuffer.getChannelData(1);const len=l.length;const b=new ArrayBuffer(16+len*8);const v=new DataView(b);v.setUint32(0,0x4F4D4E49,true);v.setUint32(4,seq++,true);v.setUint32(8,48000,true);v.setUint16(12,2,true);v.setUint16(14,len,true);const fv=new Float32Array(b,16);for(let i=0;i<len;i++){fv[i*2]=l[i];fv[i*2+1]=r[i];}ws.send(b);};s.connect(p);p.connect(c.destination);console.log('[OmniRip] Audio stream active!');}catch(err){alert('OmniRip Error: '+err.message);}})();">OmniRip EQ</a>
+            <a class="bookmarklet-btn" href="javascript:(function(){const m=document.querySelector('video')||document.querySelector('audio');if(!m){alert('No video/audio playing on page.');return;}if(m._orchestria){alert('Orchestria EQ already connected to this tab!');return;}m._orchestria=true;try{const c=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});const s=c.createMediaElementSource(m);const p=c.createScriptProcessor(512,2,2);const ws=new WebSocket('ws://127.0.0.1:49152');ws.binaryType='arraybuffer';ws.onopen=()=>console.log('[Orchestria] Connected to Audio Engine!');ws.onerror=()=>alert('Could not connect to Orchestria on 127.0.0.1:49152. Start Orchestria first!');let seq=0;p.onaudioprocess=(e)=>{if(ws.readyState!==1)return;const l=e.inputBuffer.getChannelData(0);const r=e.inputBuffer.getChannelData(1);const len=l.length;const b=new ArrayBuffer(16+len*8);const v=new DataView(b);v.setUint32(0,0x4F4D4E49,true);v.setUint32(4,seq++,true);v.setUint32(8,48000,true);v.setUint16(12,2,true);v.setUint16(14,len,true);const fv=new Float32Array(b,16);for(let i=0;i<len;i++){fv[i*2]=l[i];fv[i*2+1]=r[i];}ws.send(b);};s.connect(p);p.connect(c.destination);console.log('[Orchestria] Audio stream active!');}catch(err){alert('Orchestria Error: '+err.message);}})();">Orchestria EQ</a>
         </div>
 
         <div class="steps">
             <ol>
                 <li><strong>Show your Bookmarks Bar:</strong> Press <code>Cmd + Shift + B</code> in Zen Browser, Safari, or Chrome.</li>
-                <li><strong>Drag the button above:</strong> Drag the blue <code>OmniRip EQ</code> button into your bookmarks bar.</li>
+                <li><strong>Drag the button above:</strong> Drag the blue <code>Orchestria EQ</code> button into your bookmarks bar.</li>
                 <li><strong>Play any YouTube video:</strong> Go to YouTube or any video site and start playing.</li>
-                <li><strong>Click the bookmark:</strong> Click <code>OmniRip EQ</code> in your bookmarks bar. The audio will immediately stream through OmniRip with your active EQ and tube warmth!</li>
+                <li><strong>Click the bookmark:</strong> Click <code>Orchestria EQ</code> in your bookmarks bar. The audio will immediately stream through Orchestria with your active EQ and tube warmth!</li>
             </ol>
         </div>
     </div>

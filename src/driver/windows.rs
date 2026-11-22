@@ -14,10 +14,10 @@ pub fn is_headless_windows_ci() -> bool {
     std::env::var_os("CI").is_some() || std::env::var_os("GITHUB_ACTIONS").is_some()
 }
 
-/// Identifies virtual loopback/cable endpoints so OmniRip never outputs back into itself (avoiding echo).
+/// Identifies virtual loopback/cable endpoints so Orchestria never outputs back into itself (avoiding echo).
 pub fn is_virtual_windows_endpoint(name: &str) -> bool {
     let low = name.to_lowercase();
-    low.contains("omnirip")
+    low.contains("orchestria")
         || low.contains("vb-audio")
         || low.contains("cable input")
         || low.contains("cable output")
@@ -43,31 +43,31 @@ pub fn parse_windows_driver_exit_code(code: i32) -> Result<DriverInstallOutcome,
     }
 }
 
-/// Locates a bundled Windows virtual audio driver `.inf` or installer `.exe`/`.msi` beside `omnirip.exe`.
+/// Locates a bundled Windows virtual audio driver `.inf` or installer `.exe`/`.msi` beside `orchestria.exe`.
 pub fn locate_windows_driver_installer() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
 
     let candidates = [
-        exe_dir.join("drivers").join("OmniRipAudio.inf"),
-        exe_dir.join("OmniRipAudio.inf"),
-        exe_dir.join("OmniRipVirtualAudioSetup.exe"),
-        exe_dir.join("OmniRipVirtualAudio.msi"),
-        super::bundle::user_driver_cache_dir().join("OmniRipAudio.inf"),
+        exe_dir.join("drivers").join("OrchestriaAudio.inf"),
+        exe_dir.join("OrchestriaAudio.inf"),
+        exe_dir.join("OrchestriaVirtualAudioSetup.exe"),
+        exe_dir.join("OrchestriaVirtualAudio.msi"),
+        super::bundle::user_driver_cache_dir().join("OrchestriaAudio.inf"),
     ];
 
     candidates.into_iter().find(|p| p.is_file())
 }
 
-/// Checks if a compatible virtual audio endpoint (OmniRip Virtual or VB-Cable) is present in Windows audio.
+/// Checks if a compatible virtual audio endpoint (Orchestria Virtual or VB-Cable) is present in Windows audio.
 pub fn detect_virtual_sink_present() -> bool {
     if is_headless_windows_ci() {
         return false;
     }
     #[cfg(target_os = "windows")]
     {
-        let script = "Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' -and ($_.Name -match 'OmniRip|VB-Audio|Virtual Audio|CABLE') } | Select-Object -First 1 -ExpandProperty Name";
+        let script = "Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' -and ($_.Name -match 'Orchestria|VB-Audio|Virtual Audio|CABLE') } | Select-Object -First 1 -ExpandProperty Name";
         if let Ok(out) = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .output()
@@ -90,7 +90,7 @@ pub fn install_driver_gui() -> Result<DriverInstallOutcome, String> {
 
     let Some(installer_path) = locate_windows_driver_installer() else {
         return Err(
-            "Windows virtual audio driver package was not found beside omnirip.exe. Re-run scripts/install.ps1 or install a signed virtual audio endpoint (e.g., OmniRip Virtual / VB-Cable)."
+            "Windows virtual audio driver package was not found beside orchestria.exe. Re-run scripts/install.ps1 or install a signed virtual audio endpoint (e.g., Orchestria Virtual / VB-Cable)."
                 .to_string(),
         );
     };
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn virtual_windows_endpoint_detection() {
-        assert!(is_virtual_windows_endpoint("OmniRip Virtual Audio"));
+        assert!(is_virtual_windows_endpoint("Orchestria Virtual Audio"));
         assert!(is_virtual_windows_endpoint("CABLE Input (VB-Audio Virtual Cable)"));
         assert!(!is_virtual_windows_endpoint("Speakers (Realtek(R) Audio)"));
         assert!(!is_virtual_windows_endpoint("iBasso DC03 Pro USB DAC"));

@@ -1,7 +1,7 @@
 //! Audio transport into the engine.
 //!
 //! The engine accepts live stereo float audio on two listeners:
-//! - a Unix domain socket at `/tmp/omnirip_audio.sock` for native clients (`omnirip feed`, `omnirip stream`);
+//! - a Unix domain socket at `/tmp/orchestria_audio.sock` for native clients (`orchestria feed`, `orchestria stream`);
 //! - TCP on 127.0.0.1:49152, which takes the same packets from native clients and WebSocket binary
 //!   messages from the browser bridge scripts.
 //!
@@ -20,9 +20,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-pub const OMNIRIP_SOCKET_PATH: &str = "/tmp/omnirip_audio.sock";
-pub const OMNIRIP_TCP_PORT: u16 = 49152;
-pub const OMNIRIP_MAGIC: u32 = 0x4F4D4E49; // "OMNI" in ASCII
+pub const ORCHESTRIA_SOCKET_PATH: &str = "/tmp/orchestria_audio.sock";
+pub const ORCHESTRIA_TCP_PORT: u16 = 49152;
+pub const ORCHESTRIA_MAGIC: u32 = 0x4F4D4E49; // "OMNI" in ASCII
 /// Most frames one packet may carry. Matches the engine's 2048-frame block size.
 pub const MAX_FRAMES_PER_PACKET: u16 = 2048;
 pub const MIN_SAMPLE_RATE: u32 = 8_000;
@@ -47,7 +47,7 @@ impl AudioPacketHeader {
 
     pub fn new(sequence: u32, sample_rate: u32, frame_count: u16) -> Self {
         Self {
-            magic: OMNIRIP_MAGIC,
+            magic: ORCHESTRIA_MAGIC,
             sequence,
             sample_rate,
             channels: 2,
@@ -61,7 +61,7 @@ impl AudioPacketHeader {
             return None;
         }
         let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        if magic != OMNIRIP_MAGIC {
+        if magic != ORCHESTRIA_MAGIC {
             return None;
         }
         let sequence = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
@@ -79,7 +79,7 @@ impl AudioPacketHeader {
 
     /// Checks every field that came from the network. Run this before reading any payload.
     pub fn validate(&self) -> Result<(), PacketError> {
-        if self.magic != OMNIRIP_MAGIC {
+        if self.magic != ORCHESTRIA_MAGIC {
             return Err(PacketError::BadMagic);
         }
         if self.channels != 2 {
@@ -331,14 +331,14 @@ impl IpcAudioServer {
 
         #[cfg(unix)]
         {
-            let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
-            if let Ok(listener) = UnixListener::bind(OMNIRIP_SOCKET_PATH) {
+            let _ = fs::remove_file(ORCHESTRIA_SOCKET_PATH);
+            if let Ok(listener) = UnixListener::bind(ORCHESTRIA_SOCKET_PATH) {
                 let _ = listener.set_nonblocking(true);
                 let running = Arc::clone(&self.is_running);
                 let clients = Arc::clone(&self.active_clients);
                 let sink = sink.clone();
                 thread::Builder::new()
-                    .name("omnirip-ipc-transport".to_string())
+                    .name("orchestria-ipc-transport".to_string())
                     .spawn(move || {
                         while running.load(Ordering::SeqCst) {
                             match listener.accept() {
@@ -350,7 +350,7 @@ impl IpcAudioServer {
                                     let (running, sink) = (Arc::clone(&running), sink.clone());
                                     spawn_client(
                                         &clients,
-                                        "omnirip-ipc-client",
+                                        "orchestria-ipc-client",
                                         stream,
                                         move |mut stream| {
                                             serve_raw(&mut stream, &running, &sink);
@@ -364,22 +364,22 @@ impl IpcAudioServer {
                                     thread::sleep(Duration::from_millis(5));
                                 }
                                 Err(e) => {
-                                    eprintln!("omnirip-ipc-transport accept error: {}", e);
+                                    eprintln!("orchestria-ipc-transport accept error: {}", e);
                                     break;
                                 }
                             }
                         }
-                        let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
+                        let _ = fs::remove_file(ORCHESTRIA_SOCKET_PATH);
                     })?;
             }
         }
 
-        let listener = std::net::TcpListener::bind(("127.0.0.1", OMNIRIP_TCP_PORT))?;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", ORCHESTRIA_TCP_PORT))?;
         let _ = listener.set_nonblocking(true);
         let running = Arc::clone(&self.is_running);
         let clients = Arc::clone(&self.active_clients);
         thread::Builder::new()
-            .name("omnirip-tcp-transport".to_string())
+            .name("orchestria-tcp-transport".to_string())
             .spawn(move || {
                 while running.load(Ordering::SeqCst) {
                     match listener.accept() {
@@ -389,7 +389,7 @@ impl IpcAudioServer {
                             }
                             let _ = stream.set_nonblocking(false);
                             let (running, sink) = (Arc::clone(&running), sink.clone());
-                            spawn_client(&clients, "omnirip-tcp-client", stream, move |stream| {
+                            spawn_client(&clients, "orchestria-tcp-client", stream, move |stream| {
                                 serve_tcp_client(stream, &running, &sink);
                             });
                         }
@@ -405,8 +405,8 @@ impl IpcAudioServer {
 
     pub fn stop(&self) {
         self.is_running.store(false, Ordering::SeqCst);
-        if Path::new(OMNIRIP_SOCKET_PATH).exists() {
-            let _ = fs::remove_file(OMNIRIP_SOCKET_PATH);
+        if Path::new(ORCHESTRIA_SOCKET_PATH).exists() {
+            let _ = fs::remove_file(ORCHESTRIA_SOCKET_PATH);
         }
     }
 }
@@ -451,7 +451,7 @@ impl IpcAudioClient {
     pub fn connect() -> io::Result<Self> {
         #[cfg(unix)]
         {
-            if let Ok(stream) = UnixStream::connect(OMNIRIP_SOCKET_PATH) {
+            if let Ok(stream) = UnixStream::connect(ORCHESTRIA_SOCKET_PATH) {
                 return Ok(Self {
                     stream: ClientStream::Unix(stream),
                     sequence: 0,
@@ -459,7 +459,7 @@ impl IpcAudioClient {
                 });
             }
         }
-        let tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", OMNIRIP_TCP_PORT))?;
+        let tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", ORCHESTRIA_TCP_PORT))?;
         Ok(Self {
             stream: ClientStream::Tcp(tcp),
             sequence: 0,
@@ -523,21 +523,21 @@ impl IpcAudioClient {
     }
 }
 
-/// Helper function to handle `omnirip feed` CLI execution.
+/// Helper function to handle `orchestria feed` CLI execution.
 pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "[OmniRip Feeder] Checking for running OmniRip audio engine at {}...",
-        OMNIRIP_SOCKET_PATH
+        "[Orchestria Feeder] Checking for running Orchestria audio engine at {}...",
+        ORCHESTRIA_SOCKET_PATH
     );
     let mut _standalone_streamer = None;
 
     let mut client = match IpcAudioClient::connect() {
         Ok(c) => {
-            println!("[OmniRip Feeder] Connected to background OmniRip audio engine!");
+            println!("[Orchestria Feeder] Connected to background Orchestria audio engine!");
             c
         }
         Err(_) => {
-            println!("[OmniRip Feeder] OmniRip TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
+            println!("[Orchestria Feeder] Orchestria TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
             let pipeline = super::AudioPipeline::new(48000.0);
             let mut streamer = super::streamer::AudioStreamer::new(pipeline);
             streamer
@@ -546,11 +546,11 @@ pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             std::thread::sleep(Duration::from_millis(100));
             let client = IpcAudioClient::connect()?;
             _standalone_streamer = Some(streamer);
-            println!("[OmniRip Feeder] Dedicated hardware audio stream initialized!");
+            println!("[Orchestria Feeder] Dedicated hardware audio stream initialized!");
             client
         }
     };
-    println!("[OmniRip Feeder] Ready! Streaming raw 48.0 kHz 32-bit float PCM...");
+    println!("[Orchestria Feeder] Ready! Streaming raw 48.0 kHz 32-bit float PCM...");
 
     // Check if --file was specified
     let mut file_path = None;
@@ -564,40 +564,40 @@ pub fn run_feed_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let total = if let Some(path) = file_path {
-        println!("[OmniRip Feeder] Streaming from file: {}", path);
+        println!("[Orchestria Feeder] Streaming from file: {}", path);
         let f = std::fs::File::open(path)?;
         client.stream_from_raw_pcm_reader(f)?
     } else {
-        println!("[OmniRip Feeder] Streaming from standard input (stdin)...");
+        println!("[Orchestria Feeder] Streaming from standard input (stdin)...");
         let stdin = std::io::stdin();
         client.stream_from_raw_pcm_reader(stdin.lock())?
     };
 
     println!(
-        "[OmniRip Feeder] Stream completed! Total frames fed: {}",
+        "[Orchestria Feeder] Stream completed! Total frames fed: {}",
         total
     );
     Ok(())
 }
 
-/// Helper function to handle `omnirip stream <url>` CLI execution.
+/// Helper function to handle `orchestria stream <url>` CLI execution.
 pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("omnirip stream expects an http:// or https:// URL".into());
+        return Err("orchestria stream expects an http:// or https:// URL".into());
     }
     println!(
-        "[OmniRip Streamer] Checking for running OmniRip audio engine at {}...",
-        OMNIRIP_SOCKET_PATH
+        "[Orchestria Streamer] Checking for running Orchestria audio engine at {}...",
+        ORCHESTRIA_SOCKET_PATH
     );
     let mut _standalone_streamer = None;
 
     let mut client = match IpcAudioClient::connect() {
         Ok(c) => {
-            println!("[OmniRip Streamer] Connected to background OmniRip audio engine!");
+            println!("[Orchestria Streamer] Connected to background Orchestria audio engine!");
             c
         }
         Err(_) => {
-            println!("[OmniRip Streamer] OmniRip TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
+            println!("[Orchestria Streamer] Orchestria TUI not currently running. Auto-starting dedicated 64-bit EQ Engine...");
             let pipeline = super::AudioPipeline::new(48000.0);
             let mut streamer = super::streamer::AudioStreamer::new(pipeline);
             streamer
@@ -606,12 +606,12 @@ pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
             std::thread::sleep(Duration::from_millis(100));
             let client = IpcAudioClient::connect()?;
             _standalone_streamer = Some(streamer);
-            println!("[OmniRip Streamer] Dedicated hardware audio stream initialized!");
+            println!("[Orchestria Streamer] Dedicated hardware audio stream initialized!");
             client
         }
     };
     println!(
-        "[OmniRip Streamer] Resolving high-res audio stream via yt-dlp for: {}",
+        "[Orchestria Streamer] Resolving high-res audio stream via yt-dlp for: {}",
         url
     );
 
@@ -649,7 +649,7 @@ pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
         .take()
         .ok_or("Failed to capture ffmpeg output")?;
 
-    println!("[OmniRip Streamer] Streaming live audio directly into 64-bit EQ pipeline...");
+    println!("[Orchestria Streamer] Streaming live audio directly into 64-bit EQ pipeline...");
     let result = client.stream_from_raw_pcm_reader(ff_out);
     let _ = ffmpeg.kill();
     let _ = yt_dlp.kill();
@@ -657,7 +657,7 @@ pub fn run_stream_cli(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let _ = yt_dlp.wait();
     let total = result?;
     println!(
-        "[OmniRip Streamer] Stream finished! Total frames played: {}",
+        "[Orchestria Streamer] Stream finished! Total frames played: {}",
         total
     );
     Ok(())
@@ -697,7 +697,7 @@ mod tests {
     #[test]
     fn test_packet_header_serialization() {
         let header = AudioPacketHeader::new(42, 48000, 256);
-        assert_eq!(header.magic, OMNIRIP_MAGIC);
+        assert_eq!(header.magic, ORCHESTRIA_MAGIC);
         assert_eq!(header.sequence, 42);
         assert_eq!(header.sample_rate, 48000);
         assert_eq!(header.channels, 2);
@@ -711,7 +711,7 @@ mod tests {
         bytes[14..16].copy_from_slice(&header.frame_count.to_le_bytes());
 
         let decoded = AudioPacketHeader::from_bytes(&bytes).expect("Header parsing failed");
-        assert_eq!(decoded.magic, OMNIRIP_MAGIC);
+        assert_eq!(decoded.magic, ORCHESTRIA_MAGIC);
         assert_eq!(decoded.sequence, 42);
         assert_eq!(decoded.sample_rate, 48000);
         assert_eq!(decoded.frame_count, 256);

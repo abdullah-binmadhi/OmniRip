@@ -241,11 +241,11 @@ impl Default for LinkedAccountsConfig {
 impl LinkedAccountsConfig {
     pub fn config_path() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("omnirip").join("accounts.json")
+            PathBuf::from(home).join(".config").join("orchestria").join("accounts.json")
         } else if let Ok(user_profile) = std::env::var("USERPROFILE") {
-            PathBuf::from(user_profile).join(".config").join("omnirip").join("accounts.json")
+            PathBuf::from(user_profile).join(".config").join("orchestria").join("accounts.json")
         } else {
-            PathBuf::from(".config/omnirip/accounts.json")
+            PathBuf::from(".config/orchestria/accounts.json")
         }
     }
 
@@ -467,7 +467,7 @@ impl LibrarySyncEngine {
         if let Some(profile_dir) = Self::detect_zen_browser_profiles() {
             let cookies_db = profile_dir.join("cookies.sqlite");
             if cookies_db.exists() {
-                let snap_path = std::env::temp_dir().join("omnirip_zen_spotify_snap.sqlite");
+                let snap_path = std::env::temp_dir().join("orchestria_zen_spotify_snap.sqlite");
                 if fs::copy(&cookies_db, &snap_path).is_ok() {
                     let query = "SELECT value FROM moz_cookies WHERE name='sp_dc' AND host LIKE '%spotify%' LIMIT 1;";
                     if let Ok(output) = Command::new("sqlite3").args([snap_path.to_str().unwrap_or(""), query]).output() {
@@ -490,7 +490,7 @@ impl LibrarySyncEngine {
             let ls_dir = profile_dir.join("storage").join("default").join("https+++open.spotify.com").join("ls");
             let data_sqlite = ls_dir.join("data.sqlite");
             if data_sqlite.exists() {
-                let snap_path = std::env::temp_dir().join("omnirip_zen_spotify_ls_snap.sqlite");
+                let snap_path = std::env::temp_dir().join("orchestria_zen_spotify_ls_snap.sqlite");
                 if fs::copy(&data_sqlite, &snap_path).is_ok() {
                     let query = "SELECT key FROM data WHERE key LIKE '%:ylx-active-filter-ids%' LIMIT 1;";
                     if let Ok(output) = Command::new("sqlite3").args([snap_path.to_str().unwrap_or(""), query]).output() {

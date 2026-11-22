@@ -6814,7 +6814,7 @@ mod tests {
 
         // 2. Create a temporary dummy audio file to simulate successful download
         let temp_dir = std::env::temp_dir();
-        let dummy_audio = temp_dir.join("omnirip_test_daft_punk.flac");
+        let dummy_audio = temp_dir.join("orchestria_test_daft_punk.flac");
         let _ = std::fs::write(&dummy_audio, b"fLaC dummy content");
 
         // 3. Worker sends completed status with Saved to path

@@ -1,4 +1,4 @@
-//! Startup Mode Selection Modal for OmniRip.
+//! Startup Mode Selection Modal for Orchestria.
 //! Presents a high-contrast popup asking the user whether to launch
 //! the MP3 Downloader & Harvester or the System EQ & Audiophile Mastering Suite.
 
@@ -75,7 +75,7 @@ impl ModeModal {
         f.render_widget(Clear, card_area);
 
         let block = Block::default()
-            .title(" OMNIRIP WORKSTATION - SELECT STARTUP MODE ")
+            .title(" ORCHESTRIA WORKSTATION - SELECT STARTUP MODE ")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))

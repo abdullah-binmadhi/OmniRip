@@ -1,4 +1,4 @@
-//! OmniRip Harvester: Audio Downloader, Tagging & Quality Analysis Subsystem.
+//! Orchestria Harvester: Audio Downloader, Tagging & Quality Analysis Subsystem.
 
 pub mod bootstrap;
 pub mod integrity;

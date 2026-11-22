@@ -2,7 +2,7 @@
 //!
 //! Allows users to store, paste, label, and sync multiple playlist links
 //! (Spotify, YouTube Music, Apple Music, and shared friends' playlists).
-//! Persisted automatically to ~/.config/omnirip/link_bank.json and links.txt.
+//! Persisted automatically to ~/.config/orchestria/link_bank.json and links.txt.
 
 use crate::harvest::link_bank::LinkBankStore;
 use crate::harvest::StreamingService;
@@ -258,7 +258,7 @@ impl LinkBankModal {
             Line::from(vec![
                 Span::styled("Persistent Storage: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    "~/.config/omnirip/link_bank.json & links.txt (Auto-detected on boot/sync)",
+                    "~/.config/orchestria/link_bank.json & links.txt (Auto-detected on boot/sync)",
                     Style::default().fg(Color::Cyan),
                 ),
             ]),
