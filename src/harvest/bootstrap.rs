@@ -344,6 +344,62 @@ impl ToolBootstrapper {
 
         Ok(target_path)
     }
+
+    /// Ensures `ffmpeg` is available on `PATH` or user tools dir. If missing, attempts a non-interactive
+    /// platform package-manager install when available (`brew` on macOS, `winget` on Windows), without
+    /// hard-failing offline users.
+    pub async fn bootstrap_ffmpeg_if_missing(cancel_signal: Arc<AtomicBool>) -> Result<Option<PathBuf>, String> {
+        if let Some(existing) = ToolResolver::resolve_tool("ffmpeg") {
+            return Ok(Some(existing));
+        }
+        if cancel_signal.load(Ordering::Relaxed) {
+            return Err("Setup canceled by user.".to_string());
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+                .into_iter()
+                .find(|p| Path::new(p).is_file());
+            if let Some(brew_bin) = brew {
+                let status = tokio::process::Command::new(brew_bin)
+                    .args(["install", "ffmpeg"])
+                    .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .await;
+                if matches!(status, Ok(s) if s.success()) {
+                    ToolResolver::activate_user_tools_path();
+                    return Ok(ToolResolver::resolve_tool("ffmpeg"));
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let status = tokio::process::Command::new("winget")
+                .args([
+                    "install",
+                    "--id",
+                    "Gyan.FFmpeg",
+                    "-e",
+                    "--silent",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await;
+            if matches!(status, Ok(s) if s.success()) {
+                ToolResolver::activate_user_tools_path();
+                return Ok(ToolResolver::resolve_tool("ffmpeg"));
+            }
+        }
+
+        Ok(ToolResolver::resolve_tool("ffmpeg"))
+    }
 }
 
 #[cfg(test)]

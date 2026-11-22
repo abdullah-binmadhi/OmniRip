@@ -12,6 +12,7 @@ pub mod preset_modal;
 pub mod setup_modal;
 pub mod streaming_hub;
 pub mod theme;
+pub mod update_modal;
 pub mod visuals;
 
 pub use account_modal::{AccountModalAction, AccountSyncModal};
@@ -27,4 +28,5 @@ pub use preset_modal::{render_preset_modal, ModalKeyAction, PresetModalState};
 pub use setup_modal::{SetupModalAction, SetupModalState};
 pub use streaming_hub::StreamingHubState;
 pub use theme::{ThemeKind, ThemePalette};
+pub use update_modal::{UpdateModalAction, UpdateModalMode, UpdateModalState};
 pub use visuals::{VisualGraphMode, VisualsDashboard};

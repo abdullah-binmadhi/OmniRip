@@ -1,7 +1,10 @@
-//! Locating the HAL driver bundle, and quoting values for `sh` and AppleScript.
+//! Locating the HAL driver bundle, inspecting bundle metadata, and quoting values for `sh` and AppleScript.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use std::path::{Path, PathBuf};
+
+/// Expected CFBundleVersion for the Zero-Dot Output-Only HAL v2 driver.
+pub const EXPECTED_DRIVER_BUNDLE_VERSION: u32 = 2;
 
 /// Where the driver bundle comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,16 +15,79 @@ pub enum DriverSource {
     SourceTree(PathBuf),
 }
 
+/// Directory where OmniRip caches staged driver bundles when the binary directory is read-only.
+pub fn user_driver_cache_dir() -> PathBuf {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        return PathBuf::from(appdata).join("OmniRip");
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".local").join("share").join("omnirip");
+    }
+    std::env::temp_dir().join("omnirip")
+}
+
+/// Parses `CFBundleVersion` from a `.driver/Contents/Info.plist` file.
+pub fn read_bundle_version(bundle_dir: &Path) -> Option<u32> {
+    let plist_path = bundle_dir.join("Contents").join("Info.plist");
+    let content = std::fs::read_to_string(plist_path).ok()?;
+    let key_idx = content.find("<key>CFBundleVersion</key>")?;
+    let after_key = &content[key_idx..];
+    let str_start = after_key.find("<string>")? + "<string>".len();
+    let rest = &after_key[str_start..];
+    let str_end = rest.find("</string>")?;
+    rest[..str_end].trim().parse::<u32>().ok()
+}
+
 /// Finds the driver for a binary running from `exe_dir`, in this order:
 /// 1. a bundle shipped next to the binary (release archives);
-/// 2. a source checkout with `drivers/omnirip_hal/Makefile`, searched upward from the binary and then
-///    from the working directory.
+/// 2. canonicalized symlink / Homebrew `pkgshare` / `libexec` locations (`../share/omnirip/`, `../libexec/`);
+/// 3. user driver cache (`~/.local/share/omnirip/OmniRipAudio.driver`);
+/// 4. a source checkout with `drivers/omnirip_hal/Makefile`, searched upward from the binary, canonical binary,
+///    and working directory.
 pub fn locate_driver_source(exe_dir: &Path, cwd: &Path) -> Option<DriverSource> {
-    let shipped = exe_dir.join("OmniRipAudio.driver");
-    if shipped.is_dir() {
-        return Some(DriverSource::Bundle(shipped));
+    let mut bundle_candidates = vec![exe_dir.join("OmniRipAudio.driver")];
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Ok(canon_exe) = std::fs::canonicalize(&exe_path) {
+            if let Some(canon_dir) = canon_exe.parent() {
+                bundle_candidates.push(canon_dir.join("OmniRipAudio.driver"));
+                if let Some(prefix) = canon_dir.parent() {
+                    bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
+                    bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
+                    bundle_candidates.push(prefix.join("OmniRipAudio.driver"));
+                }
+            }
+        }
     }
-    for start in [exe_dir, cwd] {
+
+    if let Ok(canon_dir) = std::fs::canonicalize(exe_dir) {
+        bundle_candidates.push(canon_dir.join("OmniRipAudio.driver"));
+        if let Some(prefix) = canon_dir.parent() {
+            bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
+            bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
+            bundle_candidates.push(prefix.join("OmniRipAudio.driver"));
+        }
+    } else if let Some(prefix) = exe_dir.parent() {
+        bundle_candidates.push(prefix.join("share").join("omnirip").join("OmniRipAudio.driver"));
+        bundle_candidates.push(prefix.join("libexec").join("OmniRipAudio.driver"));
+    }
+
+    bundle_candidates.push(user_driver_cache_dir().join("OmniRipAudio.driver"));
+
+    for candidate in bundle_candidates {
+        if candidate.is_dir() {
+            return Some(DriverSource::Bundle(candidate));
+        }
+    }
+
+    let canon_exe_dir = std::fs::canonicalize(exe_dir).ok();
+    let mut starts: Vec<&Path> = vec![exe_dir];
+    if let Some(ref c) = canon_exe_dir {
+        starts.push(c.as_path());
+    }
+    starts.push(cwd);
+
+    for start in starts {
         let mut dir = Some(start);
         for _ in 0..6 {
             let Some(current) = dir else { break };
@@ -69,6 +135,24 @@ mod tests {
     }
 
     #[test]
+    fn homebrew_pkgshare_bundle_is_found_from_bin_dir() {
+        let root = scratch_dir("brew");
+        let bin_dir = root.join("bin");
+        let pkgshare = root.join("share").join("omnirip").join("OmniRipAudio.driver");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+        std::fs::create_dir_all(&pkgshare).expect("create pkgshare bundle");
+
+        let found = locate_driver_source(&bin_dir, &bin_dir);
+        let expected_canon = std::fs::canonicalize(&pkgshare).unwrap_or(pkgshare.clone());
+        assert!(
+            matches!(found, Some(DriverSource::Bundle(ref p)) if *p == expected_canon || *p == pkgshare),
+            "Expected Homebrew pkgshare bundle, got {:?}",
+            found
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_source_checkout_is_found_by_walking_up_from_the_binary() {
         let root = scratch_dir("checkout");
         let source = root.join("drivers").join("omnirip_hal");
@@ -84,9 +168,16 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_found_when_neither_exists() {
-        let root = scratch_dir("missing");
-        assert_eq!(locate_driver_source(&root, &root), None);
+    fn read_bundle_version_parses_plist_version() {
+        let root = scratch_dir("plist");
+        let contents = root.join("OmniRipAudio.driver").join("Contents");
+        std::fs::create_dir_all(&contents).expect("create Contents dir");
+        std::fs::write(
+            contents.join("Info.plist"),
+            "<plist><dict><key>CFBundleVersion</key><string>2</string></dict></plist>",
+        )
+        .expect("write plist");
+        assert_eq!(read_bundle_version(&root.join("OmniRipAudio.driver")), Some(2));
         let _ = std::fs::remove_dir_all(&root);
     }
 

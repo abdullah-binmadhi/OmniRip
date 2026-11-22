@@ -61,4 +61,4 @@ if ($UserPath -notlike "*$InstallDir*") {
 
 Write-Host ""
 Write-Host "OmniRip is installed. Open a new terminal and run: omnirip" -ForegroundColor Green
-Write-Host "Note: Windows audio support is still being finished. See the README for its status." -ForegroundColor DarkGray
+Write-Host "On launch, the guided First-Run Setup Wizard will verify your Sound Engine & tools automatically." -ForegroundColor DarkGray

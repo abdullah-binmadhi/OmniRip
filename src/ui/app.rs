@@ -134,6 +134,9 @@ pub struct App {
     pub autoeq_view_mode: usize,
     pub command_bar: CommandBarState,
     pub setup_modal: crate::ui::setup_modal::SetupModalState,
+    pub update_modal: crate::ui::update_modal::UpdateModalState,
+    pub last_update_check: Instant,
+    pub restart_requested_after_exit: bool,
 }
 
 /// Puts the terminal into TUI mode and restores it on drop, so every exit path (including early `?`
@@ -189,13 +192,35 @@ impl App {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
+        let mut setup_modal = crate::ui::setup_modal::SetupModalState::new();
+        let mut update_modal = crate::ui::update_modal::UpdateModalState::new();
         let mut streamer = AudioStreamer::new(pipeline);
+        let is_live_session = !cfg!(test) && std::env::var_os("CI").is_none();
+        let should_auto_capture = if is_live_session {
+            setup_modal.prepare_on_launch()
+        } else {
+            false
+        };
+        if is_live_session {
+            if let Some((ver_label, notes)) = crate::harvest::updater::take_post_update_welcome() {
+                update_modal.open_post_update_welcome(ver_label, notes);
+            }
+            update_modal.spawn_update_check(2000);
+        }
+        if should_auto_capture {
+            let _ = streamer.set_input_capture(true);
+        }
+
         // Start Pure Rust Audio Engine automatically on launch
         let status = match streamer.start() {
             Ok(()) => {
                 let in_name = streamer.active_input_name();
                 let out_name = streamer.active_output_name();
-                format!("OmniRip Sound Engine ACTIVE: [{}] -> DSP -> [{}]", in_name, out_name)
+                if streamer.is_input_capture_enabled() {
+                    format!("OmniRip Sound Engine ACTIVE ({}): [{}] -> DSP -> [{}]", streamer.active_capture_backend().label(), in_name, out_name)
+                } else {
+                    format!("OmniRip App-Only EQ ACTIVE: DSP -> [{}] (Press F12 for System-Wide EQ setup)", out_name)
+                }
             }
             Err(e) => format!("Engine notice: {}", e),
         };
@@ -256,7 +281,10 @@ impl App {
             gear_profile,
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
-            setup_modal: crate::ui::setup_modal::SetupModalState::new(),
+            setup_modal,
+            update_modal,
+            last_update_check: Instant::now(),
+            restart_requested_after_exit: false,
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -333,6 +361,9 @@ impl App {
             autoeq_view_mode: 1,
             command_bar: CommandBarState::new(),
             setup_modal: crate::ui::setup_modal::SetupModalState::new(),
+            update_modal: crate::ui::update_modal::UpdateModalState::new(),
+            last_update_check: Instant::now(),
+            restart_requested_after_exit: false,
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -352,6 +383,7 @@ impl App {
             || self.preset_modal.is_active()
             || self.nicotine_modal.is_open
             || self.setup_modal.is_open
+            || self.update_modal.is_visible()
     }
 
     pub fn execute_command(&mut self, cmd: &str) {
@@ -362,7 +394,7 @@ impl App {
         }
         let command = parts[0].to_lowercase();
         match command.as_str() {
-            "mic" => {
+            "mic" | "syseq" | "soundengine" => {
                 let sub = parts.get(1).map(|s| *s).unwrap_or("toggle");
                 match sub {
                     "on" | "enable" | "1" => {
@@ -528,7 +560,21 @@ impl App {
             "update" | "upgrade" => {
                 self.setup_modal.open();
                 self.setup_modal.start_self_update();
+                let _ = self.update_modal.open_or_check_now();
                 self.set_status("Checking for latest release and initiating self-update...");
+            }
+            "rollback" => {
+                match crate::harvest::updater::apply_rollback() {
+                    Ok(path) => {
+                        self.set_status(&format!(
+                            "Restored previous OmniRip build at {}. Restart OmniRip to use it.",
+                            path.display()
+                        ));
+                    }
+                    Err(e) => {
+                        self.set_status(&format!("Rollback notice: {}", e));
+                    }
+                }
             }
             unknown => {
                 self.set_status(&format!("Unknown command: :{}. Type :help for commands.", unknown));
@@ -1084,6 +1130,64 @@ impl App {
             // Poll background streaming hub worker updates
             self.streaming_hub.poll_stream_worker();
 
+            // Poll guided Setup & Sound Engine background worker
+            match self.setup_modal.poll_worker() {
+                crate::ui::setup_modal::SetupModalAction::None
+                | crate::ui::setup_modal::SetupModalAction::Close => {}
+                crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
+                    self.set_status(&msg);
+                }
+                crate::ui::setup_modal::SetupModalAction::HotActivateSoundEngine => {
+                    match self.streamer.hot_activate_system_capture() {
+                        Ok(msg) => {
+                            self.setup_modal.mark_ready(msg.clone());
+                            self.set_status(&msg);
+                        }
+                        Err(e) => {
+                            self.set_status(&format!("Sound Engine installed (activation notice: {})", e));
+                        }
+                    }
+                }
+                crate::ui::setup_modal::SetupModalAction::RequestAppQuit => {
+                    self.streamer.terminate();
+                    break;
+                }
+                crate::ui::setup_modal::SetupModalAction::TriggerOsReboot => {
+                    if crate::driver::trigger_system_reboot().is_ok() {
+                        self.streamer.terminate();
+                        break;
+                    }
+                    self.set_status("OS restart canceled or unavailable; restart manually when ready.");
+                }
+            }
+
+            // Periodic 30-minute background rolling update check + worker polling
+            if self.last_update_check.elapsed() >= Duration::from_secs(1800) {
+                self.last_update_check = Instant::now();
+                self.update_modal.spawn_update_check(0);
+            }
+            let user_typing = self.downloader.is_capturing_input()
+                || self.archiver.is_capturing_input()
+                || self.streaming_hub.is_editing_search
+                || self.command_bar.is_open;
+            let blocking_modal = self.setup_modal.is_open
+                || self.mode_modal.is_open
+                || self.gear_modal.is_open
+                || self.preset_modal.is_active()
+                || self.nicotine_modal.is_open;
+            match self.update_modal.poll_worker(user_typing, blocking_modal) {
+                crate::ui::update_modal::UpdateModalAction::None
+                | crate::ui::update_modal::UpdateModalAction::Close => {}
+                crate::ui::update_modal::UpdateModalAction::StatusUpdate(msg) => {
+                    self.set_status(&msg);
+                }
+                crate::ui::update_modal::UpdateModalAction::RestartIntoNewBinary => {
+                    self.restart_requested_after_exit = true;
+                    self.streamer.terminate();
+                    break;
+                }
+            }
+
             terminal.draw(|f| self.render(f))?;
 
             let timeout = tick_rate.saturating_sub(last_tick.elapsed());
@@ -1158,11 +1262,57 @@ impl App {
                         // 1c. If Setup & Dependency Health Wizard is open, intercept wizard keys
                         if self.setup_modal.is_open {
                             match self.setup_modal.handle_key(key.code) {
-                                crate::ui::setup_modal::SetupModalAction::None => {}
-                                crate::ui::setup_modal::SetupModalAction::Close => {}
+                                crate::ui::setup_modal::SetupModalAction::None
+                                | crate::ui::setup_modal::SetupModalAction::Close => {}
                                 crate::ui::setup_modal::SetupModalAction::StatusUpdate(msg) => {
                                     self.set_status(&msg);
                                 }
+                                crate::ui::setup_modal::SetupModalAction::HotActivateSoundEngine => {
+                                    if let Ok(msg) = self.streamer.hot_activate_system_capture() {
+                                        self.setup_modal.mark_ready(msg.clone());
+                                        self.set_status(&msg);
+                                    }
+                                }
+                                crate::ui::setup_modal::SetupModalAction::RequestAppQuit => {
+                                    self.streamer.terminate();
+                                    break;
+                                }
+                                crate::ui::setup_modal::SetupModalAction::TriggerOsReboot => {
+                                    if crate::driver::trigger_system_reboot().is_ok() {
+                                        self.streamer.terminate();
+                                        break;
+                                    }
+                                    self.set_status("OS restart canceled or unavailable; restart manually when ready.");
+                                }
+                            }
+                            continue;
+                        }
+
+                        // 1d. If Auto-Update / What's New Popup is visible, intercept its keys
+                        if self.update_modal.is_visible() {
+                            match self.update_modal.handle_key(key) {
+                                crate::ui::update_modal::UpdateModalAction::None
+                                | crate::ui::update_modal::UpdateModalAction::Close => {}
+                                crate::ui::update_modal::UpdateModalAction::StatusUpdate(msg) => {
+                                    self.set_status(&msg);
+                                }
+                                crate::ui::update_modal::UpdateModalAction::RestartIntoNewBinary => {
+                                    self.restart_requested_after_exit = true;
+                                    self.streamer.terminate();
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+
+                        // Global Ctrl+U hotkey: open pending update popup or check for updates now
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && (key.code == KeyCode::Char('u') || key.code == KeyCode::Char('U'))
+                        {
+                            if let crate::ui::update_modal::UpdateModalAction::StatusUpdate(msg) =
+                                self.update_modal.open_or_check_now()
+                            {
+                                self.set_status(&msg);
                             }
                             continue;
                         }
@@ -1568,6 +1718,11 @@ impl App {
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste)?;
         terminal.show_cursor()?;
+        drop(_terminal_guard);
+
+        if self.restart_requested_after_exit {
+            crate::harvest::updater::restart_into_updated_binary()?;
+        }
 
         Ok(())
     }
@@ -2004,6 +2159,11 @@ impl App {
         if self.setup_modal.is_open {
             self.setup_modal.render(f, f.area());
         }
+
+        // Render Auto-Update & Plain-English "What's New" Popup on top if visible
+        if self.update_modal.is_visible() {
+            self.update_modal.render(f, f.area());
+        }
     }
 
     fn render_header(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -2146,6 +2306,17 @@ impl App {
         spans.push(Span::styled(lufs_str, Style::default().fg(self.theme.secondary)));
         spans.push(Span::raw(" | "));
         spans.push(Span::styled(crest_str, Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)));
+
+        if self.update_modal.has_pending_badge() {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                " [⬆ UPDATE READY • Ctrl+U] ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
 
         let title_line = Line::from(spans);
 
