@@ -333,7 +333,7 @@ impl ShmCaptureHandle {
                             w.write(&scratch[..n]);
                         }
                     } else {
-                        thread::sleep(Duration::from_millis(2));
+                        thread::sleep(Duration::from_millis(1));
                     }
                 }
             })

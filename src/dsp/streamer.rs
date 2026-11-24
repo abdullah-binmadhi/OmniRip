@@ -58,19 +58,66 @@ impl CaptureBackendKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncMode {
-    Extreme,  // 256 frames (~5.3ms cushion)
-    Ultra,    // 512 frames (~10.6ms cushion)
-    Balanced, // 1024 frames (~21.3ms cushion)
-    Stable,   // 2048 frames (~42.7ms cushion)
+    Extreme,  // 256f ring + 128f HW quantum (~8.0ms total) + Fast Hermite
+    Ultra,    // 512f ring + 256f HW quantum (~16.0ms total) + 16-Pt Sinc
+    Balanced, // 1024f ring + 512f HW quantum (~32.0ms total) + 16-Pt Sinc
+    Stable,   // 2048f ring + Auto OS Default HW quantum (~64ms+) + 16-Pt Sinc
 }
 
 impl SyncMode {
+    /// Aligns 1:1 with the displayed ring buffer cushion (256 / 512 / 1024 / 2048 frames).
     pub fn target_frames(&self) -> usize {
         match self {
-            SyncMode::Extreme => 512,
-            SyncMode::Ultra => 1024,
-            SyncMode::Balanced => 2048,
-            SyncMode::Stable => 4096,
+            SyncMode::Extreme => 256,
+            SyncMode::Ultra => 512,
+            SyncMode::Balanced => 1024,
+            SyncMode::Stable => 2048,
+        }
+    }
+
+    /// Preferred OS hardware audio callback quantum (`cpal::BufferSize::Fixed`), with automatic fallback to `Default`.
+    pub fn hardware_buffer_frames(&self) -> Option<u32> {
+        match self {
+            SyncMode::Extreme => Some(128),
+            SyncMode::Ultra => Some(256),
+            SyncMode::Balanced => Some(512),
+            SyncMode::Stable => None,
+        }
+    }
+
+    pub fn recommended_resampler(&self) -> super::servo::ResamplingMode {
+        match self {
+            SyncMode::Extreme => super::servo::ResamplingMode::FastHermite,
+            SyncMode::Ultra | SyncMode::Balanced | SyncMode::Stable => {
+                super::servo::ResamplingMode::AudiophileSinc
+            }
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            SyncMode::Extreme => "EXTREME",
+            SyncMode::Ultra => "ULTRA",
+            SyncMode::Balanced => "BALANCED",
+            SyncMode::Stable => "STABLE",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            SyncMode::Extreme => SyncMode::Ultra,
+            SyncMode::Ultra => SyncMode::Balanced,
+            SyncMode::Balanced => SyncMode::Stable,
+            SyncMode::Stable => SyncMode::Extreme,
+        }
+    }
+
+    pub fn prev(&self) -> Self {
+        match self {
+            SyncMode::Extreme => SyncMode::Stable,
+            SyncMode::Ultra => SyncMode::Extreme,
+            SyncMode::Balanced => SyncMode::Ultra,
+            SyncMode::Stable => SyncMode::Balanced,
         }
     }
 }
@@ -279,6 +326,7 @@ pub struct AudioStreamer {
     pub needs_rebuild: Arc<AtomicBool>,
     pub last_callback_epoch_ms: Arc<AtomicU64>,
     pub dsp_load_per_mille: Arc<AtomicU32>,
+    pub active_hw_buffer_frames: Arc<std::sync::atomic::AtomicUsize>,
     pub captured_frames_total: Arc<AtomicU64>,
     pub system_volume_bits: Arc<AtomicU32>,
     pub pipeline: Arc<Mutex<AudioPipeline>>,
@@ -326,6 +374,7 @@ impl AudioStreamer {
             needs_rebuild: Arc::new(AtomicBool::new(false)),
             last_callback_epoch_ms: Arc::new(AtomicU64::new(0)),
             dsp_load_per_mille: Arc::new(AtomicU32::new(12)),
+            active_hw_buffer_frames: Arc::new(std::sync::atomic::AtomicUsize::new(512)),
             captured_frames_total: Arc::new(AtomicU64::new(0)),
             system_volume_bits: {
                 let (_, saved_scalar) = crate::dsp::volume_storage::load_volume_settings();
@@ -1337,12 +1386,94 @@ impl AudioStreamer {
     }
 
     pub fn set_sync_mode(&mut self, mode: SyncMode) {
+        let prev_hw = self.sync_mode.hardware_buffer_frames();
         self.sync_mode = mode;
+        let next_hw = mode.hardware_buffer_frames();
+        let resampler = if self.is_game_mode_enabled() {
+            crate::dsp::servo::ResamplingMode::FastHermite
+        } else {
+            mode.recommended_resampler()
+        };
+
         if let Some(reader) = &self.reader_handle {
-            if let Ok(r) = reader.lock() {
+            if let Ok(mut r) = reader.lock() {
                 r.set_target_frames(mode.target_frames());
+                r.set_resampling_mode(resampler);
+                r.request_trim();
             }
         }
+
+        // Rebuild OS audio stream cleanly whenever hardware quantum changes so latency
+        // changes immediately on CoreAudio / WASAPI / ALSA instead of remaining fixed at 512+.
+        if prev_hw != next_hw && self.is_running.load(Ordering::SeqCst) {
+            let _ = self.restart();
+        }
+    }
+
+    pub fn cycle_sync_mode(&mut self, forward: bool) -> (SyncMode, String) {
+        let target = if forward {
+            self.sync_mode.next()
+        } else {
+            self.sync_mode.prev()
+        };
+        self.set_sync_mode(target);
+        let msg = self.sync_mode_status_line();
+        (target, msg)
+    }
+
+    pub fn sync_mode_status_line(&self) -> String {
+        let (hw_ms, ring_ms, total_ms, hw_frames, _) = self.effective_latency_breakdown();
+        let kernel = match self.effective_resampling_mode() {
+            super::servo::ResamplingMode::FastHermite => "Fast Hermite",
+            super::servo::ResamplingMode::AudiophileSinc => "16-Pt Sinc",
+        };
+        format!(
+            "Sync Preset: {} ({:.1}ms total = {}f HW {:.1}ms + {}f Ring {:.1}ms • {})",
+            self.sync_mode.label(),
+            total_ms,
+            hw_frames,
+            hw_ms,
+            self.sync_mode.target_frames(),
+            ring_ms,
+            kernel
+        )
+    }
+
+    pub fn effective_resampling_mode(&self) -> super::servo::ResamplingMode {
+        if let Some(reader) = &self.reader_handle {
+            if let Ok(r) = reader.lock() {
+                return r.resampling_mode();
+            }
+        }
+        if self.is_game_mode_enabled() {
+            super::servo::ResamplingMode::FastHermite
+        } else {
+            self.sync_mode.recommended_resampler()
+        }
+    }
+
+    /// Returns `(hw_ms, ring_ms, total_ms, hw_frames, underruns)` for live Routing UI telemetry.
+    pub fn effective_latency_breakdown(&self) -> (f32, f32, f32, usize, u64) {
+        let sr = self.active_sample_rate().max(8000.0);
+        let hw_frames = self
+            .active_hw_buffer_frames
+            .load(Ordering::Relaxed)
+            .max(64);
+        let ring_frames = self
+            .reader_handle
+            .as_ref()
+            .and_then(|r| r.lock().ok())
+            .map(|r| r.available())
+            .unwrap_or_else(|| self.sync_mode.target_frames());
+        let underruns = self
+            .reader_handle
+            .as_ref()
+            .and_then(|r| r.lock().ok())
+            .map(|r| r.underrun_count())
+            .unwrap_or(0);
+        let hw_ms = (hw_frames as f32 * 1000.0) / sr;
+        let ring_ms = (ring_frames as f32 * 1000.0) / sr;
+        (hw_ms, ring_ms, hw_ms + ring_ms, hw_frames, underruns)
     }
 
     pub fn set_game_mode(&mut self, enabled: bool) -> (bool, String) {
@@ -1363,18 +1494,21 @@ impl AudioStreamer {
         if let Some(reader) = &self.reader_handle {
             if let Ok(mut r) = reader.lock() {
                 if enabled {
-                    r.set_target_frames(512);
+                    r.set_target_frames(256);
                     r.set_resampling_mode(crate::dsp::servo::ResamplingMode::FastHermite);
                 } else {
                     r.set_target_frames(self.sync_mode.target_frames());
-                    r.set_resampling_mode(crate::dsp::servo::ResamplingMode::AudiophileSinc);
+                    r.set_resampling_mode(self.sync_mode.recommended_resampler());
                 }
             }
         }
         let msg = if enabled {
-            "Low-Latency Esports Gaming Mode: [ON] (512 frames / 10.6ms cushion, Fast Hermite resampler active)".to_string()
+            "Low-Latency Esports Gaming Mode: [ON] (256f cushion, Fast Hermite resampler active)".to_string()
         } else {
-            "Low-Latency Esports Gaming Mode: [OFF] (Restored Audiophile Sinc resampler & cushion)".to_string()
+            format!(
+                "Low-Latency Esports Gaming Mode: [OFF] (Restored {} preset)",
+                self.sync_mode.label()
+            )
         };
         (enabled, msg)
     }
@@ -1534,17 +1668,28 @@ impl AudioStreamer {
             .map(|c| c.sample_rate().0)
             .unwrap_or(48000);
         let channels = 2;
-        let config = StreamConfig {
+        let requested_hw_frames = self.sync_mode.hardware_buffer_frames();
+        let buffer_size = match requested_hw_frames {
+            Some(frames) => cpal::BufferSize::Fixed(frames),
+            None => cpal::BufferSize::Default,
+        };
+        let mut config = StreamConfig {
             channels,
             sample_rate: cpal::SampleRate(sample_rate),
-            buffer_size: cpal::BufferSize::Default,
+            buffer_size,
         };
 
         if let Ok(mut pipe) = self.pipeline.lock() {
             pipe.set_sample_rate(sample_rate as f32);
         }
 
-        let (writer, reader) = create_servo_ring_buffer(32768, self.sync_mode.target_frames());
+        let (writer, mut reader) = create_servo_ring_buffer(32768, self.sync_mode.target_frames());
+        let initial_resampler = if self.is_game_mode_enabled() {
+            crate::dsp::servo::ResamplingMode::FastHermite
+        } else {
+            self.sync_mode.recommended_resampler()
+        };
+        reader.set_resampling_mode(initial_resampler);
         let reader_arc = Arc::new(Mutex::new(reader));
         self.reader_handle = Some(Arc::clone(&reader_arc));
 
@@ -1565,25 +1710,44 @@ impl AudioStreamer {
         let player_arc = Arc::clone(&self.player);
         let last_cb_arc = Arc::clone(&self.last_callback_epoch_ms);
         let dsp_load_arc = Arc::clone(&self.dsp_load_per_mille);
+        let hw_buf_arc = Arc::clone(&self.active_hw_buffer_frames);
         let needs_rebuild_out = Arc::clone(&self.needs_rebuild);
         let sys_vol_arc = Arc::clone(&self.system_volume_bits);
         let out_name = out_dev.name().unwrap_or_default().to_lowercase();
         let out_is_external_dac = (out_name.contains("ibasso") || out_name.contains("dac") || out_name.contains("pro"))
             && !out_name.contains("headphone");
         let callback_sr = sample_rate.max(8000) as f64;
-        let mut smoothed_gain = 1.0f32;
+        let smoothed_gain = 1.0f32;
 
-        let mut sample_idx: u64 = 0;
-        let mut b0 = 0.0f32;
-        let mut b1 = 0.0f32;
-        let mut b2 = 0.0f32;
-        let mut seed: u64 = 987654321;
+        let sample_idx: u64 = 0;
+        let b0 = 0.0f32;
+        let b1 = 0.0f32;
+        let b2 = 0.0f32;
+        let seed: u64 = 987654321;
         #[cfg(target_os = "macos")]
-        let mut qos_set_out = false;
+        let qos_set_out = false;
 
-        let out_stream = out_dev
-            .build_output_stream(
-                &config,
+        let out_stream = {
+            let make_cb = || {
+                let pipeline_arc = Arc::clone(&pipeline_arc);
+                let reader_for_out = Arc::clone(&reader_for_out);
+                let test_active = Arc::clone(&test_active);
+                let test_mode_arc = Arc::clone(&test_mode_arc);
+                let is_paused_out = Arc::clone(&is_paused_out);
+                let player_arc = Arc::clone(&player_arc);
+                let last_cb_arc = Arc::clone(&last_cb_arc);
+                let dsp_load_arc = Arc::clone(&dsp_load_arc);
+                let hw_buf_arc = Arc::clone(&hw_buf_arc);
+                let sys_vol_arc = Arc::clone(&sys_vol_arc);
+                let mut smoothed_gain = smoothed_gain;
+                let mut sample_idx = sample_idx;
+                let mut b0 = b0;
+                let mut b1 = b1;
+                let mut b2 = b2;
+                let mut seed = seed;
+                #[cfg(target_os = "macos")]
+                let mut qos_set_out = qos_set_out;
+
                 move |data: &mut [f32], _: &_| {
                     #[cfg(target_os = "macos")]
                     if !qos_set_out {
@@ -1593,13 +1757,18 @@ impl AudioStreamer {
                         qos_set_out = true;
                     }
 
+                    let actual_frames = data.len() / 2;
+                    if actual_frames > 0 {
+                        hw_buf_arc.store(actual_frames, Ordering::Relaxed);
+                    }
+
                     if is_paused_out.load(Ordering::SeqCst) {
                         data.fill(0.0);
                         return;
                     }
 
                     let cb_t0 = std::time::Instant::now();
-                    let n_frames = (data.len() / 2).min(2048);
+                    let n_frames = actual_frames.min(2048);
                     let mut scratch = [[0.0f32, 0.0f32]; 2048];
 
                     let player_frames = if player_arc.is_playing() {
@@ -1700,14 +1869,30 @@ impl AudioStreamer {
                             .unwrap_or(0),
                         Ordering::SeqCst,
                     );
-                },
+                }
+            };
+
+            let err_cb = {
+                let needs_rebuild_out = Arc::clone(&needs_rebuild_out);
                 move |err| {
                     eprintln!("Output audio stream error: {}", err);
                     needs_rebuild_out.store(true, Ordering::SeqCst);
-                },
-                None,
-            )
-            .map_err(|e| format!("Failed to build output stream: {}", e))?;
+                }
+            };
+
+            // Try the preset's Fixed hardware quantum first; fall back transparently to OS Default if
+            // the active hardware driver (e.g. Bluetooth / shared WASAPI) refuses Fixed buffer sizes.
+            match out_dev.build_output_stream(&config, make_cb(), err_cb.clone(), None) {
+                Ok(stream) => stream,
+                Err(_) if requested_hw_frames.is_some() => {
+                    config.buffer_size = cpal::BufferSize::Default;
+                    out_dev
+                        .build_output_stream(&config, make_cb(), err_cb, None)
+                        .map_err(|e| format!("Failed to build output stream: {}", e))?
+                }
+                Err(e) => return Err(format!("Failed to build output stream: {}", e)),
+            }
+        };
 
         out_stream
             .play()
@@ -2094,6 +2279,28 @@ mod tests {
         if let Some(id) = original_output {
             let _ = set_macos_system_output_to_device_id(id);
         }
+    }
+
+    #[test]
+    fn test_sync_mode_specs_match_labels_and_resamplers() {
+        assert_eq!(SyncMode::Extreme.target_frames(), 256);
+        assert_eq!(SyncMode::Ultra.target_frames(), 512);
+        assert_eq!(SyncMode::Balanced.target_frames(), 1024);
+        assert_eq!(SyncMode::Stable.target_frames(), 2048);
+
+        assert_eq!(SyncMode::Extreme.hardware_buffer_frames(), Some(128));
+        assert_eq!(SyncMode::Ultra.hardware_buffer_frames(), Some(256));
+        assert_eq!(SyncMode::Balanced.hardware_buffer_frames(), Some(512));
+        assert_eq!(SyncMode::Stable.hardware_buffer_frames(), None);
+
+        assert_eq!(
+            SyncMode::Extreme.recommended_resampler(),
+            crate::dsp::servo::ResamplingMode::FastHermite
+        );
+        assert_eq!(
+            SyncMode::Ultra.recommended_resampler(),
+            crate::dsp::servo::ResamplingMode::AudiophileSinc
+        );
     }
 
     #[test]

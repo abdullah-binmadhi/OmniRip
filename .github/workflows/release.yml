@@ -164,7 +164,9 @@ jobs:
                   body = re.sub(r"^[a-zA-Z]+(\([^)]+\))?!?:\s*", "", line)
                   body = re.sub(r"\s*\(#\d+\)$", "", body).strip()
                   b_low = body.lower()
-                  if "orange dot" in b_low or "shm" in b_low:
+                  if "sync" in b_low or "underrun" in b_low or "latency" in b_low or "xrun" in b_low:
+                      bullet = f"{badge} Smoother sound latency presets with zero popping or clipping when switching audio engines."
+                  elif "orange dot" in b_low or "shm" in b_low:
                       bullet = f"{badge} System-wide sound processing now runs silently without triggering the macOS orange microphone indicator."
                   elif ("input_capture" in b_low or "x key" in b_low or "airpods" in b_low or "cycle_engine" in b_low or "audio engine" in b_low) and ("restore" in b_low or "output" in b_low or "toggle" in b_low or "switch" in b_low or "dac" in b_low):
                       bullet = f"{badge} Switching between the Orchestria Sound Engine and your external DAC or headphones now works smoothly in both directions."

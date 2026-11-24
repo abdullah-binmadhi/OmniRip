@@ -365,6 +365,12 @@ fn translate_single_note_line(raw_line: &str) -> Option<String> {
             badge
         ));
     }
+    if s_lower.contains("sync") || s_lower.contains("underrun") || s_lower.contains("latency") || s_lower.contains("xrun") {
+        return Some(format!(
+            "{} Smoother sound latency presets with zero popping or clipping when switching audio engines.",
+            badge
+        ));
+    }
     if (s_lower.contains("hotplug") || s_lower.contains("hot-plug") || s_lower.contains("dac") || s_lower.contains("rescan"))
         && (s_lower.contains("output") || s_lower.contains("switch") || s_lower.contains("detect") || s_lower.contains("recover") || s_lower.contains("unplug"))
     {

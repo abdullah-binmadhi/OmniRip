@@ -1600,20 +1600,8 @@ impl App {
                                 continue;
                             }
                             KeyCode::Char('s') if self.active_mode == WorkstationMode::SystemEq && self.active_tab != 3 && !key.modifiers.contains(KeyModifiers::SHIFT) => {
-                                let next_mode = match self.streamer.sync_mode {
-                                    SyncMode::Extreme => SyncMode::Ultra,
-                                    SyncMode::Ultra => SyncMode::Balanced,
-                                    SyncMode::Balanced => SyncMode::Stable,
-                                    SyncMode::Stable => SyncMode::Extreme,
-                                };
-                                self.streamer.set_sync_mode(next_mode);
-                                let desc = match next_mode {
-                                    SyncMode::Extreme => "EXTREME (256 frames, ~5.3ms)",
-                                    SyncMode::Ultra => "ULTRA (512 frames, ~10.7ms)",
-                                    SyncMode::Balanced => "BALANCED (1024 frames, ~21.3ms)",
-                                    SyncMode::Stable => "STABLE (2048 frames, ~42.7ms)",
-                                };
-                                self.set_status(&format!("Sync mode: {}", desc));
+                                let (_, msg) = self.streamer.cycle_sync_mode(true);
+                                self.set_status(&msg);
                                 continue;
                             }
                             KeyCode::Char('b') | KeyCode::Char('B') if self.active_mode == WorkstationMode::SystemEq => {
@@ -1901,34 +1889,12 @@ impl App {
                     ));
                 }
                 KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Right | KeyCode::Enter => {
-                    let next = match self.streamer.sync_mode {
-                        SyncMode::Extreme => SyncMode::Ultra,
-                        SyncMode::Ultra => SyncMode::Balanced,
-                        SyncMode::Balanced => SyncMode::Stable,
-                        SyncMode::Stable => SyncMode::Extreme,
-                    };
-                    self.streamer.set_sync_mode(next);
-                    self.set_status(&format!(
-                        "Sync Mode set to: {:?} ({} frames / {:.1}ms cushion)",
-                        next,
-                        next.target_frames(),
-                        next.target_frames() as f32 / 48.0
-                    ));
+                    let (_, msg) = self.streamer.cycle_sync_mode(true);
+                    self.set_status(&msg);
                 }
                 KeyCode::Left => {
-                    let prev = match self.streamer.sync_mode {
-                        SyncMode::Extreme => SyncMode::Stable,
-                        SyncMode::Ultra => SyncMode::Extreme,
-                        SyncMode::Balanced => SyncMode::Ultra,
-                        SyncMode::Stable => SyncMode::Balanced,
-                    };
-                    self.streamer.set_sync_mode(prev);
-                    self.set_status(&format!(
-                        "Sync Mode set to: {:?} ({} frames / {:.1}ms cushion)",
-                        prev,
-                        prev.target_frames(),
-                        prev.target_frames() as f32 / 48.0
-                    ));
+                    let (_, msg) = self.streamer.cycle_sync_mode(false);
+                    self.set_status(&msg);
                 }
                 _ => {}
             },
@@ -3234,13 +3200,22 @@ impl App {
         let (avail_frames, target_pll, drift_ppm) = pll_opt.unwrap_or((0, target_frames, 0.0));
         let cushion_ms = (avail_frames as f32 * 1000.0) / sample_rate_hz;
         let target_ms = (target_pll as f32 * 1000.0) / sample_rate_hz;
+        let (hw_ms, _, total_ms, hw_frames, underruns) = self.streamer.effective_latency_breakdown();
+        let active_kernel_short = match self.streamer.effective_resampling_mode() {
+            crate::dsp::servo::ResamplingMode::FastHermite => "Fast Hermite",
+            crate::dsp::servo::ResamplingMode::AudiophileSinc => "16-Pt Sinc",
+        };
 
         // 1. TIER 1: Interactive Sync Mode Latency Preset Rack
         let rack_block = Block::default()
             .title(format!(
-                " SYNC ENGINE LATENCY PRESET ([S] or [Left/Right] • Active Target: {:.1} ms @ {:.1} kHz) ",
-                target_ms,
-                sample_rate_hz / 1000.0
+                " SYNC ENGINE LATENCY PRESET ([S] or [Left/Right] • Live: {:.1}ms Total │ HW: {}f ({:.1}ms) + Ring: {}f │ {} │ {} XRUNs) ",
+                total_ms,
+                hw_frames,
+                hw_ms,
+                target_pll,
+                active_kernel_short,
+                underruns
             ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
@@ -3258,10 +3233,10 @@ impl App {
             .split(rack_inner);
 
         let modes = [
-            (SyncMode::Extreme, "EXTREME (5.3ms)", "256 frames cushion"),
-            (SyncMode::Ultra, "ULTRA (10.7ms)", "512 frames cushion"),
-            (SyncMode::Balanced, "BALANCED (21.3ms)", "1024 frames cushion"),
-            (SyncMode::Stable, "STABLE (42.7ms)", "2048 frames cushion"),
+            (SyncMode::Extreme, "EXTREME (5.3ms)", "256f Ring • 128f HW • Hermite"),
+            (SyncMode::Ultra, "ULTRA (10.7ms)", "512f Ring • 256f HW • Sinc"),
+            (SyncMode::Balanced, "BALANCED (21.3ms)", "1024f Ring • 512f HW • Sinc"),
+            (SyncMode::Stable, "STABLE (42.7ms)", "2048f Ring • Auto • Sinc"),
         ];
 
         for (idx, (m, label, sub)) in modes.iter().enumerate() {

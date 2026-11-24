@@ -4,7 +4,7 @@
 //! Maintains continuous sub-sample phase across callback boundaries, eliminating sample
 //! drops, boundary clicks, and metallic robotic modulation for studio-master audio quality.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// 16-point Blackman-Harris windowed sinc interpolator.
@@ -95,6 +95,8 @@ impl ServoWriter {
 pub struct ServoReader {
     consumer: rtrb::Consumer<[f32; 2]>,
     target_frames: Arc<AtomicUsize>,
+    underrun_count: Arc<AtomicU64>,
+    pending_trim: Arc<AtomicBool>,
     nominal_ratio: f64,
     integral_err: f32,
     prev_err: f32,
@@ -103,12 +105,22 @@ pub struct ServoReader {
     history: [[f32; 2]; 16],
     phase: f64,
     primed: bool,
+    gain_env: f32,
+    in_underrun_recovery: bool,
     pub resampling_mode: ResamplingMode,
 }
 
 impl ServoReader {
     pub fn set_target_frames(&self, target: usize) {
-        self.target_frames.store(target.max(64), Ordering::Relaxed);
+        let clamped = target.max(64);
+        let prev = self.target_frames.swap(clamped, Ordering::Relaxed);
+        if clamped < prev {
+            self.pending_trim.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub fn request_trim(&self) {
+        self.pending_trim.store(true, Ordering::Relaxed);
     }
 
     pub fn set_nominal_ratio(&mut self, ratio: f64) {
@@ -127,8 +139,16 @@ impl ServoReader {
         self.consumer.slots()
     }
 
+    pub fn underrun_count(&self) -> u64 {
+        self.underrun_count.load(Ordering::Relaxed)
+    }
+
     pub fn pll_telemetry(&self) -> (usize, usize, f32) {
-        (self.consumer.slots(), self.target_frames.load(Ordering::Relaxed), self.drift_ppm)
+        (
+            self.consumer.slots(),
+            self.target_frames.load(Ordering::Relaxed),
+            self.drift_ppm,
+        )
     }
 
     pub fn reset(&mut self) {
@@ -138,30 +158,60 @@ impl ServoReader {
         self.integral_err = 0.0;
         self.prev_err = 0.0;
         self.drift_ppm = 0.0;
+        self.gain_env = 1.0;
+        self.in_underrun_recovery = false;
+        self.pending_trim.store(false, Ordering::Relaxed);
     }
 
-    /// Read requested `frames` into `out`, dynamically applying continuous-phase resampling.
+    /// Reads requested `frames` into `out`, dynamically applying continuous-phase resampling
+    /// and a 128-sample (~2.7ms) clickless raised-cosine ramp during underrun concealment / recovery.
     #[inline]
     pub fn read(&mut self, out: &mut [[f32; 2]]) -> usize {
+        const RAMP_STEP: f32 = 1.0 / 128.0;
+
         let needed = out.len();
         if needed == 0 {
             return 0;
         }
 
+        // Fast smooth backlog trim when switching down from e.g. STABLE (2048f) -> EXTREME (256f)
+        if self.pending_trim.swap(false, Ordering::Relaxed) {
+            let target = self.target_frames.load(Ordering::Relaxed);
+            let avail_now = self.consumer.slots();
+            let trim_threshold = target.saturating_add(target / 2).max(target + 64);
+            if avail_now > trim_threshold {
+                let to_drop = avail_now.saturating_sub(target + 32);
+                for _ in 0..to_drop {
+                    let _ = self.consumer.pop();
+                }
+                // Re-anchor interpolation history smoothly with fade-in to avoid click across skipped span
+                if self.primed {
+                    self.in_underrun_recovery = true;
+                    self.gain_env = 0.0;
+                }
+                self.integral_err = 0.0;
+            }
+        }
+
         let avail = self.consumer.slots();
         let target = self.target_frames.load(Ordering::Relaxed) as f32;
-
-        // Auto-recovery: If buffer is starved below 4 frames while primed, re-prime cleanly
-        if self.primed && avail < 4 {
-            self.primed = false;
-        }
 
         // 1. Watermark pre-buffering: wait until buffer reaches resilient target cushion
         if !self.primed {
             let threshold = target;
             if (avail as f32) < threshold {
                 for frame in out.iter_mut() {
-                    *frame = [0.0, 0.0];
+                    if self.in_underrun_recovery && self.gain_env > 0.0 {
+                        self.gain_env = (self.gain_env - RAMP_STEP).max(0.0);
+                        self.history[15][0] *= 0.992;
+                        self.history[15][1] *= 0.992;
+                        *frame = [
+                            self.history[15][0] * self.gain_env,
+                            self.history[15][1] * self.gain_env,
+                        ];
+                    } else {
+                        *frame = [0.0, 0.0];
+                    }
                 }
                 return 0;
             } else {
@@ -173,6 +223,11 @@ impl ServoReader {
                 }
                 self.phase = 0.0;
                 self.primed = true;
+                if self.in_underrun_recovery {
+                    self.gain_env = 0.0;
+                } else {
+                    self.gain_env = 1.0;
+                }
             }
         }
 
@@ -182,13 +237,16 @@ impl ServoReader {
         self.prev_err = error;
         self.integral_err = (self.integral_err + error * 0.01).clamp(-5.0, 5.0);
 
-        // Dynamic control authority: wide recovery window if severely off-target, tight audiophile window near target
-        let max_correction = if error.abs() > 0.4 { 0.005 } else { 0.001 };
-        let control = (0.00030 * error + 0.000030 * self.integral_err + 0.00010 * derivative).clamp(-max_correction, max_correction);
-        let ratio = (self.nominal_ratio * (1.0 + control as f64)).clamp(self.nominal_ratio * 0.95, self.nominal_ratio * 1.05);
-        self.drift_ppm = (control * 1_000_000.0).clamp(-5000.0, 5000.0);
+        // Dynamic control authority: wide recovery window if off-target, tight audiophile window near target
+        let max_correction = if error.abs() > 0.35 { 0.008 } else { 0.001 };
+        let control = (0.00035 * error + 0.000035 * self.integral_err + 0.00012 * derivative)
+            .clamp(-max_correction, max_correction);
+        let ratio = (self.nominal_ratio * (1.0 + control as f64))
+            .clamp(self.nominal_ratio * 0.95, self.nominal_ratio * 1.05);
+        self.drift_ppm = (control * 1_000_000.0).clamp(-8000.0, 8000.0);
 
-        // 3. Continuous-phase resampling (Audiophile Sinc or Zero-Trig Fast Hermite)
+        // 3. Continuous-phase resampling (Audiophile Sinc or Zero-Trig Fast Hermite) + Clickless Concealer
+        let mut hit_underrun = false;
         for out_frame in out.iter_mut() {
             while self.phase >= 1.0 {
                 // Shift history buffer left
@@ -198,21 +256,44 @@ impl ServoReader {
                 if let Ok(next) = self.consumer.pop() {
                     self.history[15] = next;
                 } else {
-                    // Underflow: smooth decay rather than harsh step or clip
-                    self.history[15] = [self.history[14][0] * 0.90, self.history[14][1] * 0.90];
-                    self.primed = false; // Mark for refill on next cycle
+                    // Underflow concealment: ramp gain smoothly down instead of hard step to zero
+                    if !hit_underrun {
+                        hit_underrun = true;
+                        self.underrun_count.fetch_add(1, Ordering::Relaxed);
+                        self.in_underrun_recovery = true;
+                    }
+                    self.history[15] = [
+                        self.history[14][0] * 0.985,
+                        self.history[14][1] * 0.985,
+                    ];
+                    self.primed = false;
                 }
                 self.phase -= 1.0;
             }
 
             let frac = self.phase as f32;
-            *out_frame = match self.resampling_mode {
+            let raw = match self.resampling_mode {
                 ResamplingMode::AudiophileSinc => sinc_interp_16(&self.history, frac),
                 ResamplingMode::FastHermite => {
-                    // Central 4 points around sample index
                     hermite_interp_4(self.history[6], self.history[7], self.history[8], self.history[9], frac)
                 }
             };
+
+            if !self.primed {
+                // Mid-callback underrun tail: clickless fade down to 0
+                self.gain_env = (self.gain_env - RAMP_STEP).max(0.0);
+                *out_frame = [raw[0] * self.gain_env, raw[1] * self.gain_env];
+            } else if self.in_underrun_recovery {
+                // Recovering after an underrun or mode switch trim: clickless fade up to 1.0
+                self.gain_env = (self.gain_env + RAMP_STEP).min(1.0);
+                *out_frame = [raw[0] * self.gain_env, raw[1] * self.gain_env];
+                if self.gain_env >= 0.9999 {
+                    self.gain_env = 1.0;
+                    self.in_underrun_recovery = false;
+                }
+            } else {
+                *out_frame = raw;
+            }
 
             self.phase += ratio;
         }
@@ -233,6 +314,8 @@ pub fn create_servo_ring_buffer(
     let reader = ServoReader {
         consumer,
         target_frames: Arc::clone(&target),
+        underrun_count: Arc::new(AtomicU64::new(0)),
+        pending_trim: Arc::new(AtomicBool::new(false)),
         nominal_ratio: 1.0,
         integral_err: 0.0,
         prev_err: 0.0,
@@ -240,6 +323,8 @@ pub fn create_servo_ring_buffer(
         history: [[0.0, 0.0]; 16],
         phase: 0.0,
         primed: false,
+        gain_env: 1.0,
+        in_underrun_recovery: false,
         resampling_mode: ResamplingMode::AudiophileSinc,
     };
 
@@ -386,5 +471,52 @@ mod tests {
         assert_eq!(reader.resampling_mode(), ResamplingMode::AudiophileSinc);
         reader.set_resampling_mode(ResamplingMode::FastHermite);
         assert_eq!(reader.resampling_mode(), ResamplingMode::FastHermite);
+    }
+
+    #[test]
+    fn test_servo_underrun_and_reprime_no_step_clipping() {
+        let (mut writer, mut reader) = create_servo_ring_buffer(4096, 256);
+
+        // Prime cleanly with a smooth continuous 440Hz sine
+        let mut init_wave = Vec::with_capacity(300);
+        for i in 0..300 {
+            let s = 0.7 * (2.0 * std::f32::consts::PI * 440.0 * (i as f32 / 48000.0)).sin();
+            init_wave.push([s, s]);
+        }
+        writer.write(&init_wave);
+
+        // Drain more frames than available to deliberately induce an underrun mid-callback
+        let mut out = vec![[0.0f32; 2]; 384];
+        reader.read(&mut out);
+        assert!(reader.underrun_count() >= 1);
+
+        // Sample-to-sample steps during the underrun concealment fade must stay smooth (zero hard pop)
+        for pair in out.windows(2) {
+            let step = (pair[1][0] - pair[0][0]).abs();
+            assert!(
+                step < 0.12,
+                "Hard step discontinuity detected during underrun fade: {:.4}",
+                step
+            );
+        }
+    }
+
+    #[test]
+    fn test_servo_downgrade_trim_shrinks_backlog_immediately() {
+        let (mut writer, mut reader) = create_servo_ring_buffer(8192, 2048);
+        writer.write(&vec![[0.25f32, 0.25f32]; 2500]);
+
+        let mut out = vec![[0.0f32; 2]; 128];
+        reader.read(&mut out);
+        assert!(reader.available() > 2000);
+
+        // Switch target down from 2048 -> 256: next read must trim excess immediately
+        reader.set_target_frames(256);
+        reader.read(&mut out);
+        assert!(
+            reader.available() < 512,
+            "Backlog should trim quickly on downgrade, remaining={}",
+            reader.available()
+        );
     }
 }
