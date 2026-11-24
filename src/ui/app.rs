@@ -28,6 +28,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
 use ratatui::Terminal;
+use std::collections::VecDeque;
 use std::io::stdout;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -137,6 +138,10 @@ pub struct App {
     pub update_modal: crate::ui::update_modal::UpdateModalState,
     pub last_update_check: Instant,
     pub restart_requested_after_exit: bool,
+    pub routing_peak_history: VecDeque<f32>,
+    pub routing_cushion_history: VecDeque<f32>,
+    pub routing_drift_history: VecDeque<f32>,
+    pub last_routing_sample: Instant,
 }
 
 /// Puts the terminal into TUI mode and restores it on drop, so every exit path (including early `?`
@@ -285,6 +290,10 @@ impl App {
             update_modal,
             last_update_check: Instant::now(),
             restart_requested_after_exit: false,
+            routing_peak_history: VecDeque::from(vec![-60.0; 60]),
+            routing_cushion_history: VecDeque::from(vec![0.0; 60]),
+            routing_drift_history: VecDeque::from(vec![0.0; 60]),
+            last_routing_sample: Instant::now(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -364,6 +373,10 @@ impl App {
             update_modal: crate::ui::update_modal::UpdateModalState::new(),
             last_update_check: Instant::now(),
             restart_requested_after_exit: false,
+            routing_peak_history: VecDeque::from(vec![-60.0; 60]),
+            routing_cushion_history: VecDeque::from(vec![0.0; 60]),
+            routing_drift_history: VecDeque::from(vec![0.0; 60]),
+            last_routing_sample: Instant::now(),
         };
         app.sync_downloader_eq();
         app.sync_dsp_telemetry();
@@ -1105,9 +1118,20 @@ impl App {
             }
             last_tick = Instant::now();
 
-            // 2. Poll CoreAudio stream health & liveness watchdog
+            // 2. Poll CoreAudio / WASAPI / PipeWire stream health, hot-plugs & self-healing retry
             if self.streamer.poll_health() {
-                self.set_status("CoreAudio stream auto-healed after device reset.");
+                self.sync_active_transducer_gear();
+                let active_out = self.streamer.active_output_name();
+                self.set_status(&format!(
+                    "Audio route updated automatically -> [{}]",
+                    active_out
+                ));
+            }
+
+            // Sample routing telemetry charts every 250ms (60-point rolling history)
+            if self.last_routing_sample.elapsed() >= Duration::from_millis(250) {
+                self.last_routing_sample = Instant::now();
+                self.record_routing_telemetry_sample();
             }
 
             // 3. Poll Soulseek swarm daemon health & auto-heal watchdog every 15s
@@ -1606,11 +1630,25 @@ impl App {
                                 continue;
                             }
                             KeyCode::Char(' ') if self.active_mode == WorkstationMode::SystemEq => {
-                                let paused = self.streamer.toggle_pause();
-                                if paused {
-                                    self.set_status("Audio stream paused [Muted]. Press [Space] to resume.");
+                                if !self.streamer.is_running.load(Ordering::SeqCst) {
+                                    match self.streamer.start() {
+                                        Ok(()) => {
+                                            self.set_status(&format!(
+                                                "Audio Engine started -> [{}]",
+                                                self.streamer.active_output_name()
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            self.set_status(&format!("Engine start error: {}", e));
+                                        }
+                                    }
                                 } else {
-                                    self.set_status("Audio stream playing [Active].");
+                                    let paused = self.streamer.toggle_pause();
+                                    if paused {
+                                        self.set_status("Audio stream paused [Muted]. Press [Space] to resume.");
+                                    } else {
+                                        self.set_status("Audio stream playing [Active].");
+                                    }
                                 }
                                 continue;
                             }
@@ -1631,10 +1669,25 @@ impl App {
                                 self.set_status(&format!("Output Playback Device switched to: [{}] (Acoustic Gear: {})", dev, self.gear_profile.name));
                                 continue;
                             }
+                            KeyCode::Char('f') | KeyCode::Char('F')
+                                if self.active_mode == WorkstationMode::SystemEq && self.active_tab == 2 =>
+                            {
+                                let (dev, changed) = self.streamer.rescan_output_devices(true);
+                                self.sync_active_transducer_gear();
+                                if changed {
+                                    self.set_status(&format!("Rescanned hardware bus -> Active Output switched to [{}]", dev));
+                                } else {
+                                    self.set_status(&format!("Hardware bus rescanned: [{}] active ({} outputs detected)", dev, AudioStreamer::available_output_names().len()));
+                                }
+                                continue;
+                            }
                             KeyCode::Char('a') | KeyCode::Char('A') if self.active_mode == WorkstationMode::SystemEq => {
                                 match self.streamer.set_iem_exclusive_mode() {
-                                    Ok(msg) => self.set_status(&msg),
-                                    Err(e) => self.set_status(&format!("IEM Mode Error: {}", e)),
+                                    Ok(msg) => {
+                                        self.sync_active_transducer_gear();
+                                        self.set_status(&msg);
+                                    }
+                                    Err(e) => self.set_status(&format!("Auto-DAC error: {}", e)),
                                 }
                                 continue;
                             }
@@ -1831,6 +1884,22 @@ impl App {
                 _ => {}
             },
             2 => match code {
+                KeyCode::Up => {
+                    let dev = self.streamer.step_output_device(-1);
+                    self.sync_active_transducer_gear();
+                    self.set_status(&format!(
+                        "Selected Output DAC: [{}] (Acoustic Gear: {})",
+                        dev, self.gear_profile.name
+                    ));
+                }
+                KeyCode::Down => {
+                    let dev = self.streamer.step_output_device(1);
+                    self.sync_active_transducer_gear();
+                    self.set_status(&format!(
+                        "Selected Output DAC: [{}] (Acoustic Gear: {})",
+                        dev, self.gear_profile.name
+                    ));
+                }
                 KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Right | KeyCode::Enter => {
                     let next = match self.streamer.sync_mode {
                         SyncMode::Extreme => SyncMode::Ultra,
@@ -3095,26 +3164,84 @@ impl App {
         f.render_widget(help, v_chunks[2]);
     }
 
+    /// Samples instantaneous stereo peak, buffer cushion %, and PLL drift into 60-point rolling history rings.
+    pub fn record_routing_telemetry_sample(&mut self) {
+        let peak_db = if let Ok(pipe) = self.streamer.pipeline.lock() {
+            pipe.telemetry
+                .peak_left_db
+                .max(pipe.telemetry.peak_right_db)
+                .clamp(-60.0, 0.0)
+        } else {
+            -60.0
+        };
+        let (_, pll_opt) = self.streamer.telemetry();
+        let target_frames = self.streamer.sync_mode.target_frames();
+        let (avail, target, drift) = pll_opt.unwrap_or((0, target_frames, 0.0));
+        let cushion_pct = if target > 0 {
+            ((avail as f32 / target as f32) * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+
+        if self.routing_peak_history.len() >= 60 {
+            self.routing_peak_history.pop_front();
+        }
+        self.routing_peak_history.push_back(peak_db);
+
+        if self.routing_cushion_history.len() >= 60 {
+            self.routing_cushion_history.pop_front();
+        }
+        self.routing_cushion_history.push_back(cushion_pct);
+
+        if self.routing_drift_history.len() >= 60 {
+            self.routing_drift_history.pop_front();
+        }
+        self.routing_drift_history.push_back(drift);
+    }
+
     fn render_routing(&self, f: &mut ratatui::Frame, area: Rect) {
         let block = Block::default()
-            .title(" AUDIO ROUTING & LOW-LATENCY STREAM ENGINE ")
+            .title(" AUDIO ROUTING, HARDWARE DAC MATRIX & REAL-TIME STREAM TELEMETRY ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
+        let chart_tier_constraint = if inner.height >= 28 {
+            Constraint::Min(9)
+        } else {
+            Constraint::Min(5)
+        };
+        let middle_tier_constraint = if inner.height >= 28 {
+            Constraint::Length(17)
+        } else {
+            Constraint::Length(14)
+        };
+
         let v_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // Top: Interactive Sync Mode Latency Preset Rack
-                Constraint::Min(14),   // Main: Two Balanced Studio Cards (Engine & Routing | Clock & Telemetry)
-                Constraint::Length(1), // Footer: Routing hotkeys
+                Constraint::Length(4), // Tier 1: Sync Mode Latency Preset Rack
+                middle_tier_constraint, // Tier 2: Engine + Interactive Output Table & Clock/DSP Matrix
+                chart_tier_constraint,  // Tier 3: Dual Real-Time Audio Level & Cushion Stability Charts
+                Constraint::Length(1),  // Footer hotkeys
             ])
             .split(inner);
 
-        // 1. TOP: Interactive Sync Mode Latency Preset Rack
+        let sample_rate_hz = self.streamer.active_sample_rate().max(8000.0);
+        let (_, pll_opt) = self.streamer.telemetry();
+        let target_frames = self.streamer.sync_mode.target_frames();
+        let (avail_frames, target_pll, drift_ppm) = pll_opt.unwrap_or((0, target_frames, 0.0));
+        let cushion_ms = (avail_frames as f32 * 1000.0) / sample_rate_hz;
+        let target_ms = (target_pll as f32 * 1000.0) / sample_rate_hz;
+
+        // 1. TIER 1: Interactive Sync Mode Latency Preset Rack
         let rack_block = Block::default()
-            .title(" SYNC ENGINE LATENCY PRESET (Press [S] or [Left/Right] to Change) ")
+            .title(format!(
+                " SYNC ENGINE LATENCY PRESET ([S] or [Left/Right] • Active Target: {:.1} ms @ {:.1} kHz) ",
+                target_ms,
+                sample_rate_hz / 1000.0
+            ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let rack_inner = rack_block.inner(v_chunks[0]);
@@ -3165,19 +3292,11 @@ impl App {
             f.render_widget(p_btn, btn_chunks[idx]);
         }
 
-        // 2. MAIN STUDIO WORKSPACE: Two Balanced Columns (52% Left / 48% Right)
+        // 2. TIER 2: Core Routing & Telemetry Cards (52% Left / 48% Right)
         let main_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
             .split(v_chunks[1]);
-
-        // LEFT CARD: Audio Engine & Hardware Routing
-        let topo_block = Block::default()
-            .title(" AUDIO ENGINE & HARDWARE ROUTING ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.border));
-        let topo_inner = topo_block.inner(main_chunks[0]);
-        f.render_widget(topo_block, main_chunks[0]);
 
         let system_wide_active = self.streamer.is_input_capture_enabled();
         let is_running = self.streamer.is_running.load(Ordering::SeqCst);
@@ -3187,6 +3306,14 @@ impl App {
         let chip_prof = self.streamer.hardware_chip_profile();
         let capture_backend = self.streamer.active_capture_backend();
         let avail_outputs = AudioStreamer::available_output_names();
+
+        // LEFT CARD: Audio Engine & Interactive Output DAC Switcher
+        let topo_block = Block::default()
+            .title(" AUDIO ENGINE & INTERACTIVE OUTPUT DAC SWITCHER ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.border));
+        let topo_inner = topo_block.inner(main_chunks[0]);
+        f.render_widget(topo_block, main_chunks[0]);
 
         let (sys_pill_style, direct_pill_style) = if system_wide_active {
             (
@@ -3217,133 +3344,35 @@ impl App {
             " [ ○ DIRECT HARDWARE DAC ] "
         };
 
-        let privacy_or_mode_line = match capture_backend {
+        let capture_summary = match capture_backend {
             crate::dsp::streamer::CaptureBackendKind::MacOsShmV2 => {
-                "Zero-Dot POSIX Shared Memory (Zero Mic Access • No macOS Orange Dot)".to_string()
+                "Zero-Dot POSIX SHM (Zero Mic Access • No macOS Orange Dot)".to_string()
             }
             crate::dsp::streamer::CaptureBackendKind::WindowsVirtualWasapi => {
-                "Isolated Windows Virtual Endpoint (Zero-Echo WASAPI Loopback)".to_string()
+                "Isolated Windows Virtual Endpoint (Zero-Echo WASAPI)".to_string()
             }
             crate::dsp::streamer::CaptureBackendKind::LinuxPipeWireMonitor => {
-                "User-Space PipeWire/PulseAudio Null-Sink Monitor (Zero Sudo)".to_string()
+                "User-Space PipeWire/PulseAudio Monitor (Zero Sudo)".to_string()
             }
             crate::dsp::streamer::CaptureBackendKind::LegacyCoreAudioLoopback => {
                 format!("Virtual CoreAudio Loopback ({})", self.streamer.active_input_name())
             }
             crate::dsp::streamer::CaptureBackendKind::None => {
-                format!(
-                    "OS audio plays straight to [{}]; Orchestria Player streams bit-perfect",
-                    out_name
-                )
-            }
-        };
-
-        let mut output_pills: Vec<Span> = vec![Span::styled(
-            "  Available Outputs: ",
-            Style::default().fg(self.theme.text_dim),
-        )];
-        if avail_outputs.is_empty() {
-            output_pills.push(Span::styled(
-                out_name.clone(),
-                Style::default().fg(self.theme.text),
-            ));
-        } else {
-            for (i, dev) in avail_outputs.iter().enumerate() {
-                if i > 0 {
-                    output_pills.push(Span::raw("  "));
-                }
-                if dev == &out_name {
-                    output_pills.push(Span::styled(
-                        format!("● {}", dev),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ));
+                if system_wide_active {
+                    "Attaching System-Wide Capture (Auto-Recovering...)".to_string()
                 } else {
-                    output_pills.push(Span::styled(
-                        format!("○ {}", dev),
-                        Style::default().fg(self.theme.text_dim),
-                    ));
+                    format!("OS audio -> [{}]; Orchestria Player -> 64-Bit DSP", out_name)
                 }
             }
-        }
-
-        let (bypass_active, active_dac_label, game_mode_active) =
-            if let Ok(pipe) = self.streamer.pipeline.lock() {
-                (
-                    pipe.bypass,
-                    pipe.current_dac_flavor().short_label().to_string(),
-                    pipe.enhancer.game_mode,
-                )
-            } else {
-                (false, "OEM+".to_string(), false)
-            };
-
-        let dsp_stage_label = if bypass_active {
-            "BYPASS (Bit-Perfect Pass-Through)".to_string()
-        } else {
-            format!("64-Bit EQ + {} + {}", active_dac_label, self.gear_profile.name)
         };
 
-        let signal_chain_spans = if system_wide_active {
-            vec![
-                Span::raw("  "),
-                Span::styled(
-                    "[OS Desktop Audio]",
-                    Style::default()
-                        .fg(self.theme.primary)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(
-                    format!("[{}]", capture_backend.label()),
-                    Style::default()
-                        .fg(self.theme.success)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(
-                    "[64-Bit DSP]",
-                    Style::default()
-                        .fg(self.theme.secondary)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(
-                    format!("[{}]", out_name),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]
+        let watchdog_mode = if self.streamer.user_pinned_output {
+            "Pinned ([A] Auto-Best)"
         } else {
-            vec![
-                Span::raw("  "),
-                Span::styled(
-                    "[Orchestria Player & IPC]",
-                    Style::default()
-                        .fg(self.theme.primary)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(
-                    "[64-Bit Studio DSP]",
-                    Style::default()
-                        .fg(self.theme.secondary)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
-                Span::styled(
-                    format!("[{}]", out_name),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]
+            "Auto-Best DAC ON"
         };
 
-        let left_lines = vec![
-            Line::from(""),
+        let mut left_lines = vec![
             Line::from(vec![
                 Span::styled(
                     "  ACTIVE ENGINE MODE ",
@@ -3352,19 +3381,19 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    "([E] or [X] to Switch Engine)",
+                    "([E] / [X] Switch Mode)",
                     Style::default().fg(self.theme.accent),
                 ),
             ]),
             Line::from(vec![
                 Span::raw("  "),
                 Span::styled(sys_pill_text, sys_pill_style),
-                Span::styled("  ⇄  ", Style::default().fg(self.theme.accent)),
+                Span::styled(" ⇄ ", Style::default().fg(self.theme.accent)),
                 Span::styled(direct_pill_text, direct_pill_style),
             ]),
             Line::from(vec![
                 Span::styled(
-                    "  OS Default Output: ",
+                    "  OS Output: ",
                     Style::default().fg(self.theme.text_dim),
                 ),
                 Span::styled(
@@ -3377,114 +3406,115 @@ impl App {
                         })
                         .add_modifier(Modifier::BOLD),
                 ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  Capture Architecture: ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    privacy_or_mode_line,
-                    Style::default().fg(self.theme.text),
-                ),
+                Span::styled("  │  ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(capture_summary, Style::default().fg(self.theme.text)),
             ]),
             Line::from(""),
             Line::from(vec![
                 Span::styled(
-                    "  PHYSICAL OUTPUT TRANSDUCER ",
+                    "  CONNECTED OUTPUT TRANSDUCERS ",
                     Style::default()
                         .fg(self.theme.secondary)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    "([D] Cycle Output • [A] Auto-Select Best DAC)",
+                    "([↑/↓] / [D] Select • [A] Auto • [F] Rescan)",
                     Style::default().fg(self.theme.accent),
                 ),
             ]),
-            Line::from(vec![
-                Span::styled(
-                    "  Active Output DAC: ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!("[ {} ]", out_name),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("  ({})", chip_prof.transducer.label()),
-                    Style::default().fg(self.theme.text_dim),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  Detected Hardware: ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!("{} • {}", chip_prof.vendor, chip_prof.chip_name),
-                    Style::default().fg(self.theme.text),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  Host Workstation:  ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!(
-                        "{} ({} • up to {} kHz / {}-bit)",
-                        chip_prof.hardware_model,
-                        chip_prof.chassis_tier.label(),
-                        chip_prof.max_sample_rate_khz,
-                        chip_prof.bit_depth
-                    ),
-                    Style::default().fg(self.theme.text_dim),
-                ),
-            ]),
-            Line::from(output_pills),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "  LIVE SIGNAL CHAIN",
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(signal_chain_spans),
-            Line::from(vec![
-                Span::styled(
-                    "  Active DSP Stage:  ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(dsp_stage_label, Style::default().fg(self.theme.secondary)),
-            ]),
         ];
+
+        if avail_outputs.is_empty() {
+            left_lines.push(Line::from(vec![
+                Span::styled("  ▸ #1 [● ACTIVE] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(out_name.clone(), Style::default().fg(Color::White)),
+            ]));
+        } else {
+            for (idx, dev) in avail_outputs.iter().take(4).enumerate() {
+                let is_sel = dev == &out_name;
+                let dev_type = crate::dsp::hardware_detect::HardwareChipProfile::classify_transducer(Some(dev));
+                let badge = if is_sel { "▸" } else { " " };
+                let state_tag = if is_sel { "[● ACTIVE]" } else { "[○ READY ]" };
+                let row_style = if is_sel {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(self.theme.text_dim)
+                };
+                left_lines.push(Line::from(vec![
+                    Span::styled(format!("  {} #{} {} {:<24} ", badge, idx + 1, state_tag, truncate_text(dev, 24)), row_style),
+                    Span::styled(format!("│ {}", dev_type.label()), Style::default().fg(self.theme.text_dim)),
+                ]));
+            }
+        }
+
+        left_lines.push(Line::from(vec![
+            Span::styled(
+                "  Hot-Plug Watchdog: ",
+                Style::default().fg(self.theme.text_dim),
+            ),
+            Span::styled(
+                format!("LIVE (1.2s bus scan • {})", watchdog_mode),
+                Style::default().fg(self.theme.success),
+            ),
+        ]));
+        left_lines.push(Line::from(vec![
+            Span::styled(
+                "  DAC Chip Profile:  ",
+                Style::default().fg(self.theme.text_dim),
+            ),
+            Span::styled(
+                format!(
+                    "{} • {} ({}kHz/{}b)",
+                    chip_prof.vendor,
+                    chip_prof.chip_name,
+                    chip_prof.max_sample_rate_khz,
+                    chip_prof.bit_depth
+                ),
+                Style::default().fg(self.theme.text),
+            ),
+        ]));
+        left_lines.push(Line::from(""));
+
+        let signal_chain_spans = if system_wide_active {
+            vec![
+                Span::styled("  Chain: ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("[OS Audio]", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("[{}]", capture_backend.label()), Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("[64f DSP]", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("[{}]", out_name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ]
+        } else {
+            vec![
+                Span::styled("  Chain: ", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("[Orchestria Player & IPC]", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled("[64f Studio DSP]", Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD)),
+                Span::styled(" ──► ", Style::default().fg(self.theme.text_dim)),
+                Span::styled(format!("[{}]", out_name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ]
+        };
+        left_lines.push(Line::from(signal_chain_spans));
         f.render_widget(
             Paragraph::new(left_lines).wrap(ratatui::widgets::Wrap { trim: false }),
             topo_inner,
         );
 
-        // RIGHT CARD: Real-Time Buffer, Clock & DSP Telemetry
+        // RIGHT CARD: Clock Servo, Buffer Tank & Active DSP Pipeline
         let telem_block = Block::default()
-            .title(" REAL-TIME BUFFER, CLOCK & DSP TELEMETRY ")
+            .title(" CLOCK SERVO, BUFFER TANK & ACTIVE DSP PIPELINE ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.theme.border));
         let telem_inner = telem_block.inner(main_chunks[1]);
         f.render_widget(telem_block, main_chunks[1]);
 
-        let (ipc_telem, pll_opt) = self.streamer.telemetry();
-        let sample_rate_hz = self.streamer.active_sample_rate().max(8000.0);
-        let target_frames = self.streamer.sync_mode.target_frames();
-        let (avail_frames, target_pll, drift_ppm) = pll_opt.unwrap_or((0, target_frames, 0.0));
         let cushion_percent = if target_pll > 0 {
             ((avail_frames as f32 / target_pll as f32) * 100.0).clamp(0.0, 100.0)
         } else {
             0.0
         };
-        let cushion_ms = (avail_frames as f32 * 1000.0) / sample_rate_hz;
-        let target_ms = (target_pll as f32 * 1000.0) / sample_rate_hz;
-
         let num_bars = (cushion_percent / 5.0).min(20.0) as usize;
         let tank_bar = format!(
             "[{}{}] {:>3.0}% Cushion",
@@ -3494,7 +3524,7 @@ impl App {
         );
 
         let stream_state_str = if !is_running {
-            "STOPPED (Press [Space] to Start Engine)"
+            "RECOVERING / STOPPED (Press [Space] or [F] Rescan)"
         } else if is_paused {
             "PAUSED (Press [Space] to Resume Stream)"
         } else if avail_frames > 64 || self.streamer.player.is_playing() {
@@ -3502,7 +3532,7 @@ impl App {
         } else if system_wide_active {
             "ACTIVE • Listening for Desktop Audio"
         } else {
-            "ACTIVE • Direct Hardware Ready"
+            "ACTIVE • Direct Hardware DAC Ready"
         };
         let stream_state_color = if !is_running || is_paused {
             Color::Yellow
@@ -3510,50 +3540,43 @@ impl App {
             self.theme.success
         };
 
-        let capture_transport_str = match capture_backend {
-            crate::dsp::streamer::CaptureBackendKind::MacOsShmV2 => {
-                "Zero-Dot POSIX SHM (/orchestria_audio_shm)".to_string()
-            }
-            crate::dsp::streamer::CaptureBackendKind::WindowsVirtualWasapi => {
-                "Windows WASAPI Virtual Endpoint".to_string()
-            }
-            crate::dsp::streamer::CaptureBackendKind::LinuxPipeWireMonitor => {
-                "PipeWire/PulseAudio Monitor (Orchestria_Audio.monitor)".to_string()
-            }
-            crate::dsp::streamer::CaptureBackendKind::LegacyCoreAudioLoopback => {
-                format!("CoreAudio Loopback ({})", self.streamer.active_input_name())
-            }
-            crate::dsp::streamer::CaptureBackendKind::None => {
-                if ipc_telem.active_clients > 0 {
-                    format!(
-                        "Direct DAC + IPC ({} client, {} pkts)",
-                        ipc_telem.active_clients, ipc_telem.total_packets
-                    )
-                } else {
-                    format!("Direct Hardware DAC -> [{}]", out_name)
-                }
-            }
-        };
+        let (bypass_active, active_dac_label, game_mode_active, lim_enabled, active_eq_count, peak_l, peak_r, phase_corr, lufs_m) =
+            if let Ok(pipe) = self.streamer.pipeline.lock() {
+                (
+                    pipe.bypass,
+                    pipe.current_dac_flavor().short_label().to_string(),
+                    pipe.enhancer.game_mode,
+                    pipe.limiter.enabled,
+                    self.band_gains.iter().filter(|&&g| g.abs() > 0.05).count(),
+                    pipe.telemetry.peak_left_db,
+                    pipe.telemetry.peak_right_db,
+                    pipe.telemetry.phase_correlation,
+                    pipe.telemetry.lufs_momentary,
+                )
+            } else {
+                (false, "OEM+".to_string(), false, true, 0, -60.0, -60.0, 1.0, -70.0)
+            };
 
         let total_frames = self.streamer.total_streamed_frames();
         let total_mb = (total_frames * 8) as f64 / 1_048_576.0;
         let resampler_label = if game_mode_active {
-            "4-Point Fast Hermite (Esports Low-Latency Mode)"
+            "4-Point Fast Hermite (Esports Low-Latency)"
         } else {
-            "16-Point Blackman-Harris Sinc (-100 dB Sidelobes)"
+            "16-Point Blackman-Harris Sinc (-100 dB)"
         };
 
         let dsp_load_pct = self.streamer.dsp_load_percent();
-        let load_bars = ((dsp_load_pct / 5.0).round() as usize).clamp(usize::from(is_running && !is_paused), 20);
+        let load_bars = ((dsp_load_pct / 5.0).round() as usize)
+            .clamp(usize::from(is_running && !is_paused), 20);
         let load_bar_str = format!(
             "[{}{}] {:>4.1}% / 100%",
             "█".repeat(load_bars),
             "░".repeat(20 - load_bars),
             dsp_load_pct
         );
+        let vol_pct = (f32::from_bits(self.streamer.system_volume_bits.load(Ordering::Relaxed)) * 100.0).round() as u32;
 
         let right_lines = vec![
-            Line::from(""),
             Line::from(vec![Span::styled(
                 "  BUFFER CUSHION & STREAM HEALTH",
                 Style::default()
@@ -3561,10 +3584,7 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )]),
             Line::from(vec![
-                Span::styled(
-                    "  Tank Level:      ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
+                Span::styled("  Tank Level:      ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
                     tank_bar,
                     Style::default().fg(if cushion_percent > 25.0 {
@@ -3575,57 +3595,29 @@ impl App {
                 ),
             ]),
             Line::from(vec![
+                Span::styled("  Buffer Latency:  ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
-                    "  Buffer Latency:  ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!(
-                        "{} / {} frames ({:.1} / {:.1} ms)",
-                        avail_frames, target_pll, cushion_ms, target_ms
-                    ),
+                    format!("{} / {} frames ({:.1} / {:.1} ms)", avail_frames, target_pll, cushion_ms, target_ms),
                     Style::default().fg(self.theme.text),
                 ),
             ]),
             Line::from(vec![
-                Span::styled(
-                    "  Engine State:    ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
+                Span::styled("  Engine State:    ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
                     stream_state_str,
-                    Style::default()
-                        .fg(stream_state_color)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(stream_state_color).add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(""),
             Line::from(vec![
                 Span::styled(
                     "  MASTER CLOCK PLL & RESAMPLER ",
-                    Style::default()
-                        .fg(self.theme.secondary)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(self.theme.secondary).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("([R] Force Re-Sync)", Style::default().fg(self.theme.accent)),
             ]),
             Line::from(vec![
-                Span::styled(
-                    "  Capture Link:    ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    capture_transport_str,
-                    Style::default()
-                        .fg(self.theme.success)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  Master Clock PLL:",
-                    Style::default().fg(self.theme.text_dim),
-                ),
+                Span::styled("  Master Clock PLL:", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
                     format!(" {:+6.2} PPM (PID Servo Phase-Locked)", drift_ppm),
                     Style::default().fg(if drift_ppm.abs() < 50.0 {
@@ -3636,46 +3628,51 @@ impl App {
                 ),
             ]),
             Line::from(vec![
-                Span::styled(
-                    "  Sinc Resampler:  ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
+                Span::styled("  Sinc Resampler:  ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(resampler_label, Style::default().fg(self.theme.text)),
             ]),
             Line::from(vec![
+                Span::styled("  PCM Streamed:    ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
-                    "  PCM Streamed:    ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!("{:.2} MB ({} stereo frames)", total_mb, total_frames),
+                    format!("{:.2} MB ({} frames)  │  Load: {}", total_mb, total_frames, load_bar_str),
                     Style::default().fg(self.theme.text),
                 ),
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "  DSP WORKER THREAD HEADROOM",
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
+                "  ACTIVE 64-BIT DSP STAGE MATRIX",
+                Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD),
             )]),
             Line::from(vec![
+                Span::raw("  "),
                 Span::styled(
-                    "  DSP Thread Load: ",
-                    Style::default().fg(self.theme.text_dim),
+                    if bypass_active {
+                        " [BYPASS ON] "
+                    } else if active_eq_count > 0 {
+                        " [EQ: ACTIVE] "
+                    } else {
+                        " [EQ: FLAT] "
+                    },
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(if bypass_active { Color::Yellow } else { self.theme.success })
+                        .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(load_bar_str, Style::default().fg(self.theme.accent)),
+                Span::raw("  "),
+                Span::styled(
+                    format!(" [DAC: {}] ", active_dac_label),
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    if lim_enabled { " [LIMITER: -0.2dB] " } else { " [LIMITER: OFF] " },
+                    Style::default().fg(self.theme.text),
+                ),
             ]),
             Line::from(vec![
+                Span::styled("  Gear Profile:    ", Style::default().fg(self.theme.text_dim)),
                 Span::styled(
-                    "  Native Pipeline: ",
-                    Style::default().fg(self.theme.text_dim),
-                ),
-                Span::styled(
-                    format!(
-                        "{:.0} Hz • 64-Bit Internal Accumulator / 32-Bit Float I/O",
-                        sample_rate_hz
-                    ),
+                    format!("{}  │  1:1 Vol: {}%  │  Game: {}", self.gear_profile.name, vol_pct, if game_mode_active { "ON" } else { "OFF" }),
                     Style::default().fg(self.theme.text),
                 ),
             ]),
@@ -3685,12 +3682,104 @@ impl App {
             telem_inner,
         );
 
-        // 3. FOOTER HOTKEYS
+        // 3. TIER 3: Dual Real-Time Charts Filling Lower Half of Screen
+        let chart_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(v_chunks[2]);
+
+        // Left Chart: Live Stereo Output & Limiter Telemetry Chart
+        let lvl_block = Block::default()
+            .title(" LIVE STEREO OUTPUT & LIMITER TELEMETRY CHART (60-TICK HISTORY) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.border));
+        let lvl_inner = lvl_block.inner(chart_chunks[0]);
+        f.render_widget(lvl_block, chart_chunks[0]);
+
+        let headroom_db = (0.0 - peak_l.max(peak_r)).clamp(0.0, 60.0);
+        let lufs_display = if lufs_m > -69.0 {
+            format!("{:>5.1} LUFS", lufs_m)
+        } else {
+            " -Inf LUFS".to_string()
+        };
+        let chart_h = lvl_inner.height.saturating_sub(2).max(2) as usize;
+        let chart_w = lvl_inner.width.saturating_sub(8).clamp(12, 60) as usize;
+        let mut lvl_lines = render_vertical_bar_chart(
+            &self.routing_peak_history,
+            -48.0,
+            0.0,
+            chart_w,
+            chart_h,
+            &["  0dB", "-16dB", "-32dB", "-48dB"],
+            self.theme.primary,
+            self.theme.success,
+            self.theme.text_dim,
+        );
+        lvl_lines.push(Line::from(vec![
+            Span::styled("  Peak L/R: ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(
+                format!("{:>5.1}/{:>5.1} dBFS", peak_l, peak_r),
+                Style::default().fg(self.theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  │  ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(lufs_display, Style::default().fg(self.theme.secondary)),
+            Span::styled(
+                format!("  │  Headroom: {:.1}dB  │  Phase: {:+.2}", headroom_db, phase_corr),
+                Style::default().fg(self.theme.accent),
+            ),
+        ]));
+        f.render_widget(Paragraph::new(lvl_lines), lvl_inner);
+
+        // Right Chart: Live Buffer Cushion & Clock PLL Stability Graph
+        let buf_block = Block::default()
+            .title(" LIVE BUFFER CUSHION & PLL CLOCK STABILITY GRAPH (60-TICK HISTORY) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.border));
+        let buf_inner = buf_block.inner(chart_chunks[1]);
+        f.render_widget(buf_block, chart_chunks[1]);
+
+        let buf_chart_h = buf_inner.height.saturating_sub(2).max(2) as usize;
+        let buf_chart_w = buf_inner.width.saturating_sub(8).clamp(12, 60) as usize;
+        let mut buf_lines = render_vertical_bar_chart(
+            &self.routing_cushion_history,
+            0.0,
+            100.0,
+            buf_chart_w,
+            buf_chart_h,
+            &[" 100%", "  66%", "  33%", "   0%"],
+            Color::Cyan,
+            self.theme.success,
+            self.theme.text_dim,
+        );
+        let avg_cushion = if self.routing_cushion_history.is_empty() {
+            cushion_percent
+        } else {
+            self.routing_cushion_history.iter().sum::<f32>() / self.routing_cushion_history.len() as f32
+        };
+        let min_drift = self.routing_drift_history.iter().copied().fold(0.0f32, f32::min);
+        let max_drift = self.routing_drift_history.iter().copied().fold(0.0f32, f32::max);
+        let jitter_ppm = (max_drift - min_drift).abs();
+        buf_lines.push(Line::from(vec![
+            Span::styled("  Cushion Avg: ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(
+                format!("{:>3.0}% ({:.1}ms)", avg_cushion, cushion_ms),
+                Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  │  ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(format!("PLL Jitter: ±{:.2} PPM", jitter_ppm), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("  │  DACs Connected: {}", avail_outputs.len().max(1)),
+                Style::default().fg(self.theme.accent),
+            ),
+        ]));
+        f.render_widget(Paragraph::new(buf_lines), buf_inner);
+
+        // 4. FOOTER HOTKEYS
         let help = Paragraph::new(
-            " [E] Switch Engine (Orchestria ⇄ Direct DAC)  [D] Cycle Output DAC  [A] Auto-Select Best DAC  [S] Latency Mode  [R] Re-Sync Clock  [Space] Pause/Play  [B] Bypass",
+            " [E] Switch Engine  [↑/↓ / D] Switch Output DAC  [A] Auto-Best DAC  [F] Rescan DACs  [S] Latency  [R] Re-Sync  [Space] Start/Pause  [B] Bypass",
         )
         .style(Style::default().fg(self.theme.accent));
-        f.render_widget(help, v_chunks[2]);
+        f.render_widget(help, v_chunks[3]);
     }
 
     fn render_autoeq_browser(&mut self, f: &mut ratatui::Frame, area: Rect) {
@@ -4123,6 +4212,91 @@ impl App {
         let p = Paragraph::new(help).style(Style::default().bg(self.theme.surface).fg(self.theme.text));
         f.render_widget(p, area);
     }
+}
+
+fn truncate_text(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else if max_chars > 1 {
+        let mut out: String = s.chars().take(max_chars - 1).collect();
+        out.push('…');
+        out
+    } else {
+        "…".to_string()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_vertical_bar_chart(
+    samples: &VecDeque<f32>,
+    min_val: f32,
+    max_val: f32,
+    width: usize,
+    height: usize,
+    y_labels: &[&str; 4],
+    peak_color: Color,
+    bar_color: Color,
+    dim_color: Color,
+) -> Vec<Line<'static>> {
+    let rows = height.max(2);
+    let cols = width.max(8);
+    let span = (max_val - min_val).max(1.0);
+
+    // Take the newest `cols` samples (left-padded with `min_val` if fewer exist)
+    let mut vals = vec![min_val; cols];
+    let len = samples.len();
+    let take = len.min(cols);
+    for (idx, val) in samples.iter().skip(len.saturating_sub(take)).enumerate() {
+        vals[cols - take + idx] = (*val).clamp(min_val, max_val);
+    }
+
+    let mut lines = Vec::with_capacity(rows + 1);
+    for row in 0..rows {
+        let label = if row == 0 {
+            y_labels[0]
+        } else if row == rows - 1 {
+            y_labels[3]
+        } else if rows >= 4 && row == rows / 3 {
+            y_labels[1]
+        } else if rows >= 4 && row == (rows * 2) / 3 {
+            y_labels[2]
+        } else {
+            "     "
+        };
+
+        let mut spans = vec![
+            Span::styled(format!(" {:>5} ┤", label), Style::default().fg(dim_color)),
+        ];
+
+        // Each row covers a normalized vertical band in (0.0..=1.0)
+        let row_bottom = (rows - 1 - row) as f32 / rows as f32;
+        let row_top = (rows - row) as f32 / rows as f32;
+        let row_mid = (row_bottom + row_top) * 0.5;
+
+        for &v in &vals {
+            let norm = ((v - min_val) / span).clamp(0.0, 1.0);
+            if norm >= row_top - 0.02 {
+                let col_style = if row == 0 || norm > 0.85 {
+                    Style::default().fg(peak_color)
+                } else {
+                    Style::default().fg(bar_color)
+                };
+                spans.push(Span::styled("█", col_style));
+            } else if norm >= row_mid {
+                spans.push(Span::styled("▄", Style::default().fg(bar_color)));
+            } else {
+                spans.push(Span::styled("·", Style::default().fg(dim_color)));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("       └", Style::default().fg(dim_color)),
+        Span::styled("─".repeat(cols), Style::default().fg(dim_color)),
+    ]));
+    lines
 }
 
 #[cfg(test)]

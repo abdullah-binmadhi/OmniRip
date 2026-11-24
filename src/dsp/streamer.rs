@@ -272,6 +272,7 @@ pub struct AudioStreamer {
     pub sync_mode: SyncMode,
     pub engine_type: AudioEngineType,
     pub is_running: Arc<AtomicBool>,
+    pub want_running: Arc<AtomicBool>,
     pub is_paused: Arc<AtomicBool>,
     pub test_tone_active: Arc<AtomicBool>,
     pub test_tone_mode: Arc<Mutex<TestToneMode>>,
@@ -284,6 +285,10 @@ pub struct AudioStreamer {
     pub player: Arc<super::player::TrackPlayer>,
     pub selected_input_name: Option<String>,
     pub selected_output_name: Option<String>,
+    pub user_pinned_output: bool,
+    known_output_devices: Vec<String>,
+    last_hotplug_probe_ms: u64,
+    last_retry_ms: u64,
     pub saved_physical_output_id: Option<u32>,
     pub ipc_server: Option<Arc<super::transport::IpcAudioServer>>,
     pub input_capture_enabled: Arc<AtomicBool>,
@@ -307,12 +312,14 @@ impl AudioStreamer {
         let sr = pipeline.sample_rate;
         let saved_flavor = crate::dsp::volume_storage::load_dac_flavor_setting();
         pipeline.set_dac_flavor(saved_flavor);
-        let default_output = Self::available_output_names().into_iter().next();
+        let initial_outputs = Self::available_output_names();
+        let default_output = initial_outputs.first().cloned();
         let initial_chip = super::hardware_detect::HardwareChipProfile::detect(default_output.as_deref());
         Self {
             sync_mode: SyncMode::Balanced,
             engine_type: AudioEngineType::PureRustIpc,
             is_running: Arc::new(AtomicBool::new(false)),
+            want_running: Arc::new(AtomicBool::new(false)),
             is_paused: Arc::new(AtomicBool::new(false)),
             test_tone_active: Arc::new(AtomicBool::new(false)),
             test_tone_mode: Arc::new(Mutex::new(TestToneMode::AcousticHarmonics)),
@@ -328,6 +335,10 @@ impl AudioStreamer {
             player: Arc::new(super::player::TrackPlayer::new(sr)),
             selected_input_name: None,
             selected_output_name: None,
+            user_pinned_output: false,
+            known_output_devices: initial_outputs,
+            last_hotplug_probe_ms: 0,
+            last_retry_ms: 0,
             saved_physical_output_id: None,
             ipc_server: None,
             input_capture_enabled: Arc::new(AtomicBool::new(false)),
@@ -500,9 +511,34 @@ impl AudioStreamer {
             .unwrap_or(0);
         let chosen = outputs[next_idx].clone();
         self.selected_output_name = Some(chosen.clone());
+        self.user_pinned_output = true;
+        self.known_output_devices = outputs;
         let new_chip = super::hardware_detect::HardwareChipProfile::detect(Some(&chosen));
         self.update_chip_profile(new_chip);
-        if self.is_running.load(Ordering::SeqCst) {
+        if self.is_running.load(Ordering::SeqCst) || self.want_running.load(Ordering::SeqCst) {
+            let _ = self.restart();
+        }
+        chosen
+    }
+
+    /// Selects a specific connected physical output transducer by relative step (`-1` or `+1`)
+    /// from the live Connected Output Transducers table without restarting the app.
+    pub fn step_output_device(&mut self, delta: isize) -> String {
+        let outputs = Self::available_output_names();
+        if outputs.is_empty() {
+            return "No Outputs Found".to_string();
+        }
+        let current = self.active_output_name();
+        let cur_idx = outputs.iter().position(|n| n == &current).unwrap_or(0) as isize;
+        let len = outputs.len() as isize;
+        let next_idx = (cur_idx + delta).rem_euclid(len) as usize;
+        let chosen = outputs[next_idx].clone();
+        self.selected_output_name = Some(chosen.clone());
+        self.user_pinned_output = true;
+        self.known_output_devices = outputs;
+        let new_chip = super::hardware_detect::HardwareChipProfile::detect(Some(&chosen));
+        self.update_chip_profile(new_chip);
+        if self.is_running.load(Ordering::SeqCst) || self.want_running.load(Ordering::SeqCst) {
             let _ = self.restart();
         }
         chosen
@@ -524,13 +560,78 @@ impl AudioStreamer {
 
     pub fn active_output_name(&self) -> String {
         if let Some(ref name) = self.selected_output_name {
-            name.clone()
-        } else {
-            let (_, out_dev) = self.find_devices();
-            out_dev
-                .and_then(|d| d.name().ok())
-                .unwrap_or_else(|| "Default Output".to_string())
+            let live = Self::available_output_names();
+            if live.is_empty() || live.iter().any(|n| n == name) {
+                return name.clone();
+            }
         }
+        let (_, out_dev) = self.find_devices();
+        out_dev
+            .and_then(|d| d.name().ok())
+            .unwrap_or_else(|| "Default Output".to_string())
+    }
+
+    /// Re-probes live physical audio outputs across CoreAudio / WASAPI / PipeWire.
+    /// Automatically promotes any newly hot-plugged USB DAC/headphones when `!user_pinned_output`,
+    /// or recovers cleanly if the previously active device was unplugged. Returns `(active_name, changed)`.
+    pub fn rescan_output_devices(&mut self, force_auto_best: bool) -> (String, bool) {
+        let outputs = Self::available_output_names();
+        if outputs.is_empty() {
+            return (self.active_output_name(), false);
+        }
+
+        let current = self.active_output_name();
+        let selected_missing = self
+            .selected_output_name
+            .as_ref()
+            .map(|sel| !outputs.iter().any(|o| o == sel))
+            .unwrap_or(false);
+
+        let newly_added = outputs
+            .iter()
+            .find(|dev| !self.known_output_devices.iter().any(|prev| prev == *dev))
+            .cloned();
+
+        let best = outputs[0].clone();
+        let new_target = if selected_missing || force_auto_best {
+            if force_auto_best {
+                self.user_pinned_output = false;
+            }
+            Some(best.clone())
+        } else if let Some(ref plugged) = newly_added {
+            // A brand-new device was just plugged into the system!
+            if !self.user_pinned_output
+                || score_output_device_name(plugged) <= score_output_device_name(&current)
+            {
+                self.user_pinned_output = false;
+                Some(best.clone())
+            } else {
+                None
+            }
+        } else if !self.user_pinned_output && best != current {
+            Some(best.clone())
+        } else {
+            None
+        };
+
+        self.known_output_devices = outputs;
+
+        if let Some(target) = new_target {
+            if target != current || selected_missing {
+                self.selected_output_name = Some(target.clone());
+                let new_chip = super::hardware_detect::HardwareChipProfile::detect(Some(&target));
+                self.update_chip_profile(new_chip);
+                if self.is_running.load(Ordering::SeqCst) || self.want_running.load(Ordering::SeqCst) {
+                    let _ = self.restart();
+                }
+                return (target, true);
+            }
+        }
+
+        // Always keep chip profile in sync with active physical device.
+        let detected = super::hardware_detect::HardwareChipProfile::detect(Some(&current));
+        self.update_chip_profile(detected);
+        (current, false)
     }
 
     #[cfg(target_os = "macos")]
@@ -551,27 +652,21 @@ impl AudioStreamer {
 
     pub fn set_iem_exclusive_mode(&mut self) -> Result<String, String> {
         self.test_tone_active.store(false, Ordering::SeqCst);
+        self.user_pinned_output = false;
 
         let outputs = Self::available_output_names();
-        if let Some(ibasso) = outputs
-            .iter()
-            .find(|n| {
-                let low = n.to_lowercase();
-                low.contains("ibasso") || low.contains("pro") || low.contains("dac")
-            })
-        {
-            self.selected_output_name = Some(ibasso.clone());
-        } else if let Some(headphones) = outputs.iter().find(|n| n.to_lowercase().contains("headphone")) {
-            self.selected_output_name = Some(headphones.clone());
-        } else if let Some(first) = outputs.first() {
+        if let Some(first) = outputs.first() {
             self.selected_output_name = Some(first.clone());
+            self.known_output_devices = outputs.clone();
+            let new_chip = super::hardware_detect::HardwareChipProfile::detect(Some(first));
+            self.update_chip_profile(new_chip);
         }
 
         self.restart()?;
 
         let out_name = self.active_output_name();
         Ok(format!(
-            "TRANSDUCER DIRECT ACTIVE: Pure Rust Engine -> Orchestria EQ -> [{}]",
+            "AUTO-BEST DAC ACTIVE: Pure Rust Engine -> Orchestria EQ -> [{}]",
             out_name
         ))
     }
@@ -671,7 +766,9 @@ impl AudioStreamer {
     }
 
     pub fn restart(&mut self) -> Result<(), String> {
-        self.stop();
+        let keep_wanted = self.want_running.load(Ordering::SeqCst) || self.is_running.load(Ordering::SeqCst);
+        self.stop_internal();
+        self.want_running.store(keep_wanted, Ordering::SeqCst);
         self.start()
     }
 
@@ -1040,11 +1137,15 @@ impl AudioStreamer {
             );
         }
 
-        // Before switching OS Default Output to Orchestria Audio, lock onto the currently connected
-        // physical output device (e.g. USB-C dongle DAC or headphones) and refresh its chip profile.
+        // Before switching OS Default Output to Orchestria Audio, refresh active physical DAC
+        // if the user has not pinned a specific output or if the pinned output was unplugged.
+        if !self.user_pinned_output {
+            if let Some(best_hw) = Self::available_output_names().into_iter().next() {
+                self.selected_output_name = Some(best_hw);
+            }
+        }
         let best_out = self.active_output_name();
         if !best_out.is_empty() && !crate::driver::is_virtual_audio_device_name(&best_out) {
-            self.selected_output_name = Some(best_out.clone());
             let detected = super::hardware_detect::HardwareChipProfile::detect(Some(&best_out));
             self.update_chip_profile(detected);
         }
@@ -1146,16 +1247,46 @@ impl AudioStreamer {
         }
     }
 
-    /// Polls audio stream health and watchdog heartbeats without re-hijacking capture if user turned it OFF.
+    /// Polls audio stream health, retries transient OS audio resets, and watches for USB/Bluetooth hot-plugs.
     pub fn poll_health(&mut self) -> bool {
-        if !self.is_running.load(Ordering::SeqCst) {
-            return false;
-        }
-
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
+
+        // 1. Self-heal retry if a transient OS device-reset stopped the engine while it should be running.
+        if !self.is_running.load(Ordering::SeqCst) {
+            if self.want_running.load(Ordering::SeqCst)
+                && now_ms.saturating_sub(self.last_retry_ms) >= 400
+            {
+                self.last_retry_ms = now_ms;
+                let _ = self.rescan_output_devices(false);
+                if self.start().is_ok() {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 2. Poll for newly plugged or unplugged DACs / headphones every 1.2s without restarting the app.
+        if now_ms.saturating_sub(self.last_hotplug_probe_ms) >= 1200 {
+            self.last_hotplug_probe_ms = now_ms;
+            let (_, changed) = self.rescan_output_devices(false);
+            if changed {
+                return true;
+            }
+        }
+
+        // 3. Re-attach system-wide capture if OS audio topology reset left CaptureBackendKind::None.
+        if self.is_input_capture_enabled()
+            && self.active_capture_backend == CaptureBackendKind::None
+            && now_ms.saturating_sub(self.last_retry_ms) >= 600
+        {
+            self.last_retry_ms = now_ms;
+            if self.activate_system_capture_streams().is_ok() {
+                return true;
+            }
+        }
 
         let last_cb = self.last_callback_epoch_ms.load(Ordering::SeqCst);
         let is_stalled = !self.is_paused.load(Ordering::SeqCst)
@@ -1164,8 +1295,13 @@ impl AudioStreamer {
 
         if self.needs_rebuild.load(Ordering::SeqCst) || is_stalled {
             self.needs_rebuild.store(false, Ordering::SeqCst);
+            let _ = self.rescan_output_devices(false);
             self.heal_routing();
-            if self.output_stream.is_some() || self.input_stream.is_some() || self.shm_capture.is_some() {
+            if self.output_stream.is_some()
+                || self.input_stream.is_some()
+                || self.shm_capture.is_some()
+                || self.want_running.load(Ordering::SeqCst)
+            {
                 let _ = self.restart();
             }
             return true;
@@ -1358,8 +1494,10 @@ impl AudioStreamer {
     /// Start native real-time audio output stream and (only if `input_capture_enabled`) system capture.
     pub fn start(&mut self) -> Result<(), String> {
         if self.is_running.load(Ordering::SeqCst) {
+            self.want_running.store(true, Ordering::SeqCst);
             return Ok(());
         }
+        self.want_running.store(true, Ordering::SeqCst);
 
         let (_in_dev, out_dev) = self.find_devices();
         let out_dev = out_dev.ok_or_else(|| "No output playback device found".to_string())?;
@@ -1598,6 +1736,11 @@ impl AudioStreamer {
     }
 
     pub fn stop(&mut self) {
+        self.want_running.store(false, Ordering::SeqCst);
+        self.stop_internal();
+    }
+
+    fn stop_internal(&mut self) {
         self.is_running.store(false, Ordering::SeqCst);
         if let Some(mut shm) = self.shm_capture.take() {
             shm.stop();
@@ -1951,6 +2094,24 @@ mod tests {
         if let Some(id) = original_output {
             let _ = set_macos_system_output_to_device_id(id);
         }
+    }
+
+    #[test]
+    fn test_hotplug_rescan_and_disconnected_device_fallback() {
+        let pipe = AudioPipeline::new(48000.0);
+        let mut streamer = AudioStreamer::new(pipe);
+
+        // If `selected_output_name` points to an unplugged USB DAC, `active_output_name()` and
+        // `rescan_output_devices()` must cleanly fall back when real physical devices exist.
+        streamer.selected_output_name = Some("Disconnected Imaginary USB DAC".to_string());
+        streamer.user_pinned_output = true;
+        let live_outputs = AudioStreamer::available_output_names();
+        let (resolved, _) = streamer.rescan_output_devices(false);
+        if !live_outputs.is_empty() {
+            assert_ne!(resolved, "Disconnected Imaginary USB DAC");
+            assert_eq!(streamer.active_output_name(), live_outputs[0]);
+        }
+        streamer.terminate();
     }
 
     #[test]

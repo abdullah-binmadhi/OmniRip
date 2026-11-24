@@ -365,9 +365,17 @@ fn translate_single_note_line(raw_line: &str) -> Option<String> {
             badge
         ));
     }
-    if s_lower.contains("routing") && (s_lower.contains("redesign") || s_lower.contains("layout") || s_lower.contains("audition")) {
+    if (s_lower.contains("hotplug") || s_lower.contains("hot-plug") || s_lower.contains("dac") || s_lower.contains("rescan"))
+        && (s_lower.contains("output") || s_lower.contains("switch") || s_lower.contains("detect") || s_lower.contains("recover") || s_lower.contains("unplug"))
+    {
         return Some(format!(
-            "{} Cleaner, easier-to-read Audio Routing screen with live device detection.",
+            "{} Plugging in headphones or a USB DAC now switches automatically with no app restart needed.",
+            badge
+        ));
+    }
+    if s_lower.contains("routing") && (s_lower.contains("redesign") || s_lower.contains("layout") || s_lower.contains("audition") || s_lower.contains("chart")) {
+        return Some(format!(
+            "{} Upgraded the Audio Routing screen with live sound charts, connected device list, and instant DAC switching.",
             badge
         ));
     }
