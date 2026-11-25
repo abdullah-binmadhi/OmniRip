@@ -363,6 +363,10 @@ impl AudioStreamer {
         let initial_outputs = Self::available_output_names();
         let default_output = initial_outputs.first().cloned();
         let initial_chip = super::hardware_detect::HardwareChipProfile::detect(default_output.as_deref());
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         Self {
             sync_mode: SyncMode::Balanced,
             engine_type: AudioEngineType::PureRustIpc,
@@ -386,7 +390,7 @@ impl AudioStreamer {
             selected_output_name: None,
             user_pinned_output: false,
             known_output_devices: initial_outputs,
-            last_hotplug_probe_ms: 0,
+            last_hotplug_probe_ms: now_ms,
             last_retry_ms: 0,
             saved_physical_output_id: None,
             ipc_server: None,
@@ -617,6 +621,7 @@ impl AudioStreamer {
         let (_, out_dev) = self.find_devices();
         out_dev
             .and_then(|d| d.name().ok())
+            .or_else(|| Self::available_output_names().into_iter().next())
             .unwrap_or_else(|| "Default Output".to_string())
     }
 
@@ -624,6 +629,11 @@ impl AudioStreamer {
     /// Automatically promotes any newly hot-plugged USB DAC/headphones when `!user_pinned_output`,
     /// or recovers cleanly if the previously active device was unplugged. Returns `(active_name, changed)`.
     pub fn rescan_output_devices(&mut self, force_auto_best: bool) -> (String, bool) {
+        #[cfg(target_os = "windows")]
+        if crate::driver::windows::is_headless_windows_ci() {
+            return (self.active_output_name(), false);
+        }
+
         let outputs = Self::available_output_names();
         if outputs.is_empty() {
             return (self.active_output_name(), false);
