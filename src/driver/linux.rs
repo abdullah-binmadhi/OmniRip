@@ -129,6 +129,47 @@ pub fn is_virtual_sink_ready() -> bool {
         .any(|s| s == ORCHESTRIA_LINUX_SINK)
 }
 
+/// Moves any PipeWire/PulseAudio sink-inputs belonging to `pid` (or named `orchestria`)
+/// onto `target_sink` so Orchestria's own output never feeds back into `Orchestria_Audio`.
+pub fn route_pid_sink_inputs(pid: u32, target_sink: &str) {
+    let Ok(out) = Command::new("pactl").args(["list", "sink-inputs"]).output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let pid_needle = format!("application.process.id = \"{}\"", pid);
+    let mut current_id: Option<String> = None;
+    let mut matches_pid = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Sink Input #") {
+            if matches_pid {
+                if let Some(ref id) = current_id {
+                    let _ = Command::new("pactl")
+                        .args(["move-sink-input", id, target_sink])
+                        .status();
+                }
+            }
+            current_id = Some(rest.trim().to_string());
+            matches_pid = false;
+        } else if trimmed == pid_needle
+            || trimmed.contains("PipeWire ALSA [orchestria]")
+        {
+            matches_pid = true;
+        }
+    }
+    if matches_pid {
+        if let Some(ref id) = current_id {
+            let _ = Command::new("pactl")
+                .args(["move-sink-input", id, target_sink])
+                .status();
+        }
+    }
+}
+
 pub fn install_driver_gui() -> Result<DriverInstallOutcome, String> {
     ensure_virtual_sink()?;
     Ok(DriverInstallOutcome::ActivatedImmediate(

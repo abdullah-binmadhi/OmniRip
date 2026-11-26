@@ -351,8 +351,138 @@ pub struct AudioStreamer {
     saved_linux_sink: Option<String>,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     linux_null_sink_module: Option<u32>,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    linux_capture: Option<LinuxCaptureHandle>,
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     saved_windows_output_name: Option<String>,
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct LinuxCaptureHandle {
+    stop_flag: Arc<AtomicBool>,
+    child: Arc<Mutex<Option<std::process::Child>>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LinuxCaptureHandle {
+    #[cfg(target_os = "linux")]
+    fn start(
+        sample_rate: u32,
+        writer: Arc<Mutex<ServoWriter>>,
+        is_paused: Arc<AtomicBool>,
+        captured_frames_total: Arc<AtomicU64>,
+    ) -> Result<Self, String> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("parec")
+            .args([
+                "-d",
+                &format!("{}.monitor", crate::driver::linux::ORCHESTRIA_LINUX_SINK),
+                "--format=float32le",
+                &format!("--rate={}", sample_rate),
+                "--channels=2",
+                "--latency-msec=20",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn parec for Orchestria_Audio.monitor: {}", e))?;
+
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to capture parec stdout".to_string())?;
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_clone = Arc::clone(&stop_flag);
+        let child_arc = Arc::new(Mutex::new(Some(child)));
+
+        let thread = std::thread::Builder::new()
+            .name("orchestria-linux-capture".to_string())
+            .spawn(move || {
+                let mut byte_buf = [0u8; 4096]; // 512 stereo f32 frames
+                let mut frames = [[0.0f32, 0.0f32]; 512];
+                let mut carry = [0u8; 8];
+                let mut carry_len = 0usize;
+
+                while !stop_clone.load(Ordering::Relaxed) {
+                    match stdout.read(&mut byte_buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if is_paused.load(Ordering::Relaxed) {
+                                carry_len = 0;
+                                continue;
+                            }
+                            let mut offset = 0usize;
+                            let mut total_frames = 0usize;
+
+                            if carry_len > 0 {
+                                let need = 8 - carry_len;
+                                if n < need {
+                                    carry[carry_len..carry_len + n].copy_from_slice(&byte_buf[..n]);
+                                    carry_len += n;
+                                    continue;
+                                }
+                                carry[carry_len..8].copy_from_slice(&byte_buf[..need]);
+                                let l = f32::from_le_bytes([carry[0], carry[1], carry[2], carry[3]]);
+                                let r = f32::from_le_bytes([carry[4], carry[5], carry[6], carry[7]]);
+                                frames[0] = [l, r];
+                                total_frames = 1;
+                                offset = need;
+                                carry_len = 0;
+                            }
+
+                            let rem = n - offset;
+                            let whole = rem / 8;
+                            for i in 0..whole {
+                                if total_frames >= frames.len() {
+                                    break;
+                                }
+                                let b = &byte_buf[offset + i * 8..offset + i * 8 + 8];
+                                let l = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                                let r = f32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+                                frames[total_frames] = [l, r];
+                                total_frames += 1;
+                            }
+                            let tail = rem % 8;
+                            if tail > 0 {
+                                carry[..tail].copy_from_slice(&byte_buf[n - tail..n]);
+                                carry_len = tail;
+                            }
+
+                            if total_frames > 0 {
+                                captured_frames_total.fetch_add(total_frames as u64, Ordering::Relaxed);
+                                if let Ok(mut w) = writer.try_lock() {
+                                    w.write(&frames[..total_frames]);
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+            .map_err(|e| format!("Failed to spawn Linux capture thread: {}", e))?;
+
+        Ok(Self {
+            stop_flag,
+            child: child_arc,
+            thread: Some(thread),
+        })
+    }
+
+    fn stop(&mut self) {
+        self.stop_flag.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.child.lock() {
+            if let Some(mut c) = guard.take() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+        }
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
 }
 
 impl AudioStreamer {
@@ -401,6 +531,7 @@ impl AudioStreamer {
             reader_handle: None,
             writer_handle: None,
             shm_capture: None,
+            linux_capture: None,
             active_capture_backend: CaptureBackendKind::None,
             saved_linux_sink: None,
             linux_null_sink_module: None,
@@ -978,7 +1109,7 @@ impl AudioStreamer {
     }
 
     fn activate_system_capture_streams(&mut self) -> Result<CaptureBackendKind, String> {
-        if self.shm_capture.is_some() || self.input_stream.is_some() {
+        if self.shm_capture.is_some() || self.input_stream.is_some() || self.linux_capture.is_some() {
             return Ok(self.active_capture_backend);
         }
 
@@ -1058,7 +1189,6 @@ impl AudioStreamer {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = (writer_arc, reader_arc);
             if let Some(cur) = crate::driver::linux::get_default_sink() {
                 if !crate::driver::linux::is_virtual_linux_sink(&cur) {
                     self.saved_linux_sink = Some(cur);
@@ -1075,16 +1205,37 @@ impl AudioStreamer {
                 }
                 Err(e) => return Err(e),
             }
-            if let Some(in_stream) = self.build_input_stream_internal() {
-                self.input_stream = Some(in_stream);
-                self.active_capture_backend = CaptureBackendKind::LinuxPipeWireMonitor;
-                Ok(CaptureBackendKind::LinuxPipeWireMonitor)
-            } else {
-                crate::driver::linux::teardown_virtual_sink(
-                    self.linux_null_sink_module.take(),
-                    self.saved_linux_sink.as_deref(),
-                );
-                Err("Could not open PipeWire/PulseAudio monitor stream for Orchestria_Audio.".to_string())
+            if let Some(ref saved_sink) = self.saved_linux_sink {
+                crate::driver::linux::route_pid_sink_inputs(std::process::id(), saved_sink);
+            }
+            let out_rate = self.active_sample_rate() as u32;
+            if let Ok(mut r) = reader_arc.lock() {
+                r.set_nominal_ratio(1.0);
+            }
+            match LinuxCaptureHandle::start(
+                out_rate,
+                writer_arc,
+                Arc::clone(&self.is_paused),
+                Arc::clone(&self.captured_frames_total),
+            ) {
+                Ok(handle) => {
+                    self.linux_capture = Some(handle);
+                    self.active_capture_backend = CaptureBackendKind::LinuxPipeWireMonitor;
+                    Ok(CaptureBackendKind::LinuxPipeWireMonitor)
+                }
+                Err(parec_err) => {
+                    if let Some(in_stream) = self.build_input_stream_internal() {
+                        self.input_stream = Some(in_stream);
+                        self.active_capture_backend = CaptureBackendKind::LinuxPipeWireMonitor;
+                        Ok(CaptureBackendKind::LinuxPipeWireMonitor)
+                    } else {
+                        crate::driver::linux::teardown_virtual_sink(
+                            self.linux_null_sink_module.take(),
+                            self.saved_linux_sink.as_deref(),
+                        );
+                        Err(parec_err)
+                    }
+                }
             }
         }
 
@@ -1128,6 +1279,9 @@ impl AudioStreamer {
     fn deactivate_system_capture_streams(&mut self) {
         if let Some(mut shm) = self.shm_capture.take() {
             shm.stop();
+        }
+        if let Some(mut lc) = self.linux_capture.take() {
+            lc.stop();
         }
         if let Some(s) = self.input_stream.take() {
             let _ = s.pause();
@@ -1359,6 +1513,7 @@ impl AudioStreamer {
             if self.output_stream.is_some()
                 || self.input_stream.is_some()
                 || self.shm_capture.is_some()
+                || self.linux_capture.is_some()
                 || self.want_running.load(Ordering::SeqCst)
             {
                 let _ = self.restart();
@@ -1673,15 +1828,42 @@ impl AudioStreamer {
             self.update_chip_profile(detected);
         }
 
-        let sample_rate = out_dev
-            .default_output_config()
-            .map(|c| c.sample_rate().0)
-            .unwrap_or(48000);
+        let dev_name_lower = out_dev.name().map(|n| n.to_lowercase()).unwrap_or_default();
+        let is_linux_pipewire = cfg!(target_os = "linux")
+            && (dev_name_lower == "pipewire" || dev_name_lower == "default");
+
+        let sample_rate = if is_linux_pipewire {
+            let supports_48k = out_dev
+                .supported_output_configs()
+                .map(|mut it| {
+                    it.any(|r| {
+                        r.min_sample_rate().0 <= 48000 && r.max_sample_rate().0 >= 48000
+                    })
+                })
+                .unwrap_or(false);
+            if supports_48k {
+                48000
+            } else {
+                out_dev
+                    .default_output_config()
+                    .map(|c| c.sample_rate().0)
+                    .unwrap_or(48000)
+            }
+        } else {
+            out_dev
+                .default_output_config()
+                .map(|c| c.sample_rate().0)
+                .unwrap_or(48000)
+        };
         let channels = 2;
         let requested_hw_frames = self.sync_mode.hardware_buffer_frames();
-        let buffer_size = match requested_hw_frames {
-            Some(frames) => cpal::BufferSize::Fixed(frames),
-            None => cpal::BufferSize::Default,
+        let buffer_size = if is_linux_pipewire {
+            cpal::BufferSize::Default
+        } else {
+            match requested_hw_frames {
+                Some(frames) => cpal::BufferSize::Fixed(frames),
+                None => cpal::BufferSize::Default,
+            }
         };
         let mut config = StreamConfig {
             channels,
@@ -1939,6 +2121,9 @@ impl AudioStreamer {
         self.is_running.store(false, Ordering::SeqCst);
         if let Some(mut shm) = self.shm_capture.take() {
             shm.stop();
+        }
+        if let Some(mut lc) = self.linux_capture.take() {
+            lc.stop();
         }
         if let Some(ipc) = self.ipc_server.take() {
             ipc.stop();
