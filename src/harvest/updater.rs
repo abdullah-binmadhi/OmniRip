@@ -534,6 +534,9 @@ pub fn expected_asset_name() -> &'static str {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     return "orchestria-linux-x86_64.tar.gz";
 
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    return "orchestria-linux-aarch64.tar.gz";
+
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     return "orchestria-windows-x64.zip";
 
@@ -541,6 +544,7 @@ pub fn expected_asset_name() -> &'static str {
         all(target_os = "macos", target_arch = "aarch64"),
         all(target_os = "macos", target_arch = "x86_64"),
         all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "aarch64"),
         all(target_os = "windows", target_arch = "x86_64")
     )))]
     return "orchestria.tar.gz";
@@ -575,12 +579,14 @@ pub fn evaluate_release_update(
 
     let rolling_newer =
         is_rolling_tag && remote_not_older_semver && sha_differs && timestamp_not_older;
-    let has_update = semver_newer || rolling_newer;
-
-    let download_url = release
+    let matching_asset = release
         .assets
         .iter()
-        .find(|a| a.name == asset_name || a.name.contains(asset_name))
+        .find(|a| a.name == asset_name || a.name.contains(asset_name));
+    let asset_available = release.assets.is_empty() || matching_asset.is_some();
+    let has_update = (semver_newer || rolling_newer) && asset_available;
+
+    let download_url = matching_asset
         .map(|a| a.browser_download_url.clone())
         .unwrap_or_else(|| {
             format!(
@@ -749,7 +755,21 @@ pub fn has_valid_native_magic(hdr: &[u8]) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        hdr[0..4] == [0x7F, b'E', b'L', b'F']
+        if hdr[0..4] != [0x7F, b'E', b'L', b'F'] {
+            return false;
+        }
+        if hdr.len() >= 20 {
+            let e_machine = u16::from_le_bytes([hdr[18], hdr[19]]);
+            #[cfg(target_arch = "aarch64")]
+            if e_machine != 183 {
+                return false;
+            }
+            #[cfg(target_arch = "x86_64")]
+            if e_machine != 62 {
+                return false;
+            }
+        }
+        true
     }
     #[cfg(target_os = "windows")]
     {
@@ -774,12 +794,14 @@ pub fn verify_extracted_binary(bin_path: &Path) -> Result<(), String> {
     }
     let mut file = std::fs::File::open(bin_path)
         .map_err(|e| format!("Cannot open extracted binary: {}", e))?;
-    let mut hdr = [0u8; 4];
-    file.read_exact(&mut hdr)
+    let mut hdr = [0u8; 20];
+    let n = file
+        .read(&mut hdr)
         .map_err(|e| format!("Cannot read binary magic header: {}", e))?;
-    if !has_valid_native_magic(&hdr) {
+    if !has_valid_native_magic(&hdr[..n]) {
         return Err(
-            "Extracted binary failed native OS executable header check (Mach-O/ELF/PE).".to_string(),
+            "Extracted binary failed native OS/arch executable header check (Mach-O/ELF/PE)."
+                .to_string(),
         );
     }
     Ok(())
@@ -1370,6 +1392,22 @@ mod tests {
             false,
         );
         assert!(!older_ts.has_update);
+
+        // Non-empty assets missing target platform archive -> has_update = false
+        let mut wrong_arch_rel = release.clone();
+        wrong_arch_rel.assets = vec![GitHubAsset {
+            name: "orchestria-linux-x86_64.tar.gz".to_string(),
+            browser_download_url: "https://example.com/orchestria-linux-x86_64.tar.gz".to_string(),
+        }];
+        let missing_arch = evaluate_release_update(
+            &wrong_arch_rel,
+            "0.2.0",
+            "aaaaaaa111111122222223333333444444455555",
+            1000,
+            "orchestria-linux-aarch64.tar.gz",
+            false,
+        );
+        assert!(!missing_arch.has_update);
     }
 
     #[test]
@@ -1450,6 +1488,18 @@ mod tests {
         {
             assert!(has_valid_native_magic(&[0x7F, b'E', b'L', b'F']));
             assert!(!has_valid_native_magic(b"<!DO"));
+            #[cfg(target_arch = "aarch64")]
+            {
+                let mut x64 = [0u8; 20];
+                x64[0..4].copy_from_slice(&[0x7F, b'E', b'L', b'F']);
+                x64[18..20].copy_from_slice(&62u16.to_le_bytes());
+                assert!(!has_valid_native_magic(&x64));
+
+                let mut arm64 = [0u8; 20];
+                arm64[0..4].copy_from_slice(&[0x7F, b'E', b'L', b'F']);
+                arm64[18..20].copy_from_slice(&183u16.to_le_bytes());
+                assert!(has_valid_native_magic(&arm64));
+            }
         }
         #[cfg(target_os = "windows")]
         {
